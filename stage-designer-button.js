@@ -6,7 +6,7 @@
  * GitHub: https://raw.githubusercontent.com/YOUR_USERNAME/YOUR_REPO/main/stage-designer-button.js
  * Usage: Add the above URL to Settings -> Company Settings -> Plugins
  *
- * Version: 1.0
+ * Version: 1.1
  */
 
 $(document).ready(function () {
@@ -16,13 +16,13 @@ $(document).ready(function () {
     return;
   }
 
-  // ── Approach 1: Extend the supplying widget (preferred) ──────────────────
-  // The supplying tab widget is $.custom.supplying (found at /js/supplying.js).
+  // ── Approach 1: Extend the items widget (preferred) ──────────────────────
+  // The Supplying tab is built by the items widget, $.custom.items (/js/items.js).
   // We override _init_main to inject our button after the widget initialises.
 
-  if (typeof $.custom !== "undefined" && typeof $.custom.supplying !== "undefined") {
+  if (typeof $.custom !== "undefined" && typeof $.custom.items !== "undefined") {
 
-    $.widget("custom.supplying", $.custom.supplying, {
+    $.widget("custom.items", $.custom.items, {
 
       _init_main: function () {
         // Call the original _init_main first
@@ -135,3 +135,4 @@ $(document).ready(function () {
   }
 
 });
+
