@@ -4,17 +4,17 @@
  * menu on the Supplying tab. The entry currently does nothing â€” it's a
  * placeholder for the forthcoming stage designer tool.
  *
- * GitHub: https://raw.githubusercontent.com/AdamYesEvents/HH-YES-Plugins/main/stage-designer-button.js
- * Usage: Add the above URL to Settings -> Company Settings -> Plugins
+ * IMPORTANT: load this via jsDelivr, NOT the raw.githubusercontent.com URL.
+ * raw.githubusercontent.com serves files as text/plain with nosniff, so the
+ * browser refuses to execute them as JavaScript. Use:
+ *   https://cdn.jsdelivr.net/gh/AdamYesEvents/HH-YES-Plugins@main/stage-designer-button.js
  *
- * Version: 1.6
+ * Usage: Add the jsDelivr URL to Settings -> Company Settings -> Plugins
+ *
+ * Version: 1.7
  */
 
 (function () {
-
-  // Diagnostics marker (harmless) so behaviour can be inspected via the console:
-  //   window.__stageDesigner  -> { booted, ticks, lastState, lastError }
-  var diag = window.__stageDesigner = { ver: "1.6", booted: false, ticks: 0, lastState: "init", lastError: null };
 
   // Design notes:
   // - We do NOT rely on $(document).ready. The plugin may run before jQuery is
@@ -33,48 +33,43 @@
   }
 
   function ensure($) {
-    diag.ticks++;
-    if (!ready()) { diag.lastState = "globals-not-ready"; return; }
+    if (!ready()) return; // HireHop not fully initialised yet, or unsupported API
 
-    var frames = $(".custom_itemsFrame");
-    if (!frames.length) { diag.lastState = "no-supplying-frame"; return; }
-
-    frames.each(function () {
+    // The items widget instance is stored on its tab panel (.custom_itemsFrame).
+    $(".custom_itemsFrame").each(function () {
       var inst = $(this).data("custom-items");
-      if (!inst || typeof inst.new_item_popup_menu === "undefined") { diag.lastState = "no-new-menu"; return; }
+      if (!inst || typeof inst.new_item_popup_menu === "undefined") return;
 
       var menu = inst.new_item_popup_menu;            // the New (+) dropdown
-      if (menu.find("li.imenu_stage_designer").length) { diag.lastState = "present"; return; }
+      if (menu.find("li.imenu_stage_designer").length) return; // already added
 
       $("<li>", {
         "class": "imenu_stage_designer",
         html: '<div><span class="ui-icon ui-icon-image"></span>ðŸŽ­ Stage Designer</div>'
       })
         .click(function () {
+          // Close the menu like every native entry does
           $(".ui-menu").hide();
           if ($(this).hasClass("ui-state-disabled")) return;
           openStageDesigner(inst);
         })
         .appendTo(menu);
 
-      menu.menu("refresh");
-      diag.lastState = "added";
+      menu.menu("refresh"); // let jQuery UI register the new <li>
     });
   }
 
   function openStageDesigner(inst) {
     // Placeholder â€” currently does nothing.
-    // Future: window.open("https://YOUR_PAGES_URL/stage-designer/?job=" + inst.options.job_data.JOB, "stage_designer");
+    // Future: open the stage designer UI, e.g.
+    //   window.open("https://YOUR_PAGES_URL/stage-designer/?job=" + inst.options.job_data.JOB, "stage_designer");
   }
 
   function boot() {
-    if (!window.jQuery) { setTimeout(boot, 50); return; }   // wait for jQuery if needed
+    if (!window.jQuery) { setTimeout(boot, 50); return; } // wait for jQuery if needed
     var $ = window.jQuery;
-    diag.booted = true;
-    setInterval(function () {
-      try { ensure($); } catch (e) { diag.lastError = String(e); }
-    }, 1000);
-    try { ensure($); } catch (e) { diag.lastError = String(e); }
+    setInterval(function () { ensure($); }, 1000);
+    ensure($);
   }
 
   boot();
