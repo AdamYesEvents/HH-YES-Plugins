@@ -1,138 +1,71 @@
 /*!
- * HireHop Plugin: Stage Designer Button
- * Adds a "Stage Designer" button to the Supplying tab toolbar,
- * next to the existing menu button.
+ * HireHop Plugin: Stage Designer
+ * Adds a "ðŸŽ­ Stage Designer" entry to the bottom of the New (+) dropdown
+ * menu on the Supplying tab. The entry currently does nothing â€” it's a
+ * placeholder for the forthcoming stage designer tool.
  *
- * GitHub: https://raw.githubusercontent.com/YOUR_USERNAME/YOUR_REPO/main/stage-designer-button.js
+ * GitHub: https://raw.githubusercontent.com/AdamYesEvents/HH-YES-Plugins/main/stage-designer-button.js
  * Usage: Add the above URL to Settings -> Company Settings -> Plugins
  *
- * Version: 1.1
+ * Version: 1.2
  */
 
 $(document).ready(function () {
 
-  // Safety checks: only run when logged in and on a job/document page
-  if (typeof user === "undefined" || typeof doc_type === "undefined") {
+  // Safety checks: only run on a HireHop job/document page for a logged-in
+  // user, and only against an API version we've verified against (<= 1.3).
+  if (
+    typeof $.custom === "undefined" ||
+    typeof $.custom.items === "undefined" ||
+    typeof user === "undefined" ||
+    typeof doc_type === "undefined" ||
+    typeof hh_api_version === "undefined" ||
+    hh_api_version > 1.3
+  ) {
     return;
   }
 
-  // ── Approach 1: Extend the items widget (preferred) ──────────────────────
-  // The Supplying tab is built by the items widget, $.custom.items (/js/items.js).
-  // We override _init_main to inject our button after the widget initialises.
+  // The Supplying tab is built by the items widget ($.custom.items, /js/items.js).
+  // The New (+) button opens `this.new_item_popup_menu`, a jQuery UI menu that is
+  // cloned from `this.new_menu` inside _init_new_button_menu(). We override that
+  // method so our entry is appended after the menu exists, then refresh it.
 
-  if (typeof $.custom !== "undefined" && typeof $.custom.items !== "undefined") {
+  $.widget("custom.items", $.custom.items, {
 
-    $.widget("custom.items", $.custom.items, {
+    _init_new_button_menu: function () {
+      // Build the original New menu first (creates this.new_item_popup_menu)
+      this._super(arguments);
 
-      _init_main: function () {
-        // Call the original _init_main first
-        this._super(arguments);
-        // Then inject our button
-        this._add_stage_designer_button();
-      },
+      // Only present on editable documents, where the menu is built
+      if (typeof this.new_item_popup_menu === "undefined") {
+        return;
+      }
 
-      _add_stage_designer_button: function () {
-        var self = this;
+      var self = this;
 
-        // Create the button using HireHop's own button style
-        var btn = $("<button>", {
-          html: "🎭 Stage Designer",
-          title: "Open the Stage Designer tool",
-          // Use HireHop's standard toolbar button class so it matches the UI
-          "class": "hh_btn",
-          css: {
-            "margin-left": "4px"
-          }
-        });
-
-        btn.on("click", function () {
+      // Match the native menu item markup: <li><div><span icon/>Label</div></li>
+      this.imenu_stage_designer = $("<li>", {
+        "class": "imenu_stage_designer",
+        html: '<div><span class="ui-icon ui-icon-image"></span>ðŸŽ­ Stage Designer</div>'
+      })
+        .click(function () {
+          // Close the menu like every other entry does
+          $(".ui-menu").hide();
+          if ($(this).hasClass("ui-state-disabled")) return;
           self._open_stage_designer();
-        });
+        })
+        .appendTo(this.new_item_popup_menu);
 
-        // Insert after the menu button.
-        // HireHop stores toolbar button references on `this`; the menu button
-        // is typically this.btnMenu. If it doesn't exist we fall back to
-        // appending to the toolbar container.
-        if (self.btnMenu && self.btnMenu.length) {
-          btn.insertAfter(self.btnMenu);
-        } else {
-          // Fallback: append to whatever toolbar wrapper the widget builds
-          var toolbar = self.element.find(".hh_toolbar, .toolbar, [class*='toolbar']").first();
-          if (toolbar.length) {
-            btn.appendTo(toolbar);
-          } else {
-            // Last resort: prepend to the widget element itself
-            btn.prependTo(self.element);
-          }
-        }
-      },
+      // Tell jQuery UI to re-read the menu so the new <li> becomes a menu item
+      this.new_item_popup_menu.menu("refresh");
+    },
 
-      _open_stage_designer: function () {
-        // Placeholder action — replace with your stage designer UI/URL
-        // For now we just show a simple alert so you can confirm the button works.
-        alert(
-          "Stage Designer\n\n" +
-          "Job: " + (typeof job_data !== "undefined" ? job_data.JOB : "unknown") + "\n\n" +
-          "(This is where your stage designer will open.)"
-        );
-
-        // Future: open a dialog, iframe, or navigate to your designer page, e.g.:
-        // window.open("https://YOUR_GITHUB_PAGES_URL/stage-designer/?job=" + job_data.JOB, "stage_designer");
-      }
-
-    });
-
-  } else {
-
-    // ── Approach 2: MutationObserver fallback ─────────────────────────────
-    // If the widget name is different or loads late, watch the DOM for the
-    // supplying tab container and inject the button directly.
-
-    var observer = new MutationObserver(function (mutations) {
-      mutations.forEach(function (mutation) {
-        mutation.addedNodes.forEach(function (node) {
-          if (node.nodeType !== 1) return;
-          // The supplying tab div has id="supplying_tab" in most HireHop versions
-          var tab = (node.id === "supplying_tab") ? $(node) : $(node).find("#supplying_tab");
-          if (tab.length && !tab.data("stage_btn_added")) {
-            tab.data("stage_btn_added", true);
-            injectButton(tab);
-          }
-        });
-      });
-    });
-
-    observer.observe(document.body, { childList: true, subtree: true });
-
-    function injectButton(tabEl) {
-      // Find the first toolbar-like container inside the supplying tab
-      var toolbar = tabEl.find(".hh_toolbar, .toolbar, [class*='toolbar']").first();
-      if (!toolbar.length) toolbar = tabEl;
-
-      var btn = $("<button>", {
-        html: "🎭 Stage Designer",
-        title: "Open the Stage Designer tool",
-        "class": "hh_btn",
-        css: { "margin-left": "4px" }
-      });
-
-      btn.on("click", function () {
-        alert(
-          "Stage Designer\n\n" +
-          "Job: " + (typeof job_data !== "undefined" ? job_data.JOB : "unknown") + "\n\n" +
-          "(This is where your stage designer will open.)"
-        );
-      });
-
-      // Try to sit next to a menu button, otherwise just prepend
-      var menuBtn = toolbar.find("button[class*='menu'], button[title*='Menu'], button[title*='menu']").first();
-      if (menuBtn.length) {
-        btn.insertAfter(menuBtn);
-      } else {
-        toolbar.prepend(btn);
-      }
+    _open_stage_designer: function () {
+      // Placeholder â€” currently does nothing.
+      // Future: open the stage designer UI, e.g.
+      //   window.open("https://YOUR_PAGES_URL/stage-designer/?job=" + this.options.job_data.JOB, "stage_designer");
     }
-  }
+
+  });
 
 });
-
