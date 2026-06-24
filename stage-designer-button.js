@@ -1,17 +1,19 @@
 /*!
- * HireHop Plugin: Stage Designer
- * Adds a "ðŸŽ­ Stage Designer" entry to the bottom of the New (+) dropdown
- * menu on the Supplying tab. The entry currently does nothing â€” it's a
- * placeholder for the forthcoming stage designer tool.
+ * HireHop Plugin: Stage Designer + Videowall Creator
+ * Adds custom entries to the bottom of the New (+) menu on the Supplying tab,
+ * in BOTH the top-left "New" button dropdown and the right-click context menu:
+ *   - Stage Designer    (placeholder, does nothing yet)
+ *   - Videowall Creator (placeholder, does nothing yet)
+ * A separator is added above them to mark the custom section.
  *
  * IMPORTANT: load this via jsDelivr, NOT the raw.githubusercontent.com URL.
  * raw.githubusercontent.com serves files as text/plain with nosniff, so the
- * browser refuses to execute them as JavaScript. Use:
- *   https://cdn.jsdelivr.net/gh/AdamYesEvents/HH-YES-Plugins@main/stage-designer-button.js
+ * browser refuses to execute them as JavaScript. Use a tagged, immutable URL:
+ *   https://cdn.jsdelivr.net/gh/AdamYesEvents/HH-YES-Plugins@v1.8/stage-designer-button.js
  *
  * Usage: Add the jsDelivr URL to Settings -> Company Settings -> Plugins
  *
- * Version: 1.7
+ * Version: 1.8
  */
 
 (function () {
@@ -20,8 +22,12 @@
   // - We do NOT rely on $(document).ready. The plugin may run before jQuery is
   //   ready, and the items widget that builds the Supplying tab is injected later
   //   and created/rebuilt lazily when the tab is opened. So we wait for jQuery,
-  //   then run a light idempotent interval that adds our entry whenever the
-  //   Supplying tab's New (+) menu exists.
+  //   then run a light idempotent interval.
+  // - The Supplying tab is built by the items widget ($.custom.items). It exposes
+  //   two New menus we extend:
+  //     * new_item_popup_menu - the top-left "New (+)" button dropdown (a clone)
+  //     * new_menu            - the "New" submenu inside the right-click context
+  //                             menu (popup_menu); refreshed via popup_menu
   // - All guards are checked inside the tick (HireHop globals like user/doc_type/
   //   hh_api_version may not exist yet when we first run).
 
@@ -32,37 +38,57 @@
            hh_api_version <= 1.3;
   }
 
-  function ensure($) {
-    if (!ready()) return; // HireHop not fully initialised yet, or unsupported API
+  function openStageDesigner(inst) {
+    // Placeholder - currently does nothing.
+    // Future: window.open("https://YOUR_PAGES_URL/stage-designer/?job=" + inst.options.job_data.JOB, "stage_designer");
+  }
 
-    // The items widget instance is stored on its tab panel (.custom_itemsFrame).
-    $(".custom_itemsFrame").each(function () {
-      var inst = $(this).data("custom-items");
-      if (!inst || typeof inst.new_item_popup_menu === "undefined") return;
+  function openVideowallCreator(inst) {
+    // Placeholder - currently does nothing.
+    // Future: window.open("https://YOUR_PAGES_URL/videowall-creator/?job=" + inst.options.job_data.JOB, "videowall_creator");
+  }
 
-      var menu = inst.new_item_popup_menu;            // the New (+) dropdown
-      if (menu.find("li.imenu_stage_designer").length) return; // already added
-
-      $("<li>", {
-        "class": "imenu_stage_designer",
-        html: '<div><span class="ui-icon ui-icon-image"></span>Stage Designer</div>'
-      })
-        .click(function () {
-          // Close the menu like every native entry does
-          $(".ui-menu").hide();
-          if ($(this).hasClass("ui-state-disabled")) return;
-          openStageDesigner(inst);
-        })
-        .appendTo(menu);
-
-      menu.menu("refresh"); // let jQuery UI register the new <li>
+  // Build one menu entry matching HireHop's native New-menu markup.
+  function buildEntry($, cls, iconClass, label, action, inst) {
+    return $("<li>", {
+      "class": cls,
+      html: '<div><span class="ui-icon ' + iconClass + '"></span>' + label + '</div>'
+    }).click(function () {
+      $(".ui-menu").hide();                         // close like every native entry
+      if ($(this).hasClass("ui-state-disabled")) return;
+      action(inst);
     });
   }
 
-  function openStageDesigner(inst) {
-    // Placeholder â€” currently does nothing.
-    // Future: open the stage designer UI, e.g.
-    //   window.open("https://YOUR_PAGES_URL/stage-designer/?job=" + inst.options.job_data.JOB, "stage_designer");
+  // Append our custom section (separator + both entries) to a menu, once.
+  // Returns true if it added anything (so the caller can refresh).
+  function addCustomSection($, inst, menu) {
+    if (!menu || !menu.length) return false;
+    if (menu.find("li.imenu_stage_designer").length) return false; // already added
+
+    $("<hr>", { "class": "imenu_custom_sep" }).appendTo(menu);     // section separator
+    buildEntry($, "imenu_stage_designer", "ui-icon-image", "Stage Designer", openStageDesigner, inst).appendTo(menu);
+    buildEntry($, "imenu_videowall_creator", "ui-icon-image", "Videowall Creator", openVideowallCreator, inst).appendTo(menu);
+    return true;
+  }
+
+  function ensure($) {
+    if (!ready()) return; // HireHop not fully initialised yet, or unsupported API
+
+    $(".custom_itemsFrame").each(function () {
+      var inst = $(this).data("custom-items");
+      if (!inst) return;
+
+      // Top-left New (+) button dropdown
+      if (addCustomSection($, inst, inst.new_item_popup_menu)) {
+        inst.new_item_popup_menu.menu("refresh");
+      }
+
+      // Right-click context menu -> New submenu (refresh via the root popup_menu)
+      if (inst.new_menu && inst.popup_menu && addCustomSection($, inst, inst.new_menu)) {
+        inst.popup_menu.menu("refresh");
+      }
+    });
   }
 
   function boot() {
