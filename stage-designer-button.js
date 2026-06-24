@@ -45,7 +45,7 @@
 
       $("<li>", {
         "class": "imenu_stage_designer",
-        html: '<div><span class="ui-icon ui-icon-image"></span>ðŸŽ­ Stage Designer</div>'
+        html: '<div><span class="ui-icon ui-icon-image"></span>Stage Designer</div>'
       })
         .click(function () {
           // Close the menu like every native entry does
