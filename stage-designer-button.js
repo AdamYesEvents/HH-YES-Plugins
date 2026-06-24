@@ -2,18 +2,18 @@
  * HireHop Plugin: Stage Designer + Videowall Creator
  * Adds custom entries to the bottom of the New (+) menu on the Supplying tab,
  * in BOTH the top-left "New" button dropdown and the right-click context menu:
- *   - Stage Designer    (placeholder, does nothing yet)
- *   - Videowall Creator (placeholder, does nothing yet)
+ *   - Stage Designer    (placeholder: shows a confirmation dialog)
+ *   - Videowall Creator (placeholder: shows a confirmation dialog)
  * A separator is added above them to mark the custom section.
  *
  * IMPORTANT: load this via jsDelivr, NOT the raw.githubusercontent.com URL.
  * raw.githubusercontent.com serves files as text/plain with nosniff, so the
  * browser refuses to execute them as JavaScript. Use a tagged, immutable URL:
- *   https://cdn.jsdelivr.net/gh/AdamYesEvents/HH-YES-Plugins@v1.8/stage-designer-button.js
+ *   https://cdn.jsdelivr.net/gh/AdamYesEvents/HH-YES-Plugins@v1.9/stage-designer-button.js
  *
  * Usage: Add the jsDelivr URL to Settings -> Company Settings -> Plugins
  *
- * Version: 1.8
+ * Version: 1.9
  */
 
 (function () {
@@ -39,13 +39,15 @@
   }
 
   function openStageDesigner(inst) {
-    // Placeholder - currently does nothing.
+    // Placeholder - simple confirmation dialog echoing the action name.
     // Future: window.open("https://YOUR_PAGES_URL/stage-designer/?job=" + inst.options.job_data.JOB, "stage_designer");
+    window.alert("Stage Designer");
   }
 
   function openVideowallCreator(inst) {
-    // Placeholder - currently does nothing.
+    // Placeholder - simple confirmation dialog echoing the action name.
     // Future: window.open("https://YOUR_PAGES_URL/videowall-creator/?job=" + inst.options.job_data.JOB, "videowall_creator");
+    window.alert("Videowall Creator");
   }
 
   // Build one menu entry matching HireHop's native New-menu markup.
