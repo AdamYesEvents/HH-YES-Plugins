@@ -7,30 +7,29 @@
  * GitHub: https://raw.githubusercontent.com/AdamYesEvents/HH-YES-Plugins/main/stage-designer-button.js
  * Usage: Add the above URL to Settings -> Company Settings -> Plugins
  *
- * Version: 1.4
+ * Version: 1.5
  */
 
 $(document).ready(function () {
 
-  // Only run on a HireHop document page for a logged-in user, on an API
-  // version we've verified against (<= 1.3).
-  if (
-    typeof user === "undefined" ||
-    typeof doc_type === "undefined" ||
-    typeof hh_api_version === "undefined" ||
-    hh_api_version > 1.3
-  ) {
-    return;
-  }
-
-  // Why an interval instead of extending the widget:
+  // NOTE on the design:
   // The Supplying tab is built by the items widget ($.custom.items, /js/items.js),
   // which is injected AFTER this plugin and whose instance is created lazily (and
-  // can be rebuilt) when the user opens the Supplying tab. Hooking the widget's
-  // init is therefore racy. Instead we simply ensure our entry is present on a
-  // light interval. The check is idempotent and cheap: ".custom_itemsFrame" is a
-  // fast class lookup (usually 0â€“1 elements), and we bail immediately once the
-  // entry already exists.
+  // re-rendered) when the user opens the Supplying tab. On top of that, HireHop's
+  // globals (user, doc_type, hh_api_version) may not be defined yet at the moment
+  // this $(document).ready fires. So we do NOT guard up-front (that previously
+  // caused the plugin to bail before doing anything). Instead we start a light
+  // interval immediately and re-check everything on each tick. Once the page is
+  // ready and the Supplying tab exists, the entry is added. The work is idempotent
+  // and cheap: ".custom_itemsFrame" is a fast class lookup and we bail the moment
+  // the entry already exists.
+
+  function ready() {
+    return typeof user !== "undefined" &&
+           typeof doc_type !== "undefined" &&
+           typeof hh_api_version !== "undefined" &&
+           hh_api_version <= 1.3;
+  }
 
   function openStageDesigner(inst) {
     // Placeholder â€” currently does nothing.
@@ -39,6 +38,8 @@ $(document).ready(function () {
   }
 
   function ensureStageDesignerEntry() {
+    if (!ready()) return; // HireHop not fully initialised yet, or unsupported API
+
     // The items widget instance is stored on its tab panel (.custom_itemsFrame).
     $(".custom_itemsFrame").each(function () {
       var inst = $(this).data("custom-items");
@@ -63,7 +64,7 @@ $(document).ready(function () {
     });
   }
 
-  ensureStageDesignerEntry();
   setInterval(ensureStageDesignerEntry, 1000);
+  ensureStageDesignerEntry();
 
 });
