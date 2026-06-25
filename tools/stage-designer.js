@@ -6,7 +6,7 @@
  * + part numbers come from data/stage-designer/decks.json.
  * Legs, fascia, trim, carpet and "add to job" come later.
  *
- * Version: 0.2.0
+ * Version: 0.2.1
  */
 
 (function () {
@@ -183,9 +183,15 @@
       function applySystemBounds() {
         var c = cat.systems[sysSel.value];
         [wIn, dIn].forEach(function (i) { i.step = c.increment; i.min = c.min; i.max = c.max; });
-        // sensible defaults on first show / system change
-        if (!wIn.value || +wIn.value < c.min || +wIn.value > c.max) wIn.value = Math.min(4, c.max);
-        if (!dIn.value || +dIn.value < c.min || +dIn.value > c.max) dIn.value = Math.min(3, c.max);
+        // Snap current values to this system's increment and clamp to its range,
+        // so switching metric<->imperial always leaves a valid width/depth.
+        function snap(v, fallback) {
+          if (isNaN(v)) v = fallback;
+          var s = Math.round(v / c.increment) * c.increment;
+          return Math.max(c.min, Math.min(c.max, +s.toFixed(3)));
+        }
+        wIn.value = snap(parseFloat(wIn.value), 4);
+        dIn.value = snap(parseFloat(dIn.value), 3);
       }
 
       function render() {
