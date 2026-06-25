@@ -8,7 +8,7 @@
  * Catalogue: data/stage-designer/decks.json + legs.json.
  * Fascia, trim and carpet come later (fascia will match the chosen height).
  *
- * Version: 0.6.0
+ * Version: 0.7.0
  */
 
 (function () {
@@ -90,18 +90,31 @@
     return map[deckId] || "#7F77DD";
   }
 
-  function buildGridSvg(result, width, depth) {
+  // Top-down preview: deck panels filled, plus fascia boards drawn just outside
+  // the stage edges (teal = standard, coral = corner). fascia = placements array.
+  function buildGridSvg(result, width, depth, fascia) {
     if (!result || !result.ok) return "";
-    var maxW = 340, maxH = 240, pad = 1;
+    var maxW = 320, maxH = 220, pad = 1, m = 14, ft = 7;
     var scale = Math.min(maxW / width, maxH / depth);
-    var W = width * scale, H = depth * scale;
-    var rects = result.placements.map(function (p) {
-      return '<rect x="' + (p.x * scale + pad) + '" y="' + (p.y * scale + pad) +
+    var W = width * scale, H = depth * scale, ox = m, oy = m;
+    var deckRects = result.placements.map(function (p) {
+      return '<rect x="' + (ox + p.x * scale + pad) + '" y="' + (oy + p.y * scale + pad) +
         '" width="' + (p.width * scale - pad * 2) + '" height="' + (p.depth * scale - pad * 2) +
         '" fill="' + fillFor(p.deckId) + '" stroke="#26215C" stroke-width="1"/>';
     }).join("");
-    return '<svg width="' + W + '" height="' + H + '" viewBox="0 0 ' + W + ' ' + H + '" xmlns="http://www.w3.org/2000/svg">' +
-      rects + '<rect x="0.5" y="0.5" width="' + (W - 1) + '" height="' + (H - 1) + '" fill="none" stroke="#26215C" stroke-width="2"/></svg>';
+    var fasciaRects = (fascia || []).map(function (b) {
+      var col = b.type === "corner" ? "#D85A30" : "#1D9E75";
+      var o1 = b.offset * scale, ln = b.length * scale, x, y, w, h;
+      if (b.edge === "front") { x = ox + o1; y = oy + H + 2; w = ln; h = ft; }
+      else if (b.edge === "back") { x = ox + o1; y = oy - 2 - ft; w = ln; h = ft; }
+      else if (b.edge === "left") { x = ox - 2 - ft; y = oy + o1; w = ft; h = ln; }
+      else { x = ox + W + 2; y = oy + o1; w = ft; h = ln; }
+      return '<rect x="' + x + '" y="' + y + '" width="' + (w - 1) + '" height="' + (h - 1) + '" fill="' + col + '"/>';
+    }).join("");
+    var SW = W + 2 * m, SH = H + 2 * m;
+    return '<svg width="' + SW + '" height="' + SH + '" viewBox="0 0 ' + SW + ' ' + SH + '" xmlns="http://www.w3.org/2000/svg">' +
+      deckRects + fasciaRects +
+      '<rect x="' + (ox + 0.5) + '" y="' + (oy + 0.5) + '" width="' + (W - 1) + '" height="' + (H - 1) + '" fill="none" stroke="#26215C" stroke-width="2"/></svg>';
   }
 
   function isRealPart(pn) { return typeof pn === "string" && pn.trim() !== "" && !/^TBD/i.test(pn.trim()); }
@@ -112,60 +125,71 @@
     return result.totals.panels * (legsPerDeck || 0);
   }
 
-  // Fascia mounts + boards for a fasciad stage.
-  //   o = { system, width, depth, sides (0/2/3/4), height, finish, fascia }
-  // Origin top-left, back (top) open. Side edges (left/right) own the corners;
-  // the board reaching a corner is the "corner" variant; front/back are all
-  // standard. Returns { available, items:[{label,partNumber,qty}] }.
+  // Symmetric tiling of a run of length L using board lengths (descending).
+  // Prefers uniform 2m/1.5m splits so joints sit centrally, else builds
+  // symmetrically from the centre. 3->[1.5,1.5], 4->[2,2], 4.5->[1.5,1.5,1.5],
+  // 5->[2,1,2], 3.5->[1.5,0.5,1.5].
+  function symTile(L, lens) {
+    L = +(+L).toFixed(3);
+    if (L <= 1e-9) return [];
+    for (var sgl = 0; sgl < lens.length; sgl++) if (Math.abs(lens[sgl] - L) < 1e-9) return [lens[sgl]];
+    for (var i = 0; i < lens.length; i++) {
+      var p = lens[i]; if (p < 1.5 - 1e-9) break;
+      var n = L / p;
+      if (Math.abs(n - Math.round(n)) < 1e-9) { var a = []; for (var k = 0; k < Math.round(n); k++) a.push(p); return a; }
+    }
+    var half = L / 2, end = null;
+    for (var j = 0; j < lens.length; j++) if (lens[j] <= half + 1e-9) { end = lens[j]; break; }
+    if (end === null) return [lens[lens.length - 1]];
+    return [end].concat(symTile(+(L - 2 * end).toFixed(3), lens)).concat([end]);
+  }
+
+  // Fascia for a fasciad stage. o = { system,width,depth,sides(0/2/3/4),height,finish,fascia }
+  // Origin top-left, back (top) open. Side edges tile symmetrically and the board
+  // reaching a corner becomes the "corner" variant (option b); front/back all standard.
+  // Returns { available, items:[{label,partNumber,qty}], placements:[{edge,offset,length,type}] }.
   function fasciaKit(o) {
     var fascia = o.fascia || {};
     var boards = fascia.boards || [], mounts = fascia.mounts || [];
-    if (!o.sides) return { available: true, items: [] };
+    if (!o.sides) return { available: true, items: [], placements: [] };
 
     var avail = boards.filter(function (b) { return b.system === o.system && b.height === o.height && b.finish === o.finish; })
       .sort(function (a, b) { return b.len - a.len; });
-    if (!avail.length) return { available: false, items: [] };
+    if (!avail.length) return { available: false, items: [], placements: [] };
     var lengths = avail.map(function (b) { return b.len; });
     var mountLens = mounts.filter(function (m) { return m.system === o.system; }).sort(function (a, b) { return b.len - a.len; });
 
     var W = o.width, D = o.depth, s = o.sides;
     var hasFront = s >= 2, hasLeft = s >= 2, hasRight = s >= 3, hasBack = s >= 4;
     var edges = [];
-    if (hasLeft) edges.push({ len: D, side: true, cornerStart: hasBack, cornerEnd: hasFront });
-    if (hasRight) edges.push({ len: D, side: true, cornerStart: hasBack, cornerEnd: hasFront });
-    if (hasFront) edges.push({ len: W, side: false });
-    if (hasBack) edges.push({ len: W, side: false });
+    if (hasLeft) edges.push({ edge: "left", len: D, cFirst: hasBack, cLast: hasFront });
+    if (hasRight) edges.push({ edge: "right", len: D, cFirst: hasBack, cLast: hasFront });
+    if (hasFront) edges.push({ edge: "front", len: W, cFirst: false, cLast: false });
+    if (hasBack) edges.push({ edge: "back", len: W, cFirst: false, cLast: false });
 
-    function fill(len, lens) {
-      var out = [], rem = len;
-      for (var i = 0; i < lens.length; i++) { while (rem >= lens[i] - 1e-9) { out.push(lens[i]); rem -= lens[i]; } }
-      return out;
-    }
-
-    var agg = {};
+    var agg = {}, placements = [];
     function add(code, label) { if (!agg[code]) agg[code] = { label: label, partNumber: code, qty: 0 }; agg[code].qty++; }
 
     edges.forEach(function (e) {
-      var pieces = fill(e.len, lengths);
+      var pieces = symTile(e.len, lengths), offset = 0;
       pieces.forEach(function (plen, idx) {
-        var isCorner = e.side && ((e.cornerEnd && idx === pieces.length - 1) || (e.cornerStart && idx === 0));
+        var isCorner = (idx === 0 && e.cFirst) || (idx === pieces.length - 1 && e.cLast);
         var board = avail.filter(function (b) { return Math.abs(b.len - plen) < 1e-9; })[0];
-        var code = isCorner ? board.corner : board.standard;
-        add(code, plen + "m fascia (" + (isCorner ? "corner" : "standard") + ")");
+        add(isCorner ? board.corner : board.standard, plen + "m fascia (" + (isCorner ? "corner" : "standard") + ")");
+        placements.push({ edge: e.edge, offset: offset, length: plen, type: isCorner ? "corner" : "standard" });
+        offset += plen;
       });
-      fill(e.len, mountLens.map(function (m) { return m.len; })).forEach(function (mlen) {
-        var m = mountLens.filter(function (x) { return Math.abs(x.len - mlen) < 1e-9; })[0];
-        add(m.partNumber, mlen + "m fascia mount");
-      });
+      var rem = e.len;
+      mountLens.forEach(function (m) { while (rem >= m.len - 1e-9) { add(m.partNumber, m.len + "m fascia mount"); rem -= m.len; } });
     });
-    return { available: true, items: Object.keys(agg).map(function (k) { return agg[k]; }) };
+    return { available: true, items: Object.keys(agg).map(function (k) { return agg[k]; }), placements: placements };
   }
 
   // ===========================================================================
   // NODE EXPORT (no-op in the browser)
   // ===========================================================================
   if (typeof module !== "undefined" && module.exports) {
-    module.exports = { packStage: packStage, buildGridSvg: buildGridSvg, fillFor: fillFor, isRealPart: isRealPart, legCount: legCount, fasciaKit: fasciaKit };
+    module.exports = { packStage: packStage, buildGridSvg: buildGridSvg, fillFor: fillFor, isRealPart: isRealPart, legCount: legCount, fasciaKit: fasciaKit, symTile: symTile };
   }
 
   // ===========================================================================
@@ -372,8 +396,6 @@
           renderFooter(false, "");
           return;
         }
-        colPreview.innerHTML = buildGridSvg(res, parseFloat(wIn.value), parseFloat(dIn.value));
-
         // decks
         var items = res.kit.map(function (k) {
           var deck = cat.decks.filter(function (d) { return d.id === k.deckId; })[0];
@@ -397,7 +419,7 @@
 
         // fascia
         var sides = parseInt(faceSel.value) || 0;
-        var fasciaHtml = "", fasciaFinish = "";
+        var fasciaHtml = "", fasciaFinish = "", fasciaPlacements = [];
         if (sides > 0 && heightVal != null) {
           var fk = fasciaKit({ system: sysSel.value, width: parseFloat(wIn.value), depth: parseFloat(dIn.value), sides: sides, height: heightVal, finish: finishSel.value, fascia: cat.fascia });
           if (!fk.available) {
@@ -406,6 +428,7 @@
           } else if (fk.items.length) {
             fk.items.forEach(function (it) { items.push(it); });
             fasciaFinish = finishSel.value;
+            fasciaPlacements = fk.placements;
             fasciaHtml = '<div style="font-size:11px;letter-spacing:.04em;color:#888;text-transform:uppercase;margin:10px 0 4px;">Fascia (' + fasciaFinish + ')</div>' +
               fk.items.map(function (it) {
                 return '<div style="display:flex;justify-content:space-between;font-size:13px;padding:3px 0;"><span style="color:#333;">' + it.label + '</span><span style="color:#111;font-weight:500;">x ' + it.qty + '</span></div>';
@@ -413,6 +436,7 @@
           }
         }
 
+        colPreview.innerHTML = buildGridSvg(res, parseFloat(wIn.value), parseFloat(dIn.value), fasciaPlacements);
         state.items = items;
         var cap = function (x) { return x ? x.charAt(0).toUpperCase() + x.slice(1) : x; };
         state.title = "Stage " + (+parseFloat(wIn.value)) + "x" + (+parseFloat(dIn.value)) + (heightLabel ? " @ " + heightLabel + "mm" : "") + (fasciaFinish ? ", " + cap(fasciaFinish) + " Fascia" : "");
