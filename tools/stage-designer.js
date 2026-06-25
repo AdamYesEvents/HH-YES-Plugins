@@ -8,7 +8,7 @@
  * Catalogue: data/stage-designer/decks.json + legs.json.
  * Fascia, trim and carpet come later (fascia will match the chosen height).
  *
- * Version: 0.5.0
+ * Version: 0.6.0
  */
 
 (function () {
@@ -112,11 +112,60 @@
     return result.totals.panels * (legsPerDeck || 0);
   }
 
+  // Fascia mounts + boards for a fasciad stage.
+  //   o = { system, width, depth, sides (0/2/3/4), height, finish, fascia }
+  // Origin top-left, back (top) open. Side edges (left/right) own the corners;
+  // the board reaching a corner is the "corner" variant; front/back are all
+  // standard. Returns { available, items:[{label,partNumber,qty}] }.
+  function fasciaKit(o) {
+    var fascia = o.fascia || {};
+    var boards = fascia.boards || [], mounts = fascia.mounts || [];
+    if (!o.sides) return { available: true, items: [] };
+
+    var avail = boards.filter(function (b) { return b.system === o.system && b.height === o.height && b.finish === o.finish; })
+      .sort(function (a, b) { return b.len - a.len; });
+    if (!avail.length) return { available: false, items: [] };
+    var lengths = avail.map(function (b) { return b.len; });
+    var mountLens = mounts.filter(function (m) { return m.system === o.system; }).sort(function (a, b) { return b.len - a.len; });
+
+    var W = o.width, D = o.depth, s = o.sides;
+    var hasFront = s >= 2, hasLeft = s >= 2, hasRight = s >= 3, hasBack = s >= 4;
+    var edges = [];
+    if (hasLeft) edges.push({ len: D, side: true, cornerStart: hasBack, cornerEnd: hasFront });
+    if (hasRight) edges.push({ len: D, side: true, cornerStart: hasBack, cornerEnd: hasFront });
+    if (hasFront) edges.push({ len: W, side: false });
+    if (hasBack) edges.push({ len: W, side: false });
+
+    function fill(len, lens) {
+      var out = [], rem = len;
+      for (var i = 0; i < lens.length; i++) { while (rem >= lens[i] - 1e-9) { out.push(lens[i]); rem -= lens[i]; } }
+      return out;
+    }
+
+    var agg = {};
+    function add(code, label) { if (!agg[code]) agg[code] = { label: label, partNumber: code, qty: 0 }; agg[code].qty++; }
+
+    edges.forEach(function (e) {
+      var pieces = fill(e.len, lengths);
+      pieces.forEach(function (plen, idx) {
+        var isCorner = e.side && ((e.cornerEnd && idx === pieces.length - 1) || (e.cornerStart && idx === 0));
+        var board = avail.filter(function (b) { return Math.abs(b.len - plen) < 1e-9; })[0];
+        var code = isCorner ? board.corner : board.standard;
+        add(code, plen + "m fascia (" + (isCorner ? "corner" : "standard") + ")");
+      });
+      fill(e.len, mountLens.map(function (m) { return m.len; })).forEach(function (mlen) {
+        var m = mountLens.filter(function (x) { return Math.abs(x.len - mlen) < 1e-9; })[0];
+        add(m.partNumber, mlen + "m fascia mount");
+      });
+    });
+    return { available: true, items: Object.keys(agg).map(function (k) { return agg[k]; }) };
+  }
+
   // ===========================================================================
   // NODE EXPORT (no-op in the browser)
   // ===========================================================================
   if (typeof module !== "undefined" && module.exports) {
-    module.exports = { packStage: packStage, buildGridSvg: buildGridSvg, fillFor: fillFor, isRealPart: isRealPart, legCount: legCount };
+    module.exports = { packStage: packStage, buildGridSvg: buildGridSvg, fillFor: fillFor, isRealPart: isRealPart, legCount: legCount, fasciaKit: fasciaKit };
   }
 
   // ===========================================================================
@@ -138,11 +187,13 @@
     if (catalogue) { cb(catalogue); return; }
     Promise.all([
       getJson("decks.json"),
-      getJson("legs.json").catch(function () { return { legs: [], legsPerDeck: 4 }; })
+      getJson("legs.json").catch(function () { return { legs: [], legsPerDeck: 4 }; }),
+      getJson("fascia.json").catch(function () { return { boards: [], mounts: [] }; })
     ]).then(function (res) {
       catalogue = {
         systems: res[0].systems, decks: res[0].decks,
-        legs: res[1].legs || [], legsPerDeck: res[1].legsPerDeck || 4
+        legs: res[1].legs || [], legsPerDeck: res[1].legsPerDeck || 4,
+        fascia: { boards: (res[2].boards || []), mounts: (res[2].mounts || []) }
       };
       cb(catalogue);
     }).catch(function () { cb(null); });
@@ -259,6 +310,12 @@
       var dWrap = field("Depth"); var dIn = el("input", { type: "number" }, "width:100%;padding:8px;font-size:14px;"); dWrap.appendChild(dIn); colControls.appendChild(dWrap);
       var hWrap = field("Height"); var hSel = el("select", null, "width:100%;padding:8px;font-size:14px;"); hWrap.appendChild(hSel); colControls.appendChild(hWrap);
 
+      var faceWrap = field("Fascia sides"); var faceSel = el("select", null, "width:100%;padding:8px;font-size:14px;");
+      [["0", "None"], ["2", "2 sided (left + front)"], ["3", "3 sided"], ["4", "4 sided"]].forEach(function (o) { var op = el("option"); op.value = o[0]; op.textContent = o[1]; faceSel.appendChild(op); });
+      faceWrap.appendChild(faceSel); colControls.appendChild(faceWrap);
+
+      var finishWrap = field("Fascia finish"); var finishSel = el("select", null, "width:100%;padding:8px;font-size:14px;"); finishWrap.appendChild(finishSel); colControls.appendChild(finishWrap);
+
       var kitBox = el("div", null, "font-size:13px;");
       colKit.appendChild(kitBox);
 
@@ -275,6 +332,22 @@
         if (!legs.length) { hWrap.style.display = "none"; return; }
         hWrap.style.display = "";
         legs.forEach(function (l) { var o = el("option"); o.value = l.id; o.textContent = l.height + "mm"; hSel.appendChild(o); });
+      }
+
+      function currentHeight() {
+        var ls = legsForSystem();
+        var l = ls.filter(function (x) { return x.id === hSel.value; })[0] || ls[0];
+        return l ? l.height : null;
+      }
+
+      function populateFinishes() {
+        var h = currentHeight();
+        var finishes = [];
+        (cat.fascia.boards || []).filter(function (b) { return b.system === sysSel.value && b.height === h; })
+          .forEach(function (b) { if (finishes.indexOf(b.finish) < 0) finishes.push(b.finish); });
+        finishSel.innerHTML = "";
+        finishes.forEach(function (f) { var o = el("option"); o.value = f; o.textContent = f.charAt(0).toUpperCase() + f.slice(1); finishSel.appendChild(o); });
+        finishWrap.style.display = finishes.length ? "" : "none";
       }
 
       function applySystemBounds() {
@@ -313,22 +386,41 @@
         // legs
         var legs = legsForSystem();
         var leg = legs.filter(function (l) { return l.id === hSel.value; })[0] || legs[0];
-        var legsHtml = "", heightLabel = "";
+        var legsHtml = "", heightLabel = "", heightVal = null;
         if (leg) {
           var legQty = legCount(res, cat.legsPerDeck);
           items.push({ label: leg.label, partNumber: leg.partNumber, qty: legQty });
-          heightLabel = leg.height;
+          heightLabel = leg.height; heightVal = leg.height;
           legsHtml = '<div style="font-size:11px;letter-spacing:.04em;color:#888;text-transform:uppercase;margin:10px 0 4px;">Legs</div>' +
             '<div style="display:flex;justify-content:space-between;font-size:13px;padding:3px 0;"><span style="color:#333;">' + leg.label + '</span><span style="color:#111;font-weight:500;">x ' + legQty + '</span></div>';
         }
 
+        // fascia
+        var sides = parseInt(faceSel.value) || 0;
+        var fasciaHtml = "", fasciaFinish = "";
+        if (sides > 0 && heightVal != null) {
+          var fk = fasciaKit({ system: sysSel.value, width: parseFloat(wIn.value), depth: parseFloat(dIn.value), sides: sides, height: heightVal, finish: finishSel.value, fascia: cat.fascia });
+          if (!fk.available) {
+            fasciaHtml = '<div style="font-size:11px;letter-spacing:.04em;color:#888;text-transform:uppercase;margin:10px 0 4px;">Fascia</div>' +
+              '<div style="font-size:12px;color:#b07b00;">No fascia at ' + heightVal + 'mm</div>';
+          } else if (fk.items.length) {
+            fk.items.forEach(function (it) { items.push(it); });
+            fasciaFinish = finishSel.value;
+            fasciaHtml = '<div style="font-size:11px;letter-spacing:.04em;color:#888;text-transform:uppercase;margin:10px 0 4px;">Fascia (' + fasciaFinish + ')</div>' +
+              fk.items.map(function (it) {
+                return '<div style="display:flex;justify-content:space-between;font-size:13px;padding:3px 0;"><span style="color:#333;">' + it.label + '</span><span style="color:#111;font-weight:500;">x ' + it.qty + '</span></div>';
+              }).join("");
+          }
+        }
+
         state.items = items;
-        state.title = "Stage " + (+parseFloat(wIn.value)) + "x" + (+parseFloat(dIn.value)) + (heightLabel ? " @ " + heightLabel + "mm" : "");
+        var cap = function (x) { return x ? x.charAt(0).toUpperCase() + x.slice(1) : x; };
+        state.title = "Stage " + (+parseFloat(wIn.value)) + "x" + (+parseFloat(dIn.value)) + (heightLabel ? " @ " + heightLabel + "mm" : "") + (fasciaFinish ? ", " + cap(fasciaFinish) + " Fascia" : "");
 
         var missing = items.filter(function (it) { return !isRealPart(it.partNumber); });
         kitBox.innerHTML = '<div style="font-size:11px;letter-spacing:.04em;color:#888;text-transform:uppercase;margin-bottom:6px;">Generated kit</div>' +
           '<div style="font-size:11px;letter-spacing:.04em;color:#888;text-transform:uppercase;margin-bottom:4px;">Decks</div>' +
-          decksHtml + legsHtml +
+          decksHtml + legsHtml + fasciaHtml +
           '<div style="margin-top:8px;font-size:12px;color:#777;">' + res.totals.panels + ' panels &middot; ' + res.totals.areaCovered + ' ' + c.unit + '&sup2;</div>' +
           (missing.length ? '<div style="margin-top:8px;font-size:12px;color:#b07b00;">No part number yet for: ' + missing.map(function (m) { return m.label; }).join(", ") + '</div>' : "");
 
@@ -372,14 +464,17 @@
         });
       }
 
-      sysSel.addEventListener("change", function () { applySystemBounds(); populateHeights(); render(); });
+      sysSel.addEventListener("change", function () { applySystemBounds(); populateHeights(); populateFinishes(); render(); });
       wIn.addEventListener("input", render);
       dIn.addEventListener("input", render);
-      hSel.addEventListener("change", render);
+      hSel.addEventListener("change", function () { populateFinishes(); render(); });
+      faceSel.addEventListener("change", render);
+      finishSel.addEventListener("change", render);
 
       document.body.appendChild(backdrop);
       applySystemBounds();
       populateHeights();
+      populateFinishes();
       render();
     });
   }

@@ -1,0 +1,14 @@
+{
+  "schema": "stage-designer/fascia",
+  "dataVersion": "0.1.0",
+  "mounts": [
+    { "system": "metric", "len": 1,   "partNumber": "1fm" },
+    { "system": "metric", "len": 0.5, "partNumber": "05fm" }
+  ],
+  "boards": [
+    { "system": "metric", "height": 200, "finish": "black", "len": 2,   "standard": "2002SB",  "corner": "2002CB" },
+    { "system": "metric", "height": 200, "finish": "black", "len": 1.5, "standard": "20015SB", "corner": "20015CB" },
+    { "system": "metric", "height": 200, "finish": "black", "len": 1,   "standard": "2001SB",  "corner": "2001CB" },
+    { "system": "metric", "height": 200, "finish": "black", "len": 0.5, "standard": "20005SB", "corner": "20005CB" }
+  ]
+}
