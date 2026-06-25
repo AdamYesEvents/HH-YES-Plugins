@@ -1,13 +1,14 @@
 /*!
  * HireHop Tool: Stage Designer
  * Loaded by loader.js (window.HHTools.register).
- * Dialog: pick metric/imperial + width + depth, pack the area with the largest
- * deck panels first (rotating to fit), show the kit list + a top-down grid, and
- * "Add stage kit" inserts the decks into the job under a "Stage WxD" folder.
- * Deck catalogue + part numbers come from data/stage-designer/decks.json.
- * Legs, fascia, trim and carpet come later.
+ * Dialog: pick metric/imperial + width + depth + height, pack the area with the
+ * largest deck panels first (rotating to fit), add deck legs (panels x legsPerDeck
+ * of the chosen height), show the kit + a top-down grid, and "Add stage kit"
+ * inserts everything into the job under a "Stage WxD height" folder.
+ * Catalogue: data/stage-designer/decks.json + legs.json.
+ * Fascia, trim and carpet come later (fascia will match the chosen height).
  *
- * Version: 0.3.1
+ * Version: 0.4.0
  */
 
 (function () {
@@ -105,11 +106,17 @@
 
   function isRealPart(pn) { return typeof pn === "string" && pn.trim() !== "" && !/^TBD/i.test(pn.trim()); }
 
+  // Legs required for a packed stage: panels x legsPerDeck. Returns 0 if no leg.
+  function legCount(result, legsPerDeck) {
+    if (!result || !result.ok) return 0;
+    return result.totals.panels * (legsPerDeck || 0);
+  }
+
   // ===========================================================================
   // NODE EXPORT (no-op in the browser)
   // ===========================================================================
   if (typeof module !== "undefined" && module.exports) {
-    module.exports = { packStage: packStage, buildGridSvg: buildGridSvg, fillFor: fillFor, isRealPart: isRealPart };
+    module.exports = { packStage: packStage, buildGridSvg: buildGridSvg, fillFor: fillFor, isRealPart: isRealPart, legCount: legCount };
   }
 
   // ===========================================================================
@@ -119,19 +126,29 @@
 
   var REPO = "AdamYesEvents/HH-YES-Plugins";
   var DATA_REF = "main";
-  var DATA_URL = "https://cdn.jsdelivr.net/gh/" + REPO + "@" + DATA_REF + "/data/stage-designer/decks.json";
+  var BASE = "https://cdn.jsdelivr.net/gh/" + REPO + "@" + DATA_REF + "/data/stage-designer/";
   var catalogue = null;
+
+  function getJson(file) {
+    // Cache-bust: jsDelivr edge-caches @main, so a unique query fetches current data.
+    return fetch(BASE + file + "?t=" + Date.now()).then(function (r) { return r.json(); });
+  }
 
   function loadCatalogue(cb) {
     if (catalogue) { cb(catalogue); return; }
-    // Cache-bust: jsDelivr edge-caches @main, so without this the catalogue can
-    // serve stale part numbers. A unique query fetches the current decks.json.
-    fetch(DATA_URL + "?t=" + Date.now()).then(function (r) { return r.json(); })
-      .then(function (j) { catalogue = j; cb(j); })
-      .catch(function () { cb(null); });
+    Promise.all([
+      getJson("decks.json"),
+      getJson("legs.json").catch(function () { return { legs: [], legsPerDeck: 4 }; })
+    ]).then(function (res) {
+      catalogue = {
+        systems: res[0].systems, decks: res[0].decks,
+        legs: res[1].legs || [], legsPerDeck: res[1].legsPerDeck || 4
+      };
+      cb(catalogue);
+    }).catch(function () { cb(null); });
   }
 
-  // ---- HireHop insertion helpers (Route B: resolve -> heading -> batch save) --
+  // ---- HireHop insertion helpers (resolve -> heading -> batch save) -----------
 
   function resolvePart(inst, partNumber, qty) {
     var params = {
@@ -151,7 +168,6 @@
     return ids;
   }
 
-  // Create a heading at top level and resolve with its new ID (or null).
   function createHeading(inst, title) {
     var before = headingIdSet(inst);
     var tree = inst.items_to_supply_tree.jstree(true);
@@ -171,9 +187,8 @@
     });
   }
 
-  // Resolve all kit parts, create the folder, insert the decks under it.
+  // Resolve all kit parts (sequentially), create the folder, insert under it.
   function addStageKit(inst, items, title, onDone) {
-    // resolve sequentially
     var shopping = {}, errors = [];
     var chain = Promise.resolve();
     items.forEach(function (it) {
@@ -212,7 +227,7 @@
     loadCatalogue(function (cat) {
       var existing = document.getElementById(DIALOG_ID);
       if (existing) existing.parentNode.removeChild(existing);
-      if (!cat) { window.alert("Stage Designer: could not load the deck catalogue."); return; }
+      if (!cat) { window.alert("Stage Designer: could not load the catalogue."); return; }
 
       var backdrop = el("div", { id: DIALOG_ID }, "position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:100000;display:flex;align-items:center;justify-content:center;font-family:sans-serif;");
       var panel = el("div", null, "background:#fff;border-radius:8px;width:760px;max-width:95vw;max-height:90vh;overflow:auto;box-shadow:0 10px 40px rgba(0,0,0,.3);");
@@ -222,7 +237,7 @@
 
       var head = el("div", null, "padding:18px 22px;border-bottom:1px solid #eee;");
       head.innerHTML = '<div style="font-size:18px;font-weight:600;color:#222;">Stage Designer</div>' +
-        '<div style="font-size:13px;color:#777;margin-top:2px;">Generate a stage deck kit and add it to this job.</div>';
+        '<div style="font-size:13px;color:#777;margin-top:2px;">Generate a stage deck + leg kit and add it to this job.</div>';
       panel.appendChild(head);
 
       var body = el("div", null, "display:flex;gap:20px;padding:22px;");
@@ -241,6 +256,7 @@
 
       var wWrap = field("Width"); var wIn = el("input", { type: "number" }, "width:100%;padding:8px;font-size:14px;"); wWrap.appendChild(wIn); right.appendChild(wWrap);
       var dWrap = field("Depth"); var dIn = el("input", { type: "number" }, "width:100%;padding:8px;font-size:14px;"); dWrap.appendChild(dIn); right.appendChild(dWrap);
+      var hWrap = field("Height"); var hSel = el("select", null, "width:100%;padding:8px;font-size:14px;"); hWrap.appendChild(hSel); right.appendChild(hWrap);
 
       var kitBox = el("div", null, "margin-top:6px;border-top:1px solid #eee;padding-top:12px;");
       right.appendChild(kitBox);
@@ -249,6 +265,16 @@
       panel.appendChild(foot);
 
       var state = { result: null, unit: "", title: "", items: [] };
+
+      function legsForSystem() { return cat.legs.filter(function (l) { return l.system === sysSel.value; }); }
+
+      function populateHeights() {
+        var legs = legsForSystem();
+        hSel.innerHTML = "";
+        if (!legs.length) { hWrap.style.display = "none"; return; }
+        hWrap.style.display = "";
+        legs.forEach(function (l) { var o = el("option"); o.value = l.id; o.textContent = l.label; hSel.appendChild(o); });
+      }
 
       function applySystemBounds() {
         var c = cat.systems[sysSel.value];
@@ -273,23 +299,38 @@
           return;
         }
         left.innerHTML = buildGridSvg(res, parseFloat(wIn.value), parseFloat(dIn.value));
-        // map kit -> items with part numbers
-        state.items = res.kit.map(function (k) {
+
+        // decks
+        var items = res.kit.map(function (k) {
           var deck = cat.decks.filter(function (d) { return d.id === k.deckId; })[0];
           return { label: k.label, partNumber: deck ? deck.partNumber : null, qty: k.qty };
         });
-        var missing = state.items.filter(function (it) { return !isRealPart(it.partNumber); });
-        state.title = "Stage " + (+parseFloat(wIn.value)) + "x" + (+parseFloat(dIn.value)) + c.unit;
-
-        var rowsHtml = res.kit.map(function (k) {
-          return '<div style="display:flex;justify-content:space-between;font-size:13px;padding:3px 0;">' +
-            '<span style="color:#333;">' + k.label + '</span><span style="color:#111;font-weight:500;">x ' + k.qty + '</span></div>';
+        var decksHtml = res.kit.map(function (k) {
+          return '<div style="display:flex;justify-content:space-between;font-size:13px;padding:3px 0;"><span style="color:#333;">' + k.label + '</span><span style="color:#111;font-weight:500;">x ' + k.qty + '</span></div>';
         }).join("");
+
+        // legs
+        var legs = legsForSystem();
+        var leg = legs.filter(function (l) { return l.id === hSel.value; })[0] || legs[0];
+        var legsHtml = "", heightLabel = "";
+        if (leg) {
+          var legQty = legCount(res, cat.legsPerDeck);
+          items.push({ label: leg.label, partNumber: leg.partNumber, qty: legQty });
+          heightLabel = leg.height;
+          legsHtml = '<div style="font-size:11px;letter-spacing:.04em;color:#888;text-transform:uppercase;margin:10px 0 4px;">Legs</div>' +
+            '<div style="display:flex;justify-content:space-between;font-size:13px;padding:3px 0;"><span style="color:#333;">' + leg.label + '</span><span style="color:#111;font-weight:500;">x ' + legQty + '</span></div>';
+        }
+
+        state.items = items;
+        state.title = "Stage " + (+parseFloat(wIn.value)) + "x" + (+parseFloat(dIn.value)) + c.unit + (heightLabel ? " " + heightLabel + "mm" : "");
+
+        var missing = items.filter(function (it) { return !isRealPart(it.partNumber); });
         kitBox.innerHTML = '<div style="font-size:11px;letter-spacing:.04em;color:#888;text-transform:uppercase;margin-bottom:6px;">Generated decks</div>' +
-          rowsHtml + '<div style="margin-top:8px;font-size:12px;color:#777;">' + res.totals.panels + ' panels &middot; ' + res.totals.areaCovered + ' ' + c.unit + '&sup2;</div>' +
+          decksHtml + legsHtml +
+          '<div style="margin-top:8px;font-size:12px;color:#777;">' + res.totals.panels + ' panels &middot; ' + res.totals.areaCovered + ' ' + c.unit + '&sup2;</div>' +
           (missing.length ? '<div style="margin-top:8px;font-size:12px;color:#b07b00;">No part number yet for: ' + missing.map(function (m) { return m.label; }).join(", ") + '</div>' : "");
 
-        renderFooter(missing.length === 0, missing.length ? "Some panels have no part number" : "");
+        renderFooter(missing.length === 0, missing.length ? "Some items have no part number" : "");
       }
 
       function renderFooter(canAdd, disabledReason) {
@@ -306,7 +347,7 @@
       function confirmAdd() {
         foot.innerHTML = "";
         var msg = el("div", null, "flex:1;font-size:13px;color:#333;");
-        msg.textContent = "Add " + state.result.totals.panels + " panels to a '" + state.title + "' folder?";
+        msg.textContent = "Add to a '" + state.title + "' folder?";
         var no = el("button", null, "padding:8px 14px;font-size:14px;cursor:pointer;");
         no.textContent = "Cancel"; no.addEventListener("click", render);
         var yes = el("button", null, "padding:8px 16px;font-size:14px;background:#2563eb;color:#fff;border:none;border-radius:4px;cursor:pointer;");
@@ -329,12 +370,14 @@
         });
       }
 
-      sysSel.addEventListener("change", function () { applySystemBounds(); render(); });
+      sysSel.addEventListener("change", function () { applySystemBounds(); populateHeights(); render(); });
       wIn.addEventListener("input", render);
       dIn.addEventListener("input", render);
+      hSel.addEventListener("change", render);
 
       document.body.appendChild(backdrop);
       applySystemBounds();
+      populateHeights();
       render();
     });
   }
