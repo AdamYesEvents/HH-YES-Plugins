@@ -8,7 +8,7 @@
  * Catalogue: data/stage-designer/decks.json + legs.json.
  * Fascia, trim and carpet come later (fascia will match the chosen height).
  *
- * Version: 0.4.0
+ * Version: 0.5.0
  */
 
 (function () {
@@ -230,7 +230,7 @@
       if (!cat) { window.alert("Stage Designer: could not load the catalogue."); return; }
 
       var backdrop = el("div", { id: DIALOG_ID }, "position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:100000;display:flex;align-items:center;justify-content:center;font-family:sans-serif;");
-      var panel = el("div", null, "background:#fff;border-radius:8px;width:760px;max-width:95vw;max-height:90vh;overflow:auto;box-shadow:0 10px 40px rgba(0,0,0,.3);");
+      var panel = el("div", null, "background:#fff;border-radius:8px;width:980px;max-width:96vw;max-height:90vh;overflow:auto;box-shadow:0 10px 40px rgba(0,0,0,.3);");
       backdrop.appendChild(panel);
       backdrop.addEventListener("click", function (e) { if (e.target === backdrop) close(); });
       function close() { if (backdrop.parentNode) backdrop.parentNode.removeChild(backdrop); }
@@ -240,10 +240,11 @@
         '<div style="font-size:13px;color:#777;margin-top:2px;">Generate a stage deck + leg kit and add it to this job.</div>';
       panel.appendChild(head);
 
-      var body = el("div", null, "display:flex;gap:20px;padding:22px;");
-      var left = el("div", null, "flex:1;min-width:300px;display:flex;align-items:flex-start;justify-content:center;");
-      var right = el("div", null, "width:300px;");
-      body.appendChild(left); body.appendChild(right);
+      var body = el("div", null, "display:flex;gap:24px;padding:22px;");
+      var colPreview = el("div", null, "flex:1;min-width:320px;display:flex;align-items:flex-start;justify-content:center;");
+      var colKit = el("div", null, "width:240px;flex-shrink:0;");
+      var colControls = el("div", null, "width:220px;flex-shrink:0;");
+      body.appendChild(colPreview); body.appendChild(colKit); body.appendChild(colControls);
       panel.appendChild(body);
 
       var systems = Object.keys(cat.systems);
@@ -252,14 +253,14 @@
       var sysWrap = field("System");
       var sysSel = el("select", null, "width:100%;padding:8px;font-size:14px;");
       systems.forEach(function (s) { var o = el("option"); o.value = s; o.textContent = s.charAt(0).toUpperCase() + s.slice(1); sysSel.appendChild(o); });
-      sysWrap.appendChild(sysSel); right.appendChild(sysWrap);
+      sysWrap.appendChild(sysSel); colControls.appendChild(sysWrap);
 
-      var wWrap = field("Width"); var wIn = el("input", { type: "number" }, "width:100%;padding:8px;font-size:14px;"); wWrap.appendChild(wIn); right.appendChild(wWrap);
-      var dWrap = field("Depth"); var dIn = el("input", { type: "number" }, "width:100%;padding:8px;font-size:14px;"); dWrap.appendChild(dIn); right.appendChild(dWrap);
-      var hWrap = field("Height"); var hSel = el("select", null, "width:100%;padding:8px;font-size:14px;"); hWrap.appendChild(hSel); right.appendChild(hWrap);
+      var wWrap = field("Width"); var wIn = el("input", { type: "number" }, "width:100%;padding:8px;font-size:14px;"); wWrap.appendChild(wIn); colControls.appendChild(wWrap);
+      var dWrap = field("Depth"); var dIn = el("input", { type: "number" }, "width:100%;padding:8px;font-size:14px;"); dWrap.appendChild(dIn); colControls.appendChild(dWrap);
+      var hWrap = field("Height"); var hSel = el("select", null, "width:100%;padding:8px;font-size:14px;"); hWrap.appendChild(hSel); colControls.appendChild(hWrap);
 
-      var kitBox = el("div", null, "margin-top:6px;border-top:1px solid #eee;padding-top:12px;");
-      right.appendChild(kitBox);
+      var kitBox = el("div", null, "font-size:13px;");
+      colKit.appendChild(kitBox);
 
       var foot = el("div", null, "padding:14px 22px;border-top:1px solid #eee;display:flex;justify-content:flex-end;gap:10px;align-items:center;");
       panel.appendChild(foot);
@@ -273,7 +274,7 @@
         hSel.innerHTML = "";
         if (!legs.length) { hWrap.style.display = "none"; return; }
         hWrap.style.display = "";
-        legs.forEach(function (l) { var o = el("option"); o.value = l.id; o.textContent = l.label; hSel.appendChild(o); });
+        legs.forEach(function (l) { var o = el("option"); o.value = l.id; o.textContent = l.height + "mm"; hSel.appendChild(o); });
       }
 
       function applySystemBounds() {
@@ -293,12 +294,12 @@
         var res = packStage({ system: sysSel.value, width: parseFloat(wIn.value), depth: parseFloat(dIn.value), decks: cat.decks, systems: cat.systems });
         state.result = res; state.unit = c.unit;
         if (!res.ok) {
-          left.innerHTML = "";
+          colPreview.innerHTML = "";
           kitBox.innerHTML = '<div style="color:#b00;font-size:13px;">' + res.error + '</div>';
           renderFooter(false, "");
           return;
         }
-        left.innerHTML = buildGridSvg(res, parseFloat(wIn.value), parseFloat(dIn.value));
+        colPreview.innerHTML = buildGridSvg(res, parseFloat(wIn.value), parseFloat(dIn.value));
 
         // decks
         var items = res.kit.map(function (k) {
@@ -322,10 +323,11 @@
         }
 
         state.items = items;
-        state.title = "Stage " + (+parseFloat(wIn.value)) + "x" + (+parseFloat(dIn.value)) + c.unit + (heightLabel ? " " + heightLabel + "mm" : "");
+        state.title = "Stage " + (+parseFloat(wIn.value)) + "x" + (+parseFloat(dIn.value)) + (heightLabel ? " @ " + heightLabel + "mm" : "");
 
         var missing = items.filter(function (it) { return !isRealPart(it.partNumber); });
-        kitBox.innerHTML = '<div style="font-size:11px;letter-spacing:.04em;color:#888;text-transform:uppercase;margin-bottom:6px;">Generated decks</div>' +
+        kitBox.innerHTML = '<div style="font-size:11px;letter-spacing:.04em;color:#888;text-transform:uppercase;margin-bottom:6px;">Generated kit</div>' +
+          '<div style="font-size:11px;letter-spacing:.04em;color:#888;text-transform:uppercase;margin-bottom:4px;">Decks</div>' +
           decksHtml + legsHtml +
           '<div style="margin-top:8px;font-size:12px;color:#777;">' + res.totals.panels + ' panels &middot; ' + res.totals.areaCovered + ' ' + c.unit + '&sup2;</div>' +
           (missing.length ? '<div style="margin-top:8px;font-size:12px;color:#b07b00;">No part number yet for: ' + missing.map(function (m) { return m.label; }).join(", ") + '</div>' : "");
