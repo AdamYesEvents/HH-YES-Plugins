@@ -1,0 +1,17 @@
+{
+  "schema": "stage-designer/decks",
+  "dataVersion": "0.1.0",
+  "systems": {
+    "metric":   { "unit": "m",  "increment": 0.5, "min": 2, "max": 10 },
+    "imperial": { "unit": "ft", "increment": 4,   "min": 4, "max": 24 }
+  },
+  "decks": [
+    { "id": "deck-2x1m",   "system": "metric",   "label": "2 x 1m LiteDeck Panel",     "width": 2,   "depth": 1,   "partNumber": "TBD-M201",  "weightKg": null },
+    { "id": "deck-1x1m",   "system": "metric",   "label": "1 x 1m LiteDeck Panel",     "width": 1,   "depth": 1,   "partNumber": "TBD-M101",  "weightKg": null },
+    { "id": "deck-2x05m",  "system": "metric",   "label": "2 x 0.5m LiteDeck Panel",   "width": 2,   "depth": 0.5, "partNumber": "TBD-M205",  "weightKg": null },
+    { "id": "deck-1x05m",  "system": "metric",   "label": "1 x 0.5m LiteDeck Panel",   "width": 1,   "depth": 0.5, "partNumber": "TBD-M105",  "weightKg": null },
+    { "id": "deck-05x05m", "system": "metric",   "label": "0.5 x 0.5m LiteDeck Panel", "width": 0.5, "depth": 0.5, "partNumber": "TBD-M0505", "weightKg": null },
+    { "id": "deck-8x4ft",  "system": "imperial", "label": "8 x 4ft Stage Deck",        "width": 8,   "depth": 4,   "partNumber": "TBD-I804",  "weightKg": null },
+    { "id": "deck-4x4ft",  "system": "imperial", "label": "4 x 4ft Stage Deck",        "width": 4,   "depth": 4,   "partNumber": "TBD-I404",  "weightKg": null }
+  ]
+}

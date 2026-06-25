@@ -109,11 +109,12 @@ totals:     { panels:6, areaCovered:12 }
 
 ### Metric 3.5 × 2 — rotation + remainder strip
 ```
-placements: 3 × deck-2x1m  rotated:true (width:1 depth:2) at (0,0)(1,0)(2,0)
-            2 × deck-1x05m rotated:true (width:0.5 depth:1) at (3,0)(3,1)
-kit:        [ { deckId:"deck-2x1m", qty:3 }, { deckId:"deck-1x05m", qty:2 } ]
-totals:     { panels:5, areaCovered:7 }
+placements: 3 × deck-2x1m  rotated:true (width:1 depth:2)  at (0,0)(1,0)(2,0)
+            1 × deck-2x05m rotated:true (width:0.5 depth:2) at (3,0)
+kit:        [ { deckId:"deck-2x1m", qty:3 }, { deckId:"deck-2x05m", qty:1 } ]
+totals:     { panels:4, areaCovered:7 }
 ```
+(The 0.5×2 m strip is one rotated 2×0.5 m panel — the packer finds this automatically.)
 
 ## Future (noted, not in step 1)
 - `legs.json` (height), `fascia.json`, `trim.json` — separate files, same `id` style.
