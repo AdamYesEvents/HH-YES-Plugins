@@ -2,70 +2,110 @@
 
 Custom JavaScript plugins for [HireHop](https://www.hirehop.co.uk) rental software.
 
+This repo is structured as a **loader + tools**:
+
+- **`loader.js`** — the single URL you put in HireHop. It loads the enabled tools
+  and provides the shared machinery that injects their entries into the Supplying
+  tab's **New (+)** menu (both the top-left New button dropdown and the right-click
+  context menu).
+- **`tools/`** — one self-contained file per tool. Each registers itself with the
+  loader and owns its own behaviour and version.
+  - `tools/stage-designer.js`
+  - `tools/videowall-creator.js`
+
 ---
 
-## Stage Designer (`stage-designer-button.js`)
+## Installation
 
-Adds a **ðŸŽ­ Stage Designer** entry to the bottom of the **New (+) dropdown menu** on the **Supplying tab**.
+In HireHop, go to **Settings → Company Settings → Plugins** and add the **loader**
+URL (pinned to a release tag):
 
-The entry is currently a placeholder (it does nothing yet). It is the first step toward a full stage designer tool that will:
-- Pull predefined staging parts from your stock list
-- Auto-scale layouts based on stage dimensions and options selected
-- Allow visual drag-and-drop stage planning from within a job
+```
+https://cdn.jsdelivr.net/gh/AdamYesEvents/HH-YES-Plugins@v0.1.1/loader.js
+```
 
-### Installation
+> ⚠️ **Use jsDelivr, not `raw.githubusercontent.com`.** GitHub serves raw files as
+> `text/plain` with `X-Content-Type-Options: nosniff`, so browsers **refuse to
+> execute them as JavaScript** (silently). jsDelivr serves `application/javascript`.
 
-1. **Fork or upload** this file to your own GitHub repository.
-2. Use the **jsDelivr** URL for the file (see the important note below), e.g.:
-   ```
-   https://cdn.jsdelivr.net/gh/YOUR_USERNAME/YOUR_REPO@main/stage-designer-button.js
-   ```
-3. In HireHop, go to **Settings â†’ Company Settings â†’ Plugins**.
-4. Paste the jsDelivr URL into the Plugins field. If you have other plugins, separate them with a semicolon (`;`).
+## Turning tools on/off
 
-> âš ï¸ **Do not use the `raw.githubusercontent.com` URL.** GitHub serves raw files as
-> `Content-Type: text/plain` with `X-Content-Type-Options: nosniff`, so browsers
-> **refuse to execute them as JavaScript** (and the failure is silent). jsDelivr
-> mirrors the same repo and serves the file as `application/javascript`, so it runs.
+Edit the `TOOLS` config block at the top of `loader.js`:
 
-### Updating
+```js
+var TOOLS = {
+  "stage-designer":    { on: true,  ref: "main" },
+  "videowall-creator": { on: false, ref: "main" }   // off
+};
+```
 
-jsDelivr caches the `@main` URL (up to ~7 days), so a push may not appear immediately. To control updates:
-- **Force a refresh:** purge the cache via
-  `https://purge.jsdelivr.net/gh/YOUR_USERNAME/YOUR_REPO@main/stage-designer-button.js`
-- **Pin to a release** for predictable, instant updates, e.g. `@v1.7` instead of `@main`
-  (create a matching git tag/release).
+- `on` — whether to load the tool.
+- `ref` — which git ref to load it from: `"main"` for the latest, or pin to a tag
+  (e.g. `"stage-designer-v0.1.0"`) for stability.
 
-### Verifying it works
+After editing the loader, cut a new loader release and update the HireHop URL's tag.
 
-Open any job in HireHop, click the **Supplying** tab, then click the **New (+)** button. You should see **ðŸŽ­ Stage Designer** at the bottom of the dropdown.
+## Versioning
 
-### How it works
+- The **loader** has its own version (`loader.js` header + a repo tag like `v0.1.1`).
+- Each **tool** has its own version (its file header), and can be pinned to its own
+  tag via the loader's `ref`.
+- jsDelivr tags are immutable and served instantly. `@main` is cached (~7 days) and
+  ignores `?v=` query strings — to refresh a `main` ref quickly, purge it:
+  `https://purge.jsdelivr.net/gh/AdamYesEvents/HH-YES-Plugins@main/tools/<tool>.js`
 
-HireHop injects plugin JS files into every page. The Supplying tab is built by the **items** widget (`$.custom.items`, `/js/items.js`) â€” there is no `supplying` widget. The items widget's instance is created lazily (and re-rendered) when the Supplying tab is opened, and its New (+) dropdown (`new_item_popup_menu`) lives on the page body.
+## Writing a new tool
 
-Rather than hook the widget's init (which is racy against lazy creation and re-renders), this plugin:
+Create `tools/<id>.js` that registers itself once the loader is present:
 
-1. Waits for jQuery, then runs a light, idempotent interval (it does **not** depend on `$(document).ready`).
-2. On each tick, finds the items widget instance via its tab panel element (`.custom_itemsFrame`).
-3. Appends a `<li>` to the New dropdown matching HireHop's native menu markup, then calls `menu("refresh")`.
+```js
+(function () {
+  function register() {
+    if (!window.HHTools || !window.HHTools.register) { setTimeout(register, 50); return; }
+    window.HHTools.register({
+      id: "my-tool",
+      label: "My Tool",
+      icon: "ui-icon-image",          // a jQuery UI ui-icon-* class
+      onClick: function (inst) { window.alert("My Tool"); }
+    });
+  }
+  register();
+})();
+```
 
-The interval is cheap (a class lookup) and bails immediately once the entry already exists.
+Then add it to the `TOOLS` config in `loader.js`.
+
+---
+
+## How it works
+
+The Supplying tab is built by HireHop's **items** widget (`$.custom.items`,
+`/js/items.js`) — there is no `supplying` widget. Its instance is created lazily
+(and re-rendered) when the tab is opened, and is stored on the tab panel element
+`.custom_itemsFrame`. It exposes two New menus:
+
+- `new_item_popup_menu` — the top-left **New (+)** button dropdown (a clone;
+  refreshed with `.menu("refresh")`).
+- `new_menu` — the **New** submenu inside the right-click context menu
+  (`popup_menu`; refreshed via `popup_menu.menu("refresh")`).
+
+The loader waits for jQuery, then runs a light, idempotent interval that, for each
+items instance, ensures a separator plus one entry per registered tool exists in
+both menus. The interval approach is used because hooking the widget's init is racy
+against the lazy creation / re-rendering of the tab.
 
 ### Discovering widget names
 
 HireHop's JS files are minified but readable by appending `.MAX` to the filename:
-- `https://myhirehop.com/js/items.MAX.js` â€” the **items** widget that powers the Supplying tab
-- `https://myhirehop.com/js/notes.MAX.js` â€” the notes tab widget
 
-Use browser DevTools (F12 â†’ Network tab) while clicking around HireHop to discover which `.js` files are loaded and which widget names they define.
+- `https://myhirehop.com/js/items.MAX.js` — the **items** widget (Supplying tab)
+- `https://myhirehop.com/js/notes.MAX.js` — the notes tab widget
 
 ---
 
 ## Notes
 
-- Plugins only load on paid HireHop accounts.
-- Plugins do **not** load on the Settings page (by design).
-- Load plugins via a host that serves `application/javascript` (e.g. jsDelivr), **not** `raw.githubusercontent.com`.
-- Never put API tokens in plugin JavaScript â€” they run in the browser and are publicly visible.
+- Plugins only load on paid HireHop accounts, and **not** on the Settings page.
+- Load via a host that serves `application/javascript` (jsDelivr), **not** raw GitHub.
+- Never put API tokens in plugin JavaScript — it runs in the browser and is public.
 - Use `?no_plugins=1` as a URL parameter to disable plugins on any page for debugging.
