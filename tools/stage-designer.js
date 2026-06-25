@@ -7,7 +7,7 @@
  * Deck catalogue + part numbers come from data/stage-designer/decks.json.
  * Legs, fascia, trim and carpet come later.
  *
- * Version: 0.3.0
+ * Version: 0.3.1
  */
 
 (function () {
@@ -124,7 +124,9 @@
 
   function loadCatalogue(cb) {
     if (catalogue) { cb(catalogue); return; }
-    fetch(DATA_URL).then(function (r) { return r.json(); })
+    // Cache-bust: jsDelivr edge-caches @main, so without this the catalogue can
+    // serve stale part numbers. A unique query fetches the current decks.json.
+    fetch(DATA_URL + "?t=" + Date.now()).then(function (r) { return r.json(); })
       .then(function (j) { catalogue = j; cb(j); })
       .catch(function () { cb(null); });
   }
