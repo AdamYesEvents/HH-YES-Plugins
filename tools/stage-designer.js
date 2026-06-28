@@ -8,7 +8,7 @@
  * Catalogue: data/stage-designer/decks.json + legs.json.
  * Fascia, trim and carpet come later (fascia will match the chosen height).
  *
- * Version: 0.7.0
+ * Version: 0.8.0
  */
 
 (function () {
@@ -125,28 +125,51 @@
     return result.totals.panels * (legsPerDeck || 0);
   }
 
-  // Symmetric tiling of a run of length L using board lengths (descending).
-  // Prefers uniform 2m/1.5m splits so joints sit centrally, else builds
-  // symmetrically from the centre. 3->[1.5,1.5], 4->[2,2], 4.5->[1.5,1.5,1.5],
-  // 5->[2,1,2], 3.5->[1.5,0.5,1.5].
+  // Tile a run of length L from board lengths (descending) using the FEWEST
+  // boards; among fewest-board options prefer no 0.5 m slivers, then uniform,
+  // then larger boards; arranged symmetrically (palindrome) when the chosen
+  // multiset allows. 3->[1.5,1.5], 4->[2,2], 4.5->[1.5,1.5,1.5], 3.5->[2,1.5],
+  // 5->[2,1,2], 2.5->[1.5,1].
   function symTile(L, lens) {
-    L = +(+L).toFixed(3);
-    if (L <= 1e-9) return [];
-    for (var sgl = 0; sgl < lens.length; sgl++) if (Math.abs(lens[sgl] - L) < 1e-9) return [lens[sgl]];
-    for (var i = 0; i < lens.length; i++) {
-      var p = lens[i]; if (p < 1.5 - 1e-9) break;
-      var n = L / p;
-      if (Math.abs(n - Math.round(n)) < 1e-9) { var a = []; for (var k = 0; k < Math.round(n); k++) a.push(p); return a; }
+    var u = 0.5, M = Math.round(L / u);
+    if (M <= 0) return [];
+    var pcs = lens.map(function (l) { return Math.round(l / u); }).filter(function (p) { return p > 0; }).sort(function (a, b) { return b - a; });
+    var INF = 1e9, dp = []; for (var d = 0; d <= M; d++) dp[d] = INF; dp[0] = 0;
+    for (var i = 1; i <= M; i++) for (var pi = 0; pi < pcs.length; pi++) { var p = pcs[pi]; if (p <= i && dp[i - p] + 1 < dp[i]) dp[i] = dp[i - p] + 1; }
+    if (dp[M] >= INF) return [L];
+    var minCount = dp[M], n = pcs.length, oneIdx = pcs.indexOf(1), best = null;
+    function consider(counts) {
+      if (!best) { best = counts.slice(); return; }
+      var cs = oneIdx >= 0 ? counts[oneIdx] : 0, bs = oneIdx >= 0 ? best[oneIdx] : 0;
+      if (cs !== bs) { if (cs < bs) best = counts.slice(); return; }
+      var cd = counts.filter(function (x) { return x > 0; }).length, bd = best.filter(function (x) { return x > 0; }).length;
+      if (cd !== bd) { if (cd < bd) best = counts.slice(); return; }
+      for (var k = 0; k < n; k++) if (counts[k] !== best[k]) { if (counts[k] > best[k]) best = counts.slice(); return; }
     }
-    var half = L / 2, end = null;
-    for (var j = 0; j < lens.length; j++) if (lens[j] <= half + 1e-9) { end = lens[j]; break; }
-    if (end === null) return [lens[lens.length - 1]];
-    return [end].concat(symTile(+(L - 2 * end).toFixed(3), lens)).concat([end]);
+    var counts = []; for (var z = 0; z < n; z++) counts[z] = 0;
+    (function rec(idx, remC, remS) {
+      if (idx === n) { if (remC === 0 && remS === 0) consider(counts); return; }
+      for (var c = 0; c <= remC && c * pcs[idx] <= remS; c++) { counts[idx] = c; rec(idx + 1, remC - c, remS - c * pcs[idx]); }
+      counts[idx] = 0;
+    })(0, minCount, M);
+    var ms = []; for (var k2 = 0; k2 < n; k2++) for (var c2 = 0; c2 < best[k2]; c2++) ms.push(pcs[k2]);
+    var cnt = {}; ms.forEach(function (x) { cnt[x] = (cnt[x] || 0) + 1; });
+    var odds = Object.keys(cnt).filter(function (k) { return cnt[k] % 2 === 1; });
+    var arr;
+    if (odds.length > 1) { arr = ms.slice().sort(function (a, b) { return b - a; }); }
+    else {
+      var sizes = Object.keys(cnt).map(Number).sort(function (a, b) { return b - a; });
+      var half = [], center = null;
+      sizes.forEach(function (s) { var c = cnt[s]; if (c % 2 === 1) { center = s; c--; } for (var h = 0; h < c / 2; h++) half.push(s); });
+      arr = half.concat(center != null ? [center] : []).concat(half.slice().reverse());
+    }
+    return arr.map(function (x) { return x * u; });
   }
 
   // Fascia for a fasciad stage. o = { system,width,depth,sides(0/2/3/4),height,finish,fascia }
-  // Origin top-left, back (top) open. Side edges tile symmetrically and the board
-  // reaching a corner becomes the "corner" variant (option b); front/back all standard.
+  // Origin top-left, back (top) open. Corner boards sit on the FRONT (and back)
+  // edges at their corner ends; side edges are all standard. All edges tile with
+  // symTile (fewest boards, symmetric where possible).
   // Returns { available, items:[{label,partNumber,qty}], placements:[{edge,offset,length,type}] }.
   function fasciaKit(o) {
     var fascia = o.fascia || {};
@@ -162,10 +185,10 @@
     var W = o.width, D = o.depth, s = o.sides;
     var hasFront = s >= 2, hasLeft = s >= 2, hasRight = s >= 3, hasBack = s >= 4;
     var edges = [];
-    if (hasLeft) edges.push({ edge: "left", len: D, cFirst: hasBack, cLast: hasFront });
-    if (hasRight) edges.push({ edge: "right", len: D, cFirst: hasBack, cLast: hasFront });
-    if (hasFront) edges.push({ edge: "front", len: W, cFirst: false, cLast: false });
-    if (hasBack) edges.push({ edge: "back", len: W, cFirst: false, cLast: false });
+    if (hasFront) edges.push({ edge: "front", len: W, cFirst: hasLeft, cLast: hasRight });
+    if (hasBack) edges.push({ edge: "back", len: W, cFirst: hasLeft, cLast: hasRight });
+    if (hasLeft) edges.push({ edge: "left", len: D, cFirst: false, cLast: false });
+    if (hasRight) edges.push({ edge: "right", len: D, cFirst: false, cLast: false });
 
     var agg = {}, placements = [];
     function add(code, label) { if (!agg[code]) agg[code] = { label: label, partNumber: code, qty: 0 }; agg[code].qty++; }
