@@ -1,10 +1,7 @@
 {
   "schema": "stage-designer/branding",
-  "dataVersion": "0.1.0",
-  "_note": "logoUrl must be CORS-enabled (e.g. hosted via jsDelivr in this repo) so it can be drawn into the PDF. width/height in mm for the top-right placement.",
-  "logoBox": { "width": 38, "height": 28 },
-  "default": { "logoUrl": "" },
-  "depots": {
-    "1": { "name": "Wokingham", "logoUrl": "" }
-  }
+  "dataVersion": "0.2.0",
+  "_note": "logoUrl: an SVG or hosted image URL for the top-right of the PDF. Must be CORS-accessible (hosting it in this repo / jsDelivr works). SVGs need an intrinsic width/height. Leave empty for no logo. logoBox = max width/height in mm; the image is fitted preserving aspect ratio.",
+  "logoUrl": "",
+  "logoBox": { "width": 38, "height": 28 }
 }
