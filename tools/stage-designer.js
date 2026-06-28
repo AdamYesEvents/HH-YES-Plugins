@@ -8,7 +8,7 @@
  * Catalogue: data/stage-designer/decks.json + legs.json.
  * Fascia, trim and carpet come later (fascia will match the chosen height).
  *
- * Version: 0.17.1
+ * Version: 0.17.2
  */
 
 (function () {
@@ -566,7 +566,7 @@
         }
         pdf.setFontSize(15); pdf.setTextColor(30, 30, 30); pdf.text(String(snapshot.title), margin, 18);
         pdf.setFontSize(10); pdf.setTextColor(90, 90, 90);
-        pdf.text("Job " + (jd.ID || "") + (jd.DEPOT ? "  -  " + jd.DEPOT : ""), margin, 25);
+        pdf.text("Job " + (jd.ID || ""), margin, 25);
         pdf.text("Delivery: " + (fmtDate(jd.OUT_DATE) || "-") + "      Ref: " + code, margin, 31);
         var top = 38, imgW = pageW - margin * 2, imgH = imgW * (png.h / png.w), maxImgH = 135;
         if (imgH > maxImgH) { imgH = maxImgH; imgW = imgH * (png.w / png.h); }
