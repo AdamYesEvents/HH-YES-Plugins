@@ -8,7 +8,7 @@
  * Catalogue: data/stage-designer/decks.json + legs.json.
  * Fascia, trim and carpet come later (fascia will match the chosen height).
  *
- * Version: 0.11.1
+ * Version: 0.12.0
  */
 
 (function () {
@@ -426,7 +426,11 @@
 
       var faceWrap = field("Fascia sides"); var faceSel = el("select", null, "width:100%;padding:8px;font-size:14px;");
       [["0", "None"], ["2", "2 sided (left + front)"], ["3", "3 sided"], ["4", "4 sided"]].forEach(function (o) { var op = el("option"); op.value = o[0]; op.textContent = o[1]; faceSel.appendChild(op); });
-      faceWrap.appendChild(faceSel); colControls.appendChild(faceWrap);
+      faceWrap.appendChild(faceSel);
+      var fasciaNote = el("div", null, "margin-top:6px;font-size:11px;color:#999;display:none;");
+      fasciaNote.textContent = "No fascia at this height — fascia & trim unavailable.";
+      faceWrap.appendChild(fasciaNote);
+      colControls.appendChild(faceWrap);
 
       var finishWrap = field("Fascia finish"); var finishSel = el("select", null, "width:100%;padding:8px;font-size:14px;"); finishWrap.appendChild(finishSel); colControls.appendChild(finishWrap);
 
@@ -473,6 +477,19 @@
         trimSel.innerHTML = "";
         finishes.forEach(function (f) { var o = el("option"); o.value = f; o.textContent = f.charAt(0).toUpperCase() + f.slice(1); trimSel.appendChild(o); });
         trimWrap.style.display = (parseInt(faceSel.value) > 0 && finishes.length) ? "" : "none";
+      }
+
+      // Fascia (and therefore trim) only exists at heights with fascia boards.
+      // Disable the sides selector and force None where there's no fascia data.
+      function syncFasciaControls() {
+        var h = currentHeight();
+        var fasciaOK = (cat.fascia.boards || []).some(function (b) { return b.system === sysSel.value && b.height === h; });
+        faceSel.disabled = !fasciaOK;
+        if (!fasciaOK) faceSel.value = "0";
+        fasciaNote.style.display = fasciaOK ? "none" : "";
+        faceWrap.style.opacity = fasciaOK ? "1" : "0.6";
+        populateFinishes();
+        populateTrimFinishes();
       }
 
       function applySystemBounds() {
@@ -608,10 +625,10 @@
         });
       }
 
-      sysSel.addEventListener("change", function () { applySystemBounds(); populateHeights(); populateFinishes(); populateTrimFinishes(); render(); });
+      sysSel.addEventListener("change", function () { applySystemBounds(); populateHeights(); syncFasciaControls(); render(); });
       wIn.addEventListener("input", render);
       dIn.addEventListener("input", render);
-      hSel.addEventListener("change", function () { populateFinishes(); render(); });
+      hSel.addEventListener("change", function () { syncFasciaControls(); render(); });
       faceSel.addEventListener("change", function () { populateFinishes(); populateTrimFinishes(); render(); });
       finishSel.addEventListener("change", render);
       trimSel.addEventListener("change", render);
@@ -619,8 +636,7 @@
       document.body.appendChild(backdrop);
       applySystemBounds();
       populateHeights();
-      populateFinishes();
-      populateTrimFinishes();
+      syncFasciaControls();
       render();
     });
   }
