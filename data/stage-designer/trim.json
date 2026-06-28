@@ -1,0 +1,10 @@
+{
+  "schema": "stage-designer/trim",
+  "dataVersion": "0.1.0",
+  "trim": [
+    { "system": "metric", "finish": "black", "len": 2,   "C": "SFT2000-C", "L": "SFT2000-L", "R": "SFT2000-R" },
+    { "system": "metric", "finish": "black", "len": 1.5, "C": "SFT1500-C", "L": "SFT1500-L", "R": "SFT1500-R" },
+    { "system": "metric", "finish": "black", "len": 1,   "C": "SFT1000-C", "L": "SFT1000-L", "R": "SFT1000-R" },
+    { "system": "metric", "finish": "black", "len": 0.5, "C": "SFT500-C",  "L": "SFT500-L",  "R": "SFT500-R" }
+  ]
+}

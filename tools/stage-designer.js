@@ -8,7 +8,7 @@
  * Catalogue: data/stage-designer/decks.json + legs.json.
  * Fascia, trim and carpet come later (fascia will match the chosen height).
  *
- * Version: 0.9.0
+ * Version: 0.10.0
  */
 
 (function () {
@@ -208,11 +208,51 @@
     return { available: true, items: Object.keys(agg).map(function (k) { return agg[k]; }), placements: placements };
   }
 
+  // Which cut fit a corner piece uses, per edge end. Front/back: start=L, end=R.
+  // Left side: R both ends; right side: L both ends (so mitres meet 1 L + 1 R).
+  function fitFor(edge, isStart) {
+    if (edge === "front" || edge === "back") return isStart ? "L" : "R";
+    return edge === "left" ? "R" : "L";
+  }
+
+  // Trim for a fasciad stage (required wherever fascia is). o = { system,width,
+  // depth,sides,finish,trim }. Each corner gets a 0.5 m L/R piece (45 mitre);
+  // the rest of each run is Center pieces tiled with symTile (fewest parts).
+  // Returns { available, items:[{label,partNumber,qty}], placements:[{edge,offset,length,type}] }.
+  function trimKit(o) {
+    var trim = o.trim || {}, boards = trim.trim || [];
+    if (!o.sides) return { available: true, items: [], placements: [] };
+    var avail = boards.filter(function (b) { return b.system === o.system && b.finish === o.finish; }).sort(function (a, b) { return b.len - a.len; });
+    if (!avail.length) return { available: false, items: [], placements: [] };
+    var lengths = avail.map(function (b) { return b.len; }), byLen = {};
+    avail.forEach(function (b) { byLen[b.len] = b; });
+    if (!byLen[0.5]) return { available: false, items: [], placements: [] };
+
+    var W = o.width, D = o.depth, s = o.sides;
+    var hasFront = s >= 2, hasLeft = s >= 2, hasRight = s >= 3, hasBack = s >= 4;
+    var edges = [];
+    if (hasFront) edges.push({ edge: "front", len: W, cFirst: hasLeft, cLast: hasRight });
+    if (hasBack) edges.push({ edge: "back", len: W, cFirst: hasLeft, cLast: hasRight });
+    if (hasLeft) edges.push({ edge: "left", len: D, cFirst: hasBack, cLast: hasFront });
+    if (hasRight) edges.push({ edge: "right", len: D, cFirst: hasBack, cLast: hasFront });
+
+    var agg = {}, placements = [];
+    function add(code, label) { if (!agg[code]) agg[code] = { label: label, partNumber: code, qty: 0 }; agg[code].qty++; }
+
+    edges.forEach(function (e) {
+      var offset = 0, centerLen = +(e.len - (e.cFirst ? 0.5 : 0) - (e.cLast ? 0.5 : 0)).toFixed(3);
+      if (e.cFirst) { var f1 = fitFor(e.edge, true); add(byLen[0.5][f1], "0.5m trim (" + f1 + ")"); placements.push({ edge: e.edge, offset: offset, length: 0.5, type: "corner" }); offset += 0.5; }
+      if (centerLen > 1e-9) symTile(centerLen, lengths).forEach(function (plen) { add(byLen[plen].C, plen + "m trim (centre)"); placements.push({ edge: e.edge, offset: offset, length: plen, type: "centre" }); offset += plen; });
+      if (e.cLast) { var f2 = fitFor(e.edge, false); add(byLen[0.5][f2], "0.5m trim (" + f2 + ")"); placements.push({ edge: e.edge, offset: offset, length: 0.5, type: "corner" }); offset += 0.5; }
+    });
+    return { available: true, items: Object.keys(agg).map(function (k) { return agg[k]; }), placements: placements };
+  }
+
   // ===========================================================================
   // NODE EXPORT (no-op in the browser)
   // ===========================================================================
   if (typeof module !== "undefined" && module.exports) {
-    module.exports = { packStage: packStage, buildGridSvg: buildGridSvg, fillFor: fillFor, isRealPart: isRealPart, legCount: legCount, fasciaKit: fasciaKit, symTile: symTile };
+    module.exports = { packStage: packStage, buildGridSvg: buildGridSvg, fillFor: fillFor, isRealPart: isRealPart, legCount: legCount, fasciaKit: fasciaKit, symTile: symTile, trimKit: trimKit };
   }
 
   // ===========================================================================
@@ -235,12 +275,14 @@
     Promise.all([
       getJson("decks.json"),
       getJson("legs.json").catch(function () { return { legs: [], legsPerDeck: 4 }; }),
-      getJson("fascia.json").catch(function () { return { boards: [], mounts: [] }; })
+      getJson("fascia.json").catch(function () { return { boards: [], mounts: [] }; }),
+      getJson("trim.json").catch(function () { return { trim: [] }; })
     ]).then(function (res) {
       catalogue = {
         systems: res[0].systems, decks: res[0].decks,
         legs: res[1].legs || [], legsPerDeck: res[1].legsPerDeck || 4,
-        fascia: { boards: (res[2].boards || []), mounts: (res[2].mounts || []) }
+        fascia: { boards: (res[2].boards || []), mounts: (res[2].mounts || []) },
+        trim: { trim: (res[3].trim || []) }
       };
       cb(catalogue);
     }).catch(function () { cb(null); });
@@ -384,6 +426,8 @@
 
       var finishWrap = field("Fascia finish"); var finishSel = el("select", null, "width:100%;padding:8px;font-size:14px;"); finishWrap.appendChild(finishSel); colControls.appendChild(finishWrap);
 
+      var trimWrap = field("Trim finish"); var trimSel = el("select", null, "width:100%;padding:8px;font-size:14px;"); trimWrap.appendChild(trimSel); colControls.appendChild(trimWrap);
+
       var kitBox = el("div", null, "font-size:13px;");
       colKit.appendChild(kitBox);
 
@@ -415,7 +459,16 @@
           .forEach(function (b) { if (finishes.indexOf(b.finish) < 0) finishes.push(b.finish); });
         finishSel.innerHTML = "";
         finishes.forEach(function (f) { var o = el("option"); o.value = f; o.textContent = f.charAt(0).toUpperCase() + f.slice(1); finishSel.appendChild(o); });
-        finishWrap.style.display = finishes.length ? "" : "none";
+        finishWrap.style.display = (parseInt(faceSel.value) > 0 && finishes.length) ? "" : "none";
+      }
+
+      function populateTrimFinishes() {
+        var finishes = [];
+        ((cat.trim && cat.trim.trim) || []).filter(function (b) { return b.system === sysSel.value; })
+          .forEach(function (b) { if (finishes.indexOf(b.finish) < 0) finishes.push(b.finish); });
+        trimSel.innerHTML = "";
+        finishes.forEach(function (f) { var o = el("option"); o.value = f; o.textContent = f.charAt(0).toUpperCase() + f.slice(1); trimSel.appendChild(o); });
+        trimWrap.style.display = (parseInt(faceSel.value) > 0 && finishes.length) ? "" : "none";
       }
 
       function applySystemBounds() {
@@ -480,15 +533,27 @@
           }
         }
 
+        // trim (auto-included wherever fascia is)
+        var trimHtml = "", trimFinish = "";
+        if (sides > 0) {
+          var tk = trimKit({ system: sysSel.value, width: parseFloat(wIn.value), depth: parseFloat(dIn.value), sides: sides, finish: trimSel.value, trim: cat.trim });
+          if (tk.available && tk.items.length) {
+            tk.items.forEach(function (it) { items.push(it); });
+            trimFinish = trimSel.value;
+            trimHtml = '<div style="font-size:11px;letter-spacing:.04em;color:#888;text-transform:uppercase;margin:10px 0 4px;">Trim (' + trimFinish + ')</div>' +
+              tk.items.map(function (it) { return '<div style="display:flex;justify-content:space-between;font-size:13px;padding:3px 0;"><span style="color:#333;">' + it.label + '</span><span style="color:#111;font-weight:500;">x ' + it.qty + '</span></div>'; }).join("");
+          }
+        }
+
         colPreview.innerHTML = buildGridSvg(res, parseFloat(wIn.value), parseFloat(dIn.value), fasciaPlacements);
         state.items = items;
         var cap = function (x) { return x ? x.charAt(0).toUpperCase() + x.slice(1) : x; };
-        state.title = "Stage " + (+parseFloat(wIn.value)) + "x" + (+parseFloat(dIn.value)) + (heightLabel ? " @ " + heightLabel + "mm" : "") + (fasciaFinish ? ", " + cap(fasciaFinish) + " Fascia" : "");
+        state.title = "Stage " + (+parseFloat(wIn.value)) + "x" + (+parseFloat(dIn.value)) + (heightLabel ? " @ " + heightLabel + "mm" : "") + (fasciaFinish ? ", " + cap(fasciaFinish) + " Fascia" : "") + (trimFinish ? ", " + cap(trimFinish) + " Trim" : "");
 
         var missing = items.filter(function (it) { return !isRealPart(it.partNumber); });
         kitBox.innerHTML = '<div style="font-size:11px;letter-spacing:.04em;color:#888;text-transform:uppercase;margin-bottom:6px;">Generated kit</div>' +
           '<div style="font-size:11px;letter-spacing:.04em;color:#888;text-transform:uppercase;margin-bottom:4px;">Decks</div>' +
-          decksHtml + legsHtml + fasciaHtml +
+          decksHtml + legsHtml + fasciaHtml + trimHtml +
           '<div style="margin-top:8px;font-size:12px;color:#777;">' + res.totals.panels + ' panels &middot; ' + res.totals.areaCovered + ' ' + c.unit + '&sup2;</div>' +
           (missing.length ? '<div style="margin-top:8px;font-size:12px;color:#b07b00;">' + missing.length + ' placeholder item(s) will be added as custom lines.</div>' : "") +
           '<div style="margin-top:6px;font-size:11px;color:#999;">Any code not found in stock is added as a custom line.</div>';
@@ -533,17 +598,19 @@
         });
       }
 
-      sysSel.addEventListener("change", function () { applySystemBounds(); populateHeights(); populateFinishes(); render(); });
+      sysSel.addEventListener("change", function () { applySystemBounds(); populateHeights(); populateFinishes(); populateTrimFinishes(); render(); });
       wIn.addEventListener("input", render);
       dIn.addEventListener("input", render);
       hSel.addEventListener("change", function () { populateFinishes(); render(); });
-      faceSel.addEventListener("change", render);
+      faceSel.addEventListener("change", function () { populateFinishes(); populateTrimFinishes(); render(); });
       finishSel.addEventListener("change", render);
+      trimSel.addEventListener("change", render);
 
       document.body.appendChild(backdrop);
       applySystemBounds();
       populateHeights();
       populateFinishes();
+      populateTrimFinishes();
       render();
     });
   }
