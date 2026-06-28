@@ -8,7 +8,7 @@
  * Catalogue: data/stage-designer/decks.json + legs.json.
  * Fascia, trim and carpet come later (fascia will match the chosen height).
  *
- * Version: 0.11.0
+ * Version: 0.11.1
  */
 
 (function () {
@@ -406,7 +406,7 @@
       panel.appendChild(head);
 
       var body = el("div", null, "display:flex;gap:24px;padding:22px;");
-      var colPreview = el("div", null, "flex:1;min-width:320px;display:flex;align-items:flex-start;justify-content:center;");
+      var colPreview = el("div", null, "flex:1;min-width:320px;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;");
       var colKit = el("div", null, "width:240px;flex-shrink:0;");
       var colControls = el("div", null, "width:220px;flex-shrink:0;");
       body.appendChild(colPreview); body.appendChild(colKit); body.appendChild(colControls);
@@ -551,7 +551,7 @@
         }
 
         var sw = function (col, lbl) { return '<span style="display:inline-flex;align-items:center;gap:4px;"><span style="width:10px;height:10px;border-radius:2px;background:' + col + ';"></span>' + lbl + '</span>'; };
-        var legend = '<div style="display:flex;flex-wrap:wrap;gap:6px 10px;margin-top:8px;font-size:11px;color:#666;">' +
+        var legend = '<div style="display:flex;flex-wrap:wrap;justify-content:center;gap:6px 12px;margin-top:10px;font-size:11px;color:#666;max-width:320px;">' +
           sw("#7F77DD", "Deck") +
           (fasciaFinish ? sw("#1D9E75", "Fascia") + sw("#D85A30", "Fascia corner") : "") +
           (trimFinish ? sw("#3b82f6", "Trim") + sw("#1e40af", "Trim corner") : "") + '</div>';
