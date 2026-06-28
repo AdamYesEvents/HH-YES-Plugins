@@ -1,0 +1,10 @@
+{
+  "schema": "stage-designer/branding",
+  "dataVersion": "0.1.0",
+  "_note": "logoUrl must be CORS-enabled (e.g. hosted via jsDelivr in this repo) so it can be drawn into the PDF. width/height in mm for the top-right placement.",
+  "logoBox": { "width": 38, "height": 28 },
+  "default": { "logoUrl": "" },
+  "depots": {
+    "1": { "name": "Wokingham", "logoUrl": "" }
+  }
+}

@@ -8,7 +8,7 @@
  * Catalogue: data/stage-designer/decks.json + legs.json.
  * Fascia, trim and carpet come later (fascia will match the chosen height).
  *
- * Version: 0.16.0
+ * Version: 0.17.0
  */
 
 (function () {
@@ -122,9 +122,19 @@
     }
     var fasciaRects = band(fascia, ft, 2, function (b) { return b.type === "corner" ? "#D85A30" : "#1D9E75"; });
     var trimRects = band(trim, tt, toff, function (b) { return b.type === "corner" ? "#1e40af" : "#3b82f6"; });
-    var SW = W + 2 * m, SH = H + 2 * m;
+    // treads: a row of 1m boxes at the front edge (only drawn when requested, e.g. the PDF)
+    var treadSvg = "", bottomExtra = 0;
+    if (opts.treads && opts.treads.units > 0) {
+      var tu = opts.treads.units, tcol = opts.treads.colour || "#333333";
+      var tw = scale, td = Math.min(scale * 0.5, 28), ty = oy + H + 16;
+      var totalW = tu * tw, startX = Math.max(4, ox + W / 2 - totalW / 2);
+      for (var i = 0; i < tu; i++) treadSvg += '<rect x="' + (startX + i * tw + 1) + '" y="' + ty + '" width="' + (tw - 2) + '" height="' + td + '" fill="' + tcol + '" stroke="#26215C" stroke-width="1"/>';
+      treadSvg += '<text x="' + (ox + W / 2) + '" y="' + (ty + td + 12) + '" font-family="Arial,Helvetica,sans-serif" font-size="10" fill="#555555" text-anchor="middle">Treads &#215; ' + tu + (opts.treads.height ? ' @ ' + opts.treads.height : '') + '</text>';
+      bottomExtra = 16 + td + 18;
+    }
+    var SW = W + 2 * m, SH = H + 2 * m + bottomExtra;
     return '<svg width="' + SW + '" height="' + SH + '" viewBox="0 0 ' + SW + ' ' + SH + '" xmlns="http://www.w3.org/2000/svg">' +
-      deckRects + fasciaRects + trimRects +
+      deckRects + fasciaRects + trimRects + treadSvg +
       '<rect x="' + (ox + 0.5) + '" y="' + (oy + 0.5) + '" width="' + (W - 1) + '" height="' + (H - 1) + '" fill="none" stroke="#26215C" stroke-width="2"/></svg>';
   }
 
@@ -372,7 +382,8 @@
       getJson("fascia.json").catch(function () { return { boards: [], mounts: [] }; }),
       getJson("trim.json").catch(function () { return { trim: [] }; }),
       getJson("carpet.json").catch(function () { return { carpet: [], overhang: 1 }; }),
-      getJson("treads.json").catch(function () { return { treads: [], maxUnits: 4 }; })
+      getJson("treads.json").catch(function () { return { treads: [], maxUnits: 4 }; }),
+      getJson("branding.json").catch(function () { return { depots: {}, default: {} }; })
     ]).then(function (res) {
       catalogue = {
         systems: res[0].systems, decks: res[0].decks,
@@ -380,7 +391,8 @@
         fascia: { boards: (res[2].boards || []), mounts: (res[2].mounts || []) },
         trim: { trim: (res[3].trim || []) },
         carpet: { carpet: (res[4].carpet || []), overhang: (typeof res[4].overhang === "number" ? res[4].overhang : 1) },
-        treads: { treads: (res[5].treads || []), maxUnits: (res[5].maxUnits || 4) }
+        treads: { treads: (res[5].treads || []), maxUnits: (res[5].maxUnits || 4) },
+        branding: res[6] || { depots: {}, default: {} }
       };
       cb(catalogue);
     }).catch(function () { cb(null); });
@@ -511,36 +523,86 @@
     });
   }
 
-  // Build a one-page PDF (labelled layout + kit list) and push it to the Files
-  // tab via HireHop's own uploader. Resolves with the filename.
-  function buildAndUploadPdf(state, code) {
-    return loadJsPdf().then(function (JsPDF) {
-      var svg = buildGridSvg(state.result, state.width, state.depth, state.fasciaPlacements, state.trimPlacements,
-        { maxW: 470, maxH: 330, labelHeight: state.height || "", labelFont: 9 });
+  // Load an image URL to a data URL (needs CORS) for embedding. Resolves null on failure.
+  function loadImageDataUrl(url) {
+    return new Promise(function (resolve) {
+      if (!url) return resolve(null);
+      var img = new Image(); img.crossOrigin = "anonymous";
+      img.onload = function () {
+        try {
+          var c = document.createElement("canvas"); c.width = img.naturalWidth; c.height = img.naturalHeight;
+          c.getContext("2d").drawImage(img, 0, 0);
+          resolve({ dataUrl: c.toDataURL("image/png"), w: img.naturalWidth, h: img.naturalHeight });
+        } catch (e) { resolve(null); }
+      };
+      img.onerror = function () { resolve(null); };
+      img.src = url;
+    });
+  }
+
+  function fmtDate(s) {
+    var mm = String(s || "").match(/(\d{4})-(\d{2})-(\d{2})/);
+    return mm ? (mm[3] + "/" + mm[2] + "/" + mm[1]) : "";
+  }
+
+  // Build the one-page PDF (logo, job header, labelled layout, kit list).
+  // Resolves { pdf, fileName }. Reads job number / delivery date from job_data.
+  function buildPdf(snapshot, code, branding) {
+    var jd = window.job_data || {};
+    var brand = branding || {}, dep = (brand.depots && brand.depots[jd.DEPOT_ID]) || {};
+    var logoUrl = dep.logoUrl || (brand.default && brand.default.logoUrl) || "";
+    var box = brand.logoBox || { width: 38, height: 28 };
+    return Promise.all([loadJsPdf(), loadImageDataUrl(logoUrl)]).then(function (r) {
+      var JsPDF = r[0], logo = r[1];
+      var svg = buildGridSvg(snapshot.result, snapshot.width, snapshot.depth, snapshot.fasciaPlacements, snapshot.trimPlacements,
+        { maxW: 470, maxH: 330, labelHeight: snapshot.height || "", labelFont: 9, treads: snapshot.treadUnits > 0 ? { units: snapshot.treadUnits, height: snapshot.treadHeight, colour: snapshot.treadColour } : null });
       return svgToPng(svg, 3).then(function (png) {
         var pdf = new JsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
         var pageW = 210, margin = 14;
-        pdf.setFontSize(15); pdf.setTextColor(30, 30, 30); pdf.text(String(state.title), margin, 18);
-        pdf.setFontSize(10); pdf.setTextColor(120, 120, 120);
-        pdf.text("Ref: " + code + "     " + new Date().toLocaleDateString(), margin, 25);
-        var imgW = pageW - margin * 2, imgH = imgW * (png.h / png.w), maxImgH = 130;
+        if (logo) {
+          var lw = box.width, lh = box.height, ar = logo.w / logo.h;
+          if (lw / lh > ar) lw = lh * ar; else lh = lw / ar;
+          pdf.addImage(logo.dataUrl, "PNG", pageW - margin - lw, 12, lw, lh);
+        }
+        pdf.setFontSize(15); pdf.setTextColor(30, 30, 30); pdf.text(String(snapshot.title), margin, 18);
+        pdf.setFontSize(10); pdf.setTextColor(90, 90, 90);
+        pdf.text("Job " + (jd.ID || "") + (jd.DEPOT ? "  -  " + jd.DEPOT : ""), margin, 25);
+        pdf.text("Delivery: " + (fmtDate(jd.OUT_DATE) || "-") + "      Ref: " + code, margin, 31);
+        var top = 38, imgW = pageW - margin * 2, imgH = imgW * (png.h / png.w), maxImgH = 135;
         if (imgH > maxImgH) { imgH = maxImgH; imgW = imgH * (png.w / png.h); }
-        pdf.addImage(png.dataUrl, "JPEG", margin, 31, imgW, imgH);
-        var y = 31 + imgH + 11;
+        pdf.addImage(png.dataUrl, "JPEG", margin, top, imgW, imgH);
+        var y = top + imgH + 11;
         pdf.setFontSize(12); pdf.setTextColor(30, 30, 30); pdf.text("Kit list", margin, y); y += 6;
         pdf.setFontSize(10);
-        (state.items || []).forEach(function (it) {
+        (snapshot.items || []).forEach(function (it) {
           if (y > 285) { pdf.addPage(); y = 20; }
           pdf.setTextColor(60, 60, 60); pdf.text(String(it.label), margin, y);
           pdf.setTextColor(20, 20, 20); pdf.text("x " + it.qty, pageW - margin, y, { align: "right" });
           y += 6;
         });
-        var fileName = state.width + "x" + state.depth + "@" + (state.height || 0) + "mm stage-" + code + ".pdf";
-        var file = new File([pdf.output("blob")], fileName, { type: "application/pdf" });
-        if (typeof window.handleFileUpload === "function") window.handleFileUpload([file]);
-        return fileName;
+        var fileName = snapshot.width + "x" + snapshot.depth + "@" + (snapshot.height || 0) + "mm stage-" + code + ".pdf";
+        return { pdf: pdf, fileName: fileName };
       });
     });
+  }
+
+  // Offer a local "save as" (File System Access API), falling back to a download.
+  // Aborting the picker cancels quietly (no fallback download).
+  function savePdfLocal(pdf, fileName) {
+    var blob = pdf.output("blob");
+    if (window.showSaveFilePicker) {
+      return window.showSaveFilePicker({ suggestedName: fileName, types: [{ description: "PDF", accept: { "application/pdf": [".pdf"] } }] })
+        .then(function (h) { return h.createWritable(); })
+        .then(function (w) { return Promise.resolve(w.write(blob)).then(function () { return w.close(); }); })
+        .catch(function (e) { if (e && e.name === "AbortError") return; try { pdf.save(fileName); } catch (x) {} });
+    }
+    try { pdf.save(fileName); } catch (e) {}
+    return Promise.resolve();
+  }
+
+  function uploadPdf(pdf, fileName) {
+    var file = new File([pdf.output("blob")], fileName, { type: "application/pdf" });
+    if (typeof window.handleFileUpload === "function") window.handleFileUpload([file]);
   }
 
   // ---- dialog ----------------------------------------------------------------
@@ -802,7 +864,8 @@
         state.items = items;
         state.width = +parseFloat(wIn.value); state.depth = +parseFloat(dIn.value); state.height = heightVal;
         state.fasciaPlacements = fasciaPlacements; state.trimPlacements = trimPlacements;
-        state.treadUnits = treadUnits; state.treadHeight = treadHeight;
+        state.treadUnits = treadsHtml ? treadUnits : 0; state.treadHeight = treadHeight;
+        state.treadColour = ({ black: "#333333", white: "#e8e8e8", grey: "#9a9a9a" })[(carpetSel.value || "black")] || "#333333";
         var cap = function (x) { return x ? x.charAt(0).toUpperCase() + x.slice(1) : x; };
         state.title = "Stage " + (+parseFloat(wIn.value)) + "x" + (+parseFloat(dIn.value)) + (heightLabel ? " @ " + heightLabel + "mm" : "") + (carpetColour ? ", " + cap(carpetColour) + " Carpet" : "") + (fasciaFinish ? ", " + cap(fasciaFinish) + " Fascia" : "") + (trimFinish ? ", " + cap(trimFinish) + " Trim" : "") + (treadsHtml ? ", " + treadUnits + " Tread" + (treadUnits > 1 ? "s" : "") : "");
 
@@ -840,22 +903,28 @@
       }
 
       function doAdd() {
-        foot.innerHTML = '<div style="flex:1;font-size:13px;color:#555;">Adding to the job…</div>';
+        foot.innerHTML = '<div style="flex:1;font-size:13px;color:#555;">Building the PDF…</div>';
         var code = genCode();
-        var snapshot = { result: state.result, width: state.width, depth: state.depth, height: state.height, fasciaPlacements: state.fasciaPlacements, trimPlacements: state.trimPlacements, items: state.items.slice(), title: state.title };
-        addStageKit(inst, state.items, state.title, function (r) {
-          if (r.ok) {
-            foot.innerHTML = '<div style="flex:1;font-size:13px;color:#555;">Creating the PDF…</div>';
-            buildAndUploadPdf(snapshot, code).then(function () { close(); }, function () { close(); });
-          } else {
-            foot.innerHTML = "";
-            var err = el("div", null, "flex:1;font-size:13px;color:#b00;");
-            err.textContent = r.error;
-            var back = el("button", null, "padding:8px 16px;font-size:14px;cursor:pointer;");
-            back.textContent = "Back"; back.addEventListener("click", render);
-            foot.appendChild(err); foot.appendChild(back);
-          }
-        }, code);
+        var snapshot = { result: state.result, width: state.width, depth: state.depth, height: state.height, fasciaPlacements: state.fasciaPlacements, trimPlacements: state.trimPlacements, items: state.items.slice(), title: state.title, treadUnits: state.treadUnits, treadHeight: state.treadHeight, treadColour: state.treadColour };
+        function insert(built) {
+          foot.innerHTML = '<div style="flex:1;font-size:13px;color:#555;">Adding to the job…</div>';
+          addStageKit(inst, state.items, state.title, function (r) {
+            if (r.ok) { if (built) uploadPdf(built.pdf, built.fileName); close(); }
+            else {
+              foot.innerHTML = "";
+              var err = el("div", null, "flex:1;font-size:13px;color:#b00;");
+              err.textContent = r.error;
+              var back = el("button", null, "padding:8px 16px;font-size:14px;cursor:pointer;");
+              back.textContent = "Back"; back.addEventListener("click", render);
+              foot.appendChild(err); foot.appendChild(back);
+            }
+          }, code);
+        }
+        // Build + offer a local save first (on the click's user gesture), then insert
+        // the kit and upload the same PDF to the Files tab.
+        buildPdf(snapshot, code, cat.branding).then(function (built) {
+          return savePdfLocal(built.pdf, built.fileName).then(function () { insert(built); });
+        }).catch(function () { insert(null); });
       }
 
       sysSel.addEventListener("change", function () { applySystemBounds(); populateHeights(); syncFasciaControls(); syncTreadsControl(); render(); });
@@ -874,6 +943,7 @@
       syncFasciaControls();
       syncTreadsControl();
       render();
+      loadJsPdf().catch(function () { }); // warm up so the save dialog stays within the click gesture
     });
   }
 
