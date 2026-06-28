@@ -1,13 +1,12 @@
 {
   "schema": "stage-designer/treads",
-  "dataVersion": "0.1.0",
+  "dataVersion": "0.2.0",
   "maxUnits": 4,
   "width": 1,
   "treads": [
     {
       "system": "metric",
       "height": 400,
-      "carpetLen": 1,
       "parts": [
         { "label": "400mm tread unit", "partNumber": "st400", "qty": 1 }
       ]
@@ -15,7 +14,6 @@
     {
       "system": "metric",
       "height": 600,
-      "carpetLen": 1.5,
       "parts": [
         { "label": "400mm tread unit", "partNumber": "st400", "qty": 1 },
         { "label": "600mm tread extension", "partNumber": "st400-2", "qty": 1 }

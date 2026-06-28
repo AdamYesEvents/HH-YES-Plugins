@@ -8,7 +8,7 @@
  * Catalogue: data/stage-designer/decks.json + legs.json.
  * Fascia, trim and carpet come later (fascia will match the chosen height).
  *
- * Version: 0.14.0
+ * Version: 0.15.0
  */
 
 (function () {
@@ -315,9 +315,11 @@
     return { available: true, items: items, cuts: cuts, cutLength: cutLength, combo: combo };
   }
 
-  // Tread units (steps up to the stage). o = { system,height,units,colour,treads,
-  // carpet }. 600mm = the 400mm unit + an extension. All treads are carpeted with
-  // 1m-wide carpet in the stage colour. Returns { available, items, units, height }.
+  // Tread units (steps up to the stage). Only valid where a tread height matches
+  // the stage height (400 or 600). o = { system,height,units,colour,treads,carpet }.
+  // 600mm = the 400mm unit + an extension. Each tread also gets one 1m x 1m carpet
+  // (1m-wide roll) in the stage colour, listed per tread (qty = units, not totalled).
+  // Returns { available, items, units, height }.
   function treadsKit(o) {
     var data = o.treads || {};
     if (!o.units) return { available: true, items: [], units: 0 };
@@ -325,14 +327,12 @@
     if (!def) return { available: false, items: [], units: o.units };
     var items = [];
     (def.parts || []).forEach(function (p) { items.push({ label: p.label, partNumber: p.partNumber, qty: p.qty * o.units }); });
-    // Whole-metre tread carpet (per-metre stock, no fractional qty).
-    var carpetLen = Math.ceil((typeof def.carpetLen === "number" ? def.carpetLen : 1) * o.units);
     var roll = ((o.carpet && o.carpet.carpet) || []).filter(function (b) { return b.system === o.system && b.colour === o.colour && b.width === 1; })[0];
-    if (roll && carpetLen > 0) {
+    if (roll) {
       var cap = o.colour.charAt(0).toUpperCase() + o.colour.slice(1);
-      items.push({ label: cap + " Carpet 1m wide (treads)", partNumber: roll.partNumber, qty: carpetLen });
+      items.push({ label: cap + " Carpet 1m × 1m (per tread)", partNumber: roll.partNumber, qty: o.units });
     }
-    return { available: true, items: items, units: o.units, height: o.height, carpetMetres: carpetLen };
+    return { available: true, items: items, units: o.units, height: o.height };
   }
 
   // ===========================================================================
@@ -539,14 +539,11 @@
         for (var u = 1; u <= maxU; u++) opts.push([String(u), u + (u > 1 ? " units" : " unit")]);
         opts.forEach(function (o) { var op = el("option"); op.value = o[0]; op.textContent = o[1]; treadsSel.appendChild(op); });
       })();
-      treadsWrap.appendChild(treadsSel); colControls.appendChild(treadsWrap);
-
-      var treadHWrap = field("Tread height"); var treadHSel = el("select", null, "width:100%;padding:8px;font-size:14px;");
-      (function () {
-        var hs = []; ((cat.treads && cat.treads.treads) || []).forEach(function (t) { if (hs.indexOf(t.height) < 0) hs.push(t.height); });
-        hs.sort(function (a, b) { return a - b; }).forEach(function (h) { var op = el("option"); op.value = String(h); op.textContent = h + "mm"; treadHSel.appendChild(op); });
-      })();
-      treadHWrap.appendChild(treadHSel); colControls.appendChild(treadHWrap);
+      treadsWrap.appendChild(treadsSel);
+      var treadsNote = el("div", null, "margin-top:6px;font-size:11px;color:#999;display:none;");
+      treadsNote.textContent = "Treads available on 400mm or 600mm stages only.";
+      treadsWrap.appendChild(treadsNote);
+      colControls.appendChild(treadsWrap);
 
       var kitBox = el("div", null, "font-size:13px;");
       colKit.appendChild(kitBox);
@@ -602,6 +599,16 @@
         faceWrap.style.opacity = fasciaOK ? "1" : "0.6";
         populateFinishes();
         populateTrimFinishes();
+      }
+
+      // Treads only fit a stage whose height matches a tread unit (400 / 600).
+      function syncTreadsControl() {
+        var h = currentHeight();
+        var treadsOK = ((cat.treads && cat.treads.treads) || []).some(function (t) { return t.system === sysSel.value && t.height === h; });
+        treadsSel.disabled = !treadsOK;
+        if (!treadsOK) treadsSel.value = "0";
+        treadsNote.style.display = treadsOK ? "none" : "";
+        treadsWrap.style.opacity = treadsOK ? "1" : "0.6";
       }
 
       function applySystemBounds() {
@@ -691,9 +698,8 @@
           }
         }
 
-        // treads (steps up to the stage; carpeted in the stage colour)
-        var treadsHtml = "", treadBoxHtml = "", treadUnits = parseInt(treadsSel.value) || 0, treadHeight = parseInt(treadHSel.value) || 0;
-        treadHWrap.style.display = treadUnits > 0 ? "" : "none";
+        // treads (steps up to the stage; height matches the stage, carpeted in the stage colour)
+        var treadsHtml = "", treadBoxHtml = "", treadUnits = parseInt(treadsSel.value) || 0, treadHeight = heightVal;
         if (treadUnits > 0 && treadHeight) {
           var trd = treadsKit({ system: sysSel.value, height: treadHeight, units: treadUnits, colour: (carpetSel.value || "black"), treads: cat.treads, carpet: cat.carpet });
           if (trd.available && trd.items.length) {
@@ -767,21 +773,21 @@
         });
       }
 
-      sysSel.addEventListener("change", function () { applySystemBounds(); populateHeights(); syncFasciaControls(); render(); });
+      sysSel.addEventListener("change", function () { applySystemBounds(); populateHeights(); syncFasciaControls(); syncTreadsControl(); render(); });
       wIn.addEventListener("input", render);
       dIn.addEventListener("input", render);
-      hSel.addEventListener("change", function () { syncFasciaControls(); render(); });
+      hSel.addEventListener("change", function () { syncFasciaControls(); syncTreadsControl(); render(); });
       faceSel.addEventListener("change", function () { populateFinishes(); populateTrimFinishes(); render(); });
       finishSel.addEventListener("change", render);
       trimSel.addEventListener("change", render);
       carpetSel.addEventListener("change", render);
       treadsSel.addEventListener("change", render);
-      treadHSel.addEventListener("change", render);
 
       document.body.appendChild(backdrop);
       applySystemBounds();
       populateHeights();
       syncFasciaControls();
+      syncTreadsControl();
       render();
     });
   }
