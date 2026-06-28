@@ -8,7 +8,7 @@
  * Catalogue: data/stage-designer/decks.json + legs.json.
  * Fascia, trim and carpet come later (fascia will match the chosen height).
  *
- * Version: 0.13.0
+ * Version: 0.13.1
  */
 
 (function () {
@@ -295,15 +295,22 @@
     var cutLength = +(longer + overhang).toFixed(3);
     var combo = coverWidth(shorter, widths);
     if (!combo) return { available: false, items: [], cuts: [] };
+    // Carpet is sold per linear metre off a roll of a given width, so each width
+    // is one stock line and the qty is the total metres cut (cuts x cut length).
     var cap = o.colour.charAt(0).toUpperCase() + o.colour.slice(1);
     var agg = {}, cuts = [];
     combo.forEach(function (w) {
       var b = byW[w], key = b.partNumber;
-      if (!agg[key]) agg[key] = { label: cap + " Carpet " + w + "m wide × " + cutLength + "m", partNumber: b.partNumber, qty: 0 };
-      agg[key].qty++;
+      if (!agg[key]) agg[key] = { width: w, partNumber: b.partNumber, cuts: 0 };
+      agg[key].cuts++;
       cuts.push({ width: w, length: cutLength });
     });
-    return { available: true, items: Object.keys(agg).map(function (k) { return agg[k]; }), cuts: cuts, cutLength: cutLength, combo: combo };
+    var items = Object.keys(agg).map(function (k) {
+      var a = agg[k], metres = +(a.cuts * cutLength).toFixed(3);
+      var desc = a.cuts > 1 ? (a.cuts + " × " + cutLength + "m cuts") : (cutLength + "m cut");
+      return { label: cap + " Carpet " + a.width + "m wide (" + desc + ")", partNumber: a.partNumber, qty: metres };
+    });
+    return { available: true, items: items, cuts: cuts, cutLength: cutLength, combo: combo };
   }
 
   // ===========================================================================
