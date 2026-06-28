@@ -8,7 +8,7 @@
  * Catalogue: data/stage-designer/decks.json + legs.json.
  * Fascia, trim and carpet come later (fascia will match the chosen height).
  *
- * Version: 0.8.0
+ * Version: 0.9.0
  */
 
 (function () {
@@ -285,28 +285,49 @@
     });
   }
 
-  // Resolve all kit parts (sequentially), create the folder, insert under it.
+  // Insert each unresolved item as a custom (free-text) line under the heading,
+  // one at a time. Name is "[partNumber] label" for easy find/replace later.
+  function insertCustoms(inst, headingId, customs, done) {
+    var tree = inst.items_to_supply_tree.jstree(true), i = 0;
+    (function next() {
+      if (i >= customs.length) { done(); return; }
+      var it = customs[i++];
+      tree.deselect_all(); tree.select_node("a" + headingId);
+      inst.new_item(3);
+      inst.custom_name.val("[" + it.partNumber + "] " + it.label);
+      inst.priced_edit.find("[name='qty']").val(it.qty);
+      inst.save_item();
+      setTimeout(next, 1800);
+    })();
+  }
+
+  // Resolve each kit part, create the folder, then insert resolved parts as a
+  // batch and any unresolved codes as custom lines (so a kit can be built even
+  // before every stock code exists).
   function addStageKit(inst, items, title, onDone) {
-    var shopping = {}, errors = [];
+    var shopping = {}, customs = [];
     var chain = Promise.resolve();
     items.forEach(function (it) {
       chain = chain.then(function () {
         return resolvePart(inst, it.partNumber, it.qty).then(function (d) {
-          if (!d || typeof d.error !== "undefined") errors.push(it.label);
+          if (!d || typeof d.error !== "undefined") customs.push(it);
           else { var key = (d.TYPE == 1 ? "a" : "b") + d.ID; shopping[key] = (shopping[key] || 0) + it.qty; }
-        }, function () { errors.push(it.label); });
+        }, function () { customs.push(it); });
       });
     });
     chain.then(function () {
-      if (errors.length) { onDone({ ok: false, error: "Could not look up: " + errors.join(", ") }); return; }
       createHeading(inst, title).then(function (headingId) {
         if (!headingId) { onDone({ ok: false, error: "Could not create the stage folder" }); return; }
-        inst.set_item_edit_tree_headings();
         var tree = inst.items_to_supply_tree.jstree(true);
+        inst.set_item_edit_tree_headings();
         tree.deselect_all(); tree.select_node("a" + headingId); inst.set_parent_vals(true);
-        if (inst.picklist_heading.val() != headingId) { onDone({ ok: false, error: "Could not target the stage folder" }); return; }
-        inst.save_items_list(shopping);
-        onDone({ ok: true, headingId: headingId });
+        function doCustoms() { insertCustoms(inst, headingId, customs, function () { onDone({ ok: true, headingId: headingId, parts: Object.keys(shopping).length, customs: customs.length }); }); }
+        if (Object.keys(shopping).length && inst.picklist_heading.val() == headingId) {
+          inst.save_items_list(shopping);
+          setTimeout(doCustoms, 2600); // let the batch save + tree rebuild settle
+        } else {
+          doCustoms();
+        }
       });
     });
   }
@@ -469,9 +490,10 @@
           '<div style="font-size:11px;letter-spacing:.04em;color:#888;text-transform:uppercase;margin-bottom:4px;">Decks</div>' +
           decksHtml + legsHtml + fasciaHtml +
           '<div style="margin-top:8px;font-size:12px;color:#777;">' + res.totals.panels + ' panels &middot; ' + res.totals.areaCovered + ' ' + c.unit + '&sup2;</div>' +
-          (missing.length ? '<div style="margin-top:8px;font-size:12px;color:#b07b00;">No part number yet for: ' + missing.map(function (m) { return m.label; }).join(", ") + '</div>' : "");
+          (missing.length ? '<div style="margin-top:8px;font-size:12px;color:#b07b00;">' + missing.length + ' placeholder item(s) will be added as custom lines.</div>' : "") +
+          '<div style="margin-top:6px;font-size:11px;color:#999;">Any code not found in stock is added as a custom line.</div>';
 
-        renderFooter(missing.length === 0, missing.length ? "Some items have no part number" : "");
+        renderFooter(true, "");
       }
 
       function renderFooter(canAdd, disabledReason) {
