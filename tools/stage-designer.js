@@ -8,7 +8,7 @@
  * Catalogue: data/stage-designer/decks.json + legs.json.
  * Fascia, trim and carpet come later (fascia will match the chosen height).
  *
- * Version: 0.13.2
+ * Version: 0.14.0
  */
 
 (function () {
@@ -315,11 +315,30 @@
     return { available: true, items: items, cuts: cuts, cutLength: cutLength, combo: combo };
   }
 
+  // Tread units (steps up to the stage). o = { system,height,units,colour,treads,
+  // carpet }. 600mm = the 400mm unit + an extension. All treads are carpeted with
+  // 1m-wide carpet in the stage colour. Returns { available, items, units, height }.
+  function treadsKit(o) {
+    var data = o.treads || {};
+    if (!o.units) return { available: true, items: [], units: 0 };
+    var def = (data.treads || []).filter(function (t) { return t.system === o.system && t.height === o.height; })[0];
+    if (!def) return { available: false, items: [], units: o.units };
+    var items = [];
+    (def.parts || []).forEach(function (p) { items.push({ label: p.label, partNumber: p.partNumber, qty: p.qty * o.units }); });
+    var carpetLen = (typeof def.carpetLen === "number" ? def.carpetLen : 1) * o.units;
+    var roll = ((o.carpet && o.carpet.carpet) || []).filter(function (b) { return b.system === o.system && b.colour === o.colour && b.width === 1; })[0];
+    if (roll && carpetLen > 0) {
+      var cap = o.colour.charAt(0).toUpperCase() + o.colour.slice(1);
+      items.push({ label: cap + " Carpet 1m wide (treads)", partNumber: roll.partNumber, qty: +carpetLen.toFixed(3) });
+    }
+    return { available: true, items: items, units: o.units, height: o.height, carpetMetres: carpetLen };
+  }
+
   // ===========================================================================
   // NODE EXPORT (no-op in the browser)
   // ===========================================================================
   if (typeof module !== "undefined" && module.exports) {
-    module.exports = { packStage: packStage, buildGridSvg: buildGridSvg, fillFor: fillFor, isRealPart: isRealPart, legCount: legCount, fasciaKit: fasciaKit, symTile: symTile, trimKit: trimKit, carpetKit: carpetKit, coverWidth: coverWidth };
+    module.exports = { packStage: packStage, buildGridSvg: buildGridSvg, fillFor: fillFor, isRealPart: isRealPart, legCount: legCount, fasciaKit: fasciaKit, symTile: symTile, trimKit: trimKit, carpetKit: carpetKit, coverWidth: coverWidth, treadsKit: treadsKit };
   }
 
   // ===========================================================================
@@ -344,14 +363,16 @@
       getJson("legs.json").catch(function () { return { legs: [], legsPerDeck: 4 }; }),
       getJson("fascia.json").catch(function () { return { boards: [], mounts: [] }; }),
       getJson("trim.json").catch(function () { return { trim: [] }; }),
-      getJson("carpet.json").catch(function () { return { carpet: [], overhang: 1 }; })
+      getJson("carpet.json").catch(function () { return { carpet: [], overhang: 1 }; }),
+      getJson("treads.json").catch(function () { return { treads: [], maxUnits: 4 }; })
     ]).then(function (res) {
       catalogue = {
         systems: res[0].systems, decks: res[0].decks,
         legs: res[1].legs || [], legsPerDeck: res[1].legsPerDeck || 4,
         fascia: { boards: (res[2].boards || []), mounts: (res[2].mounts || []) },
         trim: { trim: (res[3].trim || []) },
-        carpet: { carpet: (res[4].carpet || []), overhang: (typeof res[4].overhang === "number" ? res[4].overhang : 1) }
+        carpet: { carpet: (res[4].carpet || []), overhang: (typeof res[4].overhang === "number" ? res[4].overhang : 1) },
+        treads: { treads: (res[5].treads || []), maxUnits: (res[5].maxUnits || 4) }
       };
       cb(catalogue);
     }).catch(function () { cb(null); });
@@ -510,6 +531,22 @@
 
       var trimWrap = field("Trim finish"); var trimSel = el("select", null, "width:100%;padding:8px;font-size:14px;"); trimWrap.appendChild(trimSel); colControls.appendChild(trimWrap);
 
+      var treadsWrap = field("Treads"); var treadsSel = el("select", null, "width:100%;padding:8px;font-size:14px;");
+      (function () {
+        var maxU = (cat.treads && cat.treads.maxUnits) || 4;
+        var opts = [["0", "None"]];
+        for (var u = 1; u <= maxU; u++) opts.push([String(u), u + (u > 1 ? " units" : " unit")]);
+        opts.forEach(function (o) { var op = el("option"); op.value = o[0]; op.textContent = o[1]; treadsSel.appendChild(op); });
+      })();
+      treadsWrap.appendChild(treadsSel); colControls.appendChild(treadsWrap);
+
+      var treadHWrap = field("Tread height"); var treadHSel = el("select", null, "width:100%;padding:8px;font-size:14px;");
+      (function () {
+        var hs = []; ((cat.treads && cat.treads.treads) || []).forEach(function (t) { if (hs.indexOf(t.height) < 0) hs.push(t.height); });
+        hs.sort(function (a, b) { return a - b; }).forEach(function (h) { var op = el("option"); op.value = String(h); op.textContent = h + "mm"; treadHSel.appendChild(op); });
+      })();
+      treadHWrap.appendChild(treadHSel); colControls.appendChild(treadHWrap);
+
       var kitBox = el("div", null, "font-size:13px;");
       colKit.appendChild(kitBox);
 
@@ -653,20 +690,38 @@
           }
         }
 
+        // treads (steps up to the stage; carpeted in the stage colour)
+        var treadsHtml = "", treadBoxHtml = "", treadUnits = parseInt(treadsSel.value) || 0, treadHeight = parseInt(treadHSel.value) || 0;
+        treadHWrap.style.display = treadUnits > 0 ? "" : "none";
+        if (treadUnits > 0 && treadHeight) {
+          var trd = treadsKit({ system: sysSel.value, height: treadHeight, units: treadUnits, colour: (carpetSel.value || "black"), treads: cat.treads, carpet: cat.carpet });
+          if (trd.available && trd.items.length) {
+            trd.items.forEach(function (it) { items.push(it); });
+            treadsHtml = '<div style="font-size:11px;letter-spacing:.04em;color:#888;text-transform:uppercase;margin:10px 0 4px;">Treads (' + treadHeight + 'mm)</div>' +
+              trd.items.map(function (it) { return '<div style="display:flex;justify-content:space-between;font-size:13px;padding:3px 0;"><span style="color:#333;">' + it.label + '</span><span style="color:#111;font-weight:500;">x ' + it.qty + '</span></div>'; }).join("");
+            var hex = ({ black: "#333333", white: "#e8e8e8", grey: "#9a9a9a" })[(carpetSel.value || "black")] || "#333333";
+            var boxes = "";
+            for (var ti = 0; ti < treadUnits; ti++) boxes += '<div style="width:32px;height:22px;background:' + hex + ';border:1px solid #26215C;border-radius:2px;"></div>';
+            treadBoxHtml = '<div style="margin-top:12px;display:flex;flex-direction:column;align-items:center;gap:5px;">' +
+              '<div style="font-size:11px;letter-spacing:.04em;color:#888;text-transform:uppercase;">Treads — ' + treadHeight + 'mm &times; ' + treadUnits + '</div>' +
+              '<div style="display:flex;gap:5px;">' + boxes + '</div></div>';
+          }
+        }
+
         var sw = function (col, lbl) { return '<span style="display:inline-flex;align-items:center;gap:4px;"><span style="width:10px;height:10px;border-radius:2px;background:' + col + ';"></span>' + lbl + '</span>'; };
         var legend = '<div style="display:flex;flex-wrap:wrap;justify-content:center;gap:6px 12px;margin-top:10px;font-size:11px;color:#666;max-width:320px;">' +
           sw("#7F77DD", "Deck") +
           (fasciaFinish ? sw("#1D9E75", "Fascia") + sw("#D85A30", "Fascia corner") : "") +
           (trimFinish ? sw("#3b82f6", "Trim") + sw("#1e40af", "Trim corner") : "") + '</div>';
-        colPreview.innerHTML = buildGridSvg(res, parseFloat(wIn.value), parseFloat(dIn.value), fasciaPlacements, trimPlacements) + legend;
+        colPreview.innerHTML = buildGridSvg(res, parseFloat(wIn.value), parseFloat(dIn.value), fasciaPlacements, trimPlacements) + treadBoxHtml + legend;
         state.items = items;
         var cap = function (x) { return x ? x.charAt(0).toUpperCase() + x.slice(1) : x; };
-        state.title = "Stage " + (+parseFloat(wIn.value)) + "x" + (+parseFloat(dIn.value)) + (heightLabel ? " @ " + heightLabel + "mm" : "") + (carpetColour ? ", " + cap(carpetColour) + " Carpet" : "") + (fasciaFinish ? ", " + cap(fasciaFinish) + " Fascia" : "") + (trimFinish ? ", " + cap(trimFinish) + " Trim" : "");
+        state.title = "Stage " + (+parseFloat(wIn.value)) + "x" + (+parseFloat(dIn.value)) + (heightLabel ? " @ " + heightLabel + "mm" : "") + (carpetColour ? ", " + cap(carpetColour) + " Carpet" : "") + (fasciaFinish ? ", " + cap(fasciaFinish) + " Fascia" : "") + (trimFinish ? ", " + cap(trimFinish) + " Trim" : "") + (treadsHtml ? ", " + treadUnits + " Tread" + (treadUnits > 1 ? "s" : "") : "");
 
         var missing = items.filter(function (it) { return !isRealPart(it.partNumber); });
         kitBox.innerHTML = '<div style="font-size:11px;letter-spacing:.04em;color:#888;text-transform:uppercase;margin-bottom:6px;">Generated kit</div>' +
           '<div style="font-size:11px;letter-spacing:.04em;color:#888;text-transform:uppercase;margin-bottom:4px;">Decks</div>' +
-          decksHtml + legsHtml + carpetHtml + fasciaHtml + trimHtml +
+          decksHtml + legsHtml + carpetHtml + fasciaHtml + trimHtml + treadsHtml +
           '<div style="margin-top:8px;font-size:12px;color:#777;">' + res.totals.panels + ' panels &middot; ' + res.totals.areaCovered + ' ' + c.unit + '&sup2;</div>' +
           (missing.length ? '<div style="margin-top:8px;font-size:12px;color:#b07b00;">' + missing.length + ' placeholder item(s) will be added as custom lines.</div>' : "") +
           '<div style="margin-top:6px;font-size:11px;color:#999;">Any code not found in stock is added as a custom line.</div>';
@@ -719,6 +774,8 @@
       finishSel.addEventListener("change", render);
       trimSel.addEventListener("change", render);
       carpetSel.addEventListener("change", render);
+      treadsSel.addEventListener("change", render);
+      treadHSel.addEventListener("change", render);
 
       document.body.appendChild(backdrop);
       applySystemBounds();
