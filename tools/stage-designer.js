@@ -8,7 +8,7 @@
  * Catalogue: data/stage-designer/decks.json + legs.json.
  * Fascia, trim and carpet come later (fascia will match the chosen height).
  *
- * Version: 0.12.0
+ * Version: 0.13.0
  */
 
 (function () {
@@ -252,11 +252,65 @@
     return { available: true, items: Object.keys(agg).map(function (k) { return agg[k]; }), placements: placements };
   }
 
+  // All multisets of `widths` (with repetition) of size k.
+  function combosWithRep(widths, k) {
+    var out = [];
+    (function rec(start, cur) {
+      if (cur.length === k) { out.push(cur.slice()); return; }
+      for (var i = start; i < widths.length; i++) { cur.push(widths[i]); rec(i, cur); cur.pop(); }
+    })(0, []);
+    return out;
+  }
+
+  // Choose roll widths that cover `target`: fewest rolls, then least overshoot,
+  // then avoid thin strips (maximise the smallest piece) so 5 -> [3,2] not [4,1].
+  function coverWidth(target, widths) {
+    var ws = widths.slice().sort(function (a, b) { return a - b; });
+    for (var k = 1; k <= 20; k++) {
+      var combos = combosWithRep(ws, k).filter(function (c) { return c.reduce(function (s, w) { return s + w; }, 0) >= target - 1e-9; });
+      if (!combos.length) continue;
+      combos.sort(function (a, b) {
+        var sa = a.reduce(function (s, w) { return s + w; }, 0), sb = b.reduce(function (s, w) { return s + w; }, 0);
+        if (Math.abs(sa - sb) > 1e-9) return sa - sb;            // least overshoot
+        var ma = Math.min.apply(null, a), mb = Math.min.apply(null, b);
+        if (ma !== mb) return mb - ma;                            // avoid thin strips
+        return 0;
+      });
+      return combos[0];
+    }
+    return null;
+  }
+
+  // Carpet for the deck top. o = { system,width,depth,colour,carpet }. Runs the
+  // cut length along the longer side + overhang; covers the shorter side by
+  // combining roll widths. Returns { available, items, cuts, cutLength, combo }.
+  function carpetKit(o) {
+    var data = o.carpet || {};
+    var all = (data.carpet || []).filter(function (b) { return b.system === o.system && b.colour === o.colour; });
+    if (!all.length) return { available: false, items: [], cuts: [] };
+    var widths = all.map(function (b) { return b.width; }), byW = {};
+    all.forEach(function (b) { byW[b.width] = b; });
+    var overhang = (typeof data.overhang === "number") ? data.overhang : 1;
+    var longer = Math.max(o.width, o.depth), shorter = Math.min(o.width, o.depth);
+    var cutLength = +(longer + overhang).toFixed(3);
+    var combo = coverWidth(shorter, widths);
+    if (!combo) return { available: false, items: [], cuts: [] };
+    var cap = o.colour.charAt(0).toUpperCase() + o.colour.slice(1);
+    var agg = {}, cuts = [];
+    combo.forEach(function (w) {
+      var b = byW[w], key = b.partNumber;
+      if (!agg[key]) agg[key] = { label: cap + " Carpet " + w + "m wide × " + cutLength + "m", partNumber: b.partNumber, qty: 0 };
+      agg[key].qty++;
+      cuts.push({ width: w, length: cutLength });
+    });
+    return { available: true, items: Object.keys(agg).map(function (k) { return agg[k]; }), cuts: cuts, cutLength: cutLength, combo: combo };
+  }
+
   // ===========================================================================
   // NODE EXPORT (no-op in the browser)
   // ===========================================================================
   if (typeof module !== "undefined" && module.exports) {
-    module.exports = { packStage: packStage, buildGridSvg: buildGridSvg, fillFor: fillFor, isRealPart: isRealPart, legCount: legCount, fasciaKit: fasciaKit, symTile: symTile, trimKit: trimKit };
+    module.exports = { packStage: packStage, buildGridSvg: buildGridSvg, fillFor: fillFor, isRealPart: isRealPart, legCount: legCount, fasciaKit: fasciaKit, symTile: symTile, trimKit: trimKit, carpetKit: carpetKit, coverWidth: coverWidth };
   }
 
   // ===========================================================================
@@ -280,13 +334,15 @@
       getJson("decks.json"),
       getJson("legs.json").catch(function () { return { legs: [], legsPerDeck: 4 }; }),
       getJson("fascia.json").catch(function () { return { boards: [], mounts: [] }; }),
-      getJson("trim.json").catch(function () { return { trim: [] }; })
+      getJson("trim.json").catch(function () { return { trim: [] }; }),
+      getJson("carpet.json").catch(function () { return { carpet: [], overhang: 1 }; })
     ]).then(function (res) {
       catalogue = {
         systems: res[0].systems, decks: res[0].decks,
         legs: res[1].legs || [], legsPerDeck: res[1].legsPerDeck || 4,
         fascia: { boards: (res[2].boards || []), mounts: (res[2].mounts || []) },
-        trim: { trim: (res[3].trim || []) }
+        trim: { trim: (res[3].trim || []) },
+        carpet: { carpet: (res[4].carpet || []), overhang: (typeof res[4].overhang === "number" ? res[4].overhang : 1) }
       };
       cb(catalogue);
     }).catch(function () { cb(null); });
@@ -424,6 +480,15 @@
       var dWrap = field("Depth"); var dIn = el("input", { type: "number" }, "width:100%;padding:8px;font-size:14px;"); dWrap.appendChild(dIn); colControls.appendChild(dWrap);
       var hWrap = field("Height"); var hSel = el("select", null, "width:100%;padding:8px;font-size:14px;"); hWrap.appendChild(hSel); colControls.appendChild(hWrap);
 
+      var carpetWrap = field("Carpet"); var carpetSel = el("select", null, "width:100%;padding:8px;font-size:14px;");
+      (function () {
+        var cols = []; ((cat.carpet && cat.carpet.carpet) || []).forEach(function (b) { if (cols.indexOf(b.colour) < 0) cols.push(b.colour); });
+        var opts = [["", "None"]].concat(cols.map(function (c) { return [c, c.charAt(0).toUpperCase() + c.slice(1)]; }));
+        opts.forEach(function (o) { var op = el("option"); op.value = o[0]; op.textContent = o[1]; carpetSel.appendChild(op); });
+        if (cols.indexOf("black") >= 0) carpetSel.value = "black";
+      })();
+      carpetWrap.appendChild(carpetSel); colControls.appendChild(carpetWrap);
+
       var faceWrap = field("Fascia sides"); var faceSel = el("select", null, "width:100%;padding:8px;font-size:14px;");
       [["0", "None"], ["2", "2 sided (left + front)"], ["3", "3 sided"], ["4", "4 sided"]].forEach(function (o) { var op = el("option"); op.value = o[0]; op.textContent = o[1]; faceSel.appendChild(op); });
       faceWrap.appendChild(faceSel);
@@ -535,6 +600,18 @@
             '<div style="display:flex;justify-content:space-between;font-size:13px;padding:3px 0;"><span style="color:#333;">' + leg.label + '</span><span style="color:#111;font-weight:500;">x ' + legQty + '</span></div>';
         }
 
+        // carpet (deck top; not height-dependent)
+        var carpetHtml = "", carpetColour = "";
+        if (carpetSel.value) {
+          var cpt = carpetKit({ system: sysSel.value, width: parseFloat(wIn.value), depth: parseFloat(dIn.value), colour: carpetSel.value, carpet: cat.carpet });
+          if (cpt.available && cpt.items.length) {
+            cpt.items.forEach(function (it) { items.push(it); });
+            carpetColour = carpetSel.value;
+            carpetHtml = '<div style="font-size:11px;letter-spacing:.04em;color:#888;text-transform:uppercase;margin:10px 0 4px;">Carpet (' + carpetColour + ')</div>' +
+              cpt.items.map(function (it) { return '<div style="display:flex;justify-content:space-between;font-size:13px;padding:3px 0;"><span style="color:#333;">' + it.label + '</span><span style="color:#111;font-weight:500;">x ' + it.qty + '</span></div>'; }).join("");
+          }
+        }
+
         // fascia
         var sides = parseInt(faceSel.value) || 0;
         var fasciaHtml = "", fasciaFinish = "", fasciaPlacements = [];
@@ -575,12 +652,12 @@
         colPreview.innerHTML = buildGridSvg(res, parseFloat(wIn.value), parseFloat(dIn.value), fasciaPlacements, trimPlacements) + legend;
         state.items = items;
         var cap = function (x) { return x ? x.charAt(0).toUpperCase() + x.slice(1) : x; };
-        state.title = "Stage " + (+parseFloat(wIn.value)) + "x" + (+parseFloat(dIn.value)) + (heightLabel ? " @ " + heightLabel + "mm" : "") + (fasciaFinish ? ", " + cap(fasciaFinish) + " Fascia" : "") + (trimFinish ? ", " + cap(trimFinish) + " Trim" : "");
+        state.title = "Stage " + (+parseFloat(wIn.value)) + "x" + (+parseFloat(dIn.value)) + (heightLabel ? " @ " + heightLabel + "mm" : "") + (carpetColour ? ", " + cap(carpetColour) + " Carpet" : "") + (fasciaFinish ? ", " + cap(fasciaFinish) + " Fascia" : "") + (trimFinish ? ", " + cap(trimFinish) + " Trim" : "");
 
         var missing = items.filter(function (it) { return !isRealPart(it.partNumber); });
         kitBox.innerHTML = '<div style="font-size:11px;letter-spacing:.04em;color:#888;text-transform:uppercase;margin-bottom:6px;">Generated kit</div>' +
           '<div style="font-size:11px;letter-spacing:.04em;color:#888;text-transform:uppercase;margin-bottom:4px;">Decks</div>' +
-          decksHtml + legsHtml + fasciaHtml + trimHtml +
+          decksHtml + legsHtml + carpetHtml + fasciaHtml + trimHtml +
           '<div style="margin-top:8px;font-size:12px;color:#777;">' + res.totals.panels + ' panels &middot; ' + res.totals.areaCovered + ' ' + c.unit + '&sup2;</div>' +
           (missing.length ? '<div style="margin-top:8px;font-size:12px;color:#b07b00;">' + missing.length + ' placeholder item(s) will be added as custom lines.</div>' : "") +
           '<div style="margin-top:6px;font-size:11px;color:#999;">Any code not found in stock is added as a custom line.</div>';
@@ -632,6 +709,7 @@
       faceSel.addEventListener("change", function () { populateFinishes(); populateTrimFinishes(); render(); });
       finishSel.addEventListener("change", render);
       trimSel.addEventListener("change", render);
+      carpetSel.addEventListener("change", render);
 
       document.body.appendChild(backdrop);
       applySystemBounds();

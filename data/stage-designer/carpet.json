@@ -1,0 +1,19 @@
+{
+  "schema": "stage-designer/carpet",
+  "dataVersion": "0.1.0",
+  "overhang": 1,
+  "carpet": [
+    { "system": "metric", "colour": "black", "width": 1, "partNumber": "CARP-BLK-1M" },
+    { "system": "metric", "colour": "black", "width": 2, "partNumber": "CARP-BLK-2M" },
+    { "system": "metric", "colour": "black", "width": 3, "partNumber": "CARP-BLK-3M" },
+    { "system": "metric", "colour": "black", "width": 4, "partNumber": "CARP-BLK-4M" },
+    { "system": "metric", "colour": "white", "width": 1, "partNumber": "CARP-WHT-1M" },
+    { "system": "metric", "colour": "white", "width": 2, "partNumber": "CARP-WHT-2M" },
+    { "system": "metric", "colour": "white", "width": 3, "partNumber": "CARP-WHT-3M" },
+    { "system": "metric", "colour": "white", "width": 4, "partNumber": "CARP-WHT-4M" },
+    { "system": "metric", "colour": "grey", "width": 1, "partNumber": "CARP-GRY-1M" },
+    { "system": "metric", "colour": "grey", "width": 2, "partNumber": "CARP-GRY-2M" },
+    { "system": "metric", "colour": "grey", "width": 3, "partNumber": "CARP-GRY-3M" },
+    { "system": "metric", "colour": "grey", "width": 4, "partNumber": "CARP-GRY-4M" }
+  ]
+}
