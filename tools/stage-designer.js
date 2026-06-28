@@ -8,7 +8,7 @@
  * Catalogue: data/stage-designer/decks.json + legs.json.
  * Fascia, trim and carpet come later (fascia will match the chosen height).
  *
- * Version: 0.15.0
+ * Version: 0.16.0
  */
 
 (function () {
@@ -93,15 +93,22 @@
   // Top-down preview: deck panels filled, fascia boards just outside the edges
   // (teal = standard, coral = corner), and trim a thinner strip beyond the fascia
   // (blue = centre, dark blue = corner). fascia/trim are placements arrays.
-  function buildGridSvg(result, width, depth, fascia, trim) {
+  function buildGridSvg(result, width, depth, fascia, trim, opts) {
     if (!result || !result.ok) return "";
-    var maxW = 320, maxH = 220, pad = 1, m = 20, ft = 7, tt = 4, toff = 10;
+    opts = opts || {};
+    var maxW = opts.maxW || 320, maxH = opts.maxH || 220, pad = 1, m = 20, ft = 7, tt = 4, toff = 10;
     var scale = Math.min(maxW / width, maxH / depth);
     var W = width * scale, H = depth * scale, ox = m, oy = m;
     var deckRects = result.placements.map(function (p) {
-      return '<rect x="' + (ox + p.x * scale + pad) + '" y="' + (oy + p.y * scale + pad) +
+      var r = '<rect x="' + (ox + p.x * scale + pad) + '" y="' + (oy + p.y * scale + pad) +
         '" width="' + (p.width * scale - pad * 2) + '" height="' + (p.depth * scale - pad * 2) +
         '" fill="' + fillFor(p.deckId) + '" stroke="#26215C" stroke-width="1"/>';
+      if (opts.labelHeight) {
+        var bw = Math.max(p.width, p.depth), bd = Math.min(p.width, p.depth);
+        var cx = ox + (p.x + p.width / 2) * scale, cy = oy + (p.y + p.depth / 2) * scale;
+        r += '<text x="' + cx + '" y="' + cy + '" font-family="Arial,Helvetica,sans-serif" font-size="' + (opts.labelFont || 9) + '" fill="#ffffff" text-anchor="middle" dominant-baseline="central">' + bw + 'x' + bd + ' @ ' + opts.labelHeight + '</text>';
+      }
+      return r;
     }).join("");
     function band(arr, thickness, gap, colorFn) {
       return (arr || []).map(function (b) {
@@ -399,12 +406,13 @@
     return ids;
   }
 
-  function createHeading(inst, title) {
+  function createHeading(inst, title, description) {
     var before = headingIdSet(inst);
     var tree = inst.items_to_supply_tree.jstree(true);
     tree.deselect_all();
     inst.new_item(0);
     inst.heading_name.val(title);
+    if (description && inst.heading_desc) inst.heading_desc.val(description);
     inst.save_item();
     return new Promise(function (resolve) {
       var tries = 0;
@@ -437,7 +445,7 @@
   // Resolve each kit part, create the folder, then insert resolved parts as a
   // batch and any unresolved codes as custom lines (so a kit can be built even
   // before every stock code exists).
-  function addStageKit(inst, items, title, onDone) {
+  function addStageKit(inst, items, title, onDone, description) {
     var shopping = {}, customs = [];
     var chain = Promise.resolve();
     items.forEach(function (it) {
@@ -449,7 +457,7 @@
       });
     });
     chain.then(function () {
-      createHeading(inst, title).then(function (headingId) {
+      createHeading(inst, title, description).then(function (headingId) {
         if (!headingId) { onDone({ ok: false, error: "Could not create the stage folder" }); return; }
         var tree = inst.items_to_supply_tree.jstree(true);
         inst.set_item_edit_tree_headings();
@@ -461,6 +469,76 @@
         } else {
           doCustoms();
         }
+      });
+    });
+  }
+
+  // ---- PDF snapshot + upload to the Files tab --------------------------------
+  // Short stage reference (no ambiguous 0/O/1/I) used in the filename and the
+  // heading's Item description so the PDF can be matched back to the heading.
+  function genCode() {
+    var alpha = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789", s = "";
+    for (var i = 0; i < 6; i++) s += alpha.charAt(Math.floor(Math.random() * alpha.length));
+    return s;
+  }
+
+  function loadJsPdf() {
+    return new Promise(function (resolve, reject) {
+      if (window.jspdf && window.jspdf.jsPDF) return resolve(window.jspdf.jsPDF);
+      var s = document.createElement("script");
+      s.src = "https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js";
+      s.onload = function () { (window.jspdf && window.jspdf.jsPDF) ? resolve(window.jspdf.jsPDF) : reject(new Error("jsPDF unavailable")); };
+      s.onerror = function () { reject(new Error("could not load jsPDF")); };
+      document.head.appendChild(s);
+    });
+  }
+
+  // Rasterise an SVG string to a PNG data URL (white background, scaled up).
+  function svgToPng(svg, scaleUp) {
+    return new Promise(function (resolve, reject) {
+      var mm = svg.match(/width="([\d.]+)"\s+height="([\d.]+)"/);
+      var w = mm ? parseFloat(mm[1]) : 400, h = mm ? parseFloat(mm[2]) : 300, sU = scaleUp || 3;
+      var img = new Image();
+      img.onload = function () {
+        var c = document.createElement("canvas"); c.width = w * sU; c.height = h * sU;
+        var ctx = c.getContext("2d");
+        ctx.fillStyle = "#ffffff"; ctx.fillRect(0, 0, c.width, c.height);
+        ctx.drawImage(img, 0, 0, c.width, c.height);
+        resolve({ dataUrl: c.toDataURL("image/png"), w: w, h: h });
+      };
+      img.onerror = function () { reject(new Error("svg render failed")); };
+      img.src = "data:image/svg+xml;base64," + btoa(unescape(encodeURIComponent(svg)));
+    });
+  }
+
+  // Build a one-page PDF (labelled layout + kit list) and push it to the Files
+  // tab via HireHop's own uploader. Resolves with the filename.
+  function buildAndUploadPdf(state, code) {
+    return loadJsPdf().then(function (JsPDF) {
+      var svg = buildGridSvg(state.result, state.width, state.depth, state.fasciaPlacements, state.trimPlacements,
+        { maxW: 470, maxH: 330, labelHeight: state.height || "", labelFont: 9 });
+      return svgToPng(svg, 3).then(function (png) {
+        var pdf = new JsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+        var pageW = 210, margin = 14;
+        pdf.setFontSize(15); pdf.setTextColor(30, 30, 30); pdf.text(String(state.title), margin, 18);
+        pdf.setFontSize(10); pdf.setTextColor(120, 120, 120);
+        pdf.text("Ref: " + code + "     " + new Date().toLocaleDateString(), margin, 25);
+        var imgW = pageW - margin * 2, imgH = imgW * (png.h / png.w), maxImgH = 130;
+        if (imgH > maxImgH) { imgH = maxImgH; imgW = imgH * (png.w / png.h); }
+        pdf.addImage(png.dataUrl, "PNG", margin, 31, imgW, imgH);
+        var y = 31 + imgH + 11;
+        pdf.setFontSize(12); pdf.setTextColor(30, 30, 30); pdf.text("Kit list", margin, y); y += 6;
+        pdf.setFontSize(10);
+        (state.items || []).forEach(function (it) {
+          if (y > 285) { pdf.addPage(); y = 20; }
+          pdf.setTextColor(60, 60, 60); pdf.text(String(it.label), margin, y);
+          pdf.setTextColor(20, 20, 20); pdf.text("x " + it.qty, pageW - margin, y, { align: "right" });
+          y += 6;
+        });
+        var fileName = state.width + "x" + state.depth + "@" + (state.height || 0) + "mm stage-" + code + ".pdf";
+        var file = new File([pdf.output("blob")], fileName, { type: "application/pdf" });
+        if (typeof window.handleFileUpload === "function") window.handleFileUpload([file]);
+        return fileName;
       });
     });
   }
@@ -722,6 +800,9 @@
           (trimFinish ? sw("#3b82f6", "Trim") + sw("#1e40af", "Trim corner") : "") + '</div>';
         colPreview.innerHTML = buildGridSvg(res, parseFloat(wIn.value), parseFloat(dIn.value), fasciaPlacements, trimPlacements) + treadBoxHtml + legend;
         state.items = items;
+        state.width = +parseFloat(wIn.value); state.depth = +parseFloat(dIn.value); state.height = heightVal;
+        state.fasciaPlacements = fasciaPlacements; state.trimPlacements = trimPlacements;
+        state.treadUnits = treadUnits; state.treadHeight = treadHeight;
         var cap = function (x) { return x ? x.charAt(0).toUpperCase() + x.slice(1) : x; };
         state.title = "Stage " + (+parseFloat(wIn.value)) + "x" + (+parseFloat(dIn.value)) + (heightLabel ? " @ " + heightLabel + "mm" : "") + (carpetColour ? ", " + cap(carpetColour) + " Carpet" : "") + (fasciaFinish ? ", " + cap(fasciaFinish) + " Fascia" : "") + (trimFinish ? ", " + cap(trimFinish) + " Trim" : "") + (treadsHtml ? ", " + treadUnits + " Tread" + (treadUnits > 1 ? "s" : "") : "");
 
@@ -760,9 +841,13 @@
 
       function doAdd() {
         foot.innerHTML = '<div style="flex:1;font-size:13px;color:#555;">Adding to the job…</div>';
+        var code = genCode();
+        var snapshot = { result: state.result, width: state.width, depth: state.depth, height: state.height, fasciaPlacements: state.fasciaPlacements, trimPlacements: state.trimPlacements, items: state.items.slice(), title: state.title };
         addStageKit(inst, state.items, state.title, function (r) {
-          if (r.ok) { close(); }
-          else {
+          if (r.ok) {
+            foot.innerHTML = '<div style="flex:1;font-size:13px;color:#555;">Creating the PDF…</div>';
+            buildAndUploadPdf(snapshot, code).then(function () { close(); }, function () { close(); });
+          } else {
             foot.innerHTML = "";
             var err = el("div", null, "flex:1;font-size:13px;color:#b00;");
             err.textContent = r.error;
@@ -770,7 +855,7 @@
             back.textContent = "Back"; back.addEventListener("click", render);
             foot.appendChild(err); foot.appendChild(back);
           }
-        });
+        }, code);
       }
 
       sysSel.addEventListener("change", function () { applySystemBounds(); populateHeights(); syncFasciaControls(); syncTreadsControl(); render(); });
