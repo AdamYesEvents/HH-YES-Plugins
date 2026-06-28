@@ -325,11 +325,12 @@
     if (!def) return { available: false, items: [], units: o.units };
     var items = [];
     (def.parts || []).forEach(function (p) { items.push({ label: p.label, partNumber: p.partNumber, qty: p.qty * o.units }); });
-    var carpetLen = (typeof def.carpetLen === "number" ? def.carpetLen : 1) * o.units;
+    // Whole-metre tread carpet (per-metre stock, no fractional qty).
+    var carpetLen = Math.ceil((typeof def.carpetLen === "number" ? def.carpetLen : 1) * o.units);
     var roll = ((o.carpet && o.carpet.carpet) || []).filter(function (b) { return b.system === o.system && b.colour === o.colour && b.width === 1; })[0];
     if (roll && carpetLen > 0) {
       var cap = o.colour.charAt(0).toUpperCase() + o.colour.slice(1);
-      items.push({ label: cap + " Carpet 1m wide (treads)", partNumber: roll.partNumber, qty: +carpetLen.toFixed(3) });
+      items.push({ label: cap + " Carpet 1m wide (treads)", partNumber: roll.partNumber, qty: carpetLen });
     }
     return { available: true, items: items, units: o.units, height: o.height, carpetMetres: carpetLen };
   }
