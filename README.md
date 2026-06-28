@@ -21,7 +21,7 @@ In HireHop, go to **Settings → Company Settings → Plugins** and add the **lo
 URL (pinned to a release tag):
 
 ```
-https://cdn.jsdelivr.net/gh/AdamYesEvents/HH-YES-Plugins@v0.1.24/loader.js
+https://cdn.jsdelivr.net/gh/AdamYesEvents/HH-YES-Plugins@v0.1.25/loader.js
 ```
 
 > ⚠️ **Use jsDelivr, not `raw.githubusercontent.com`.** GitHub serves raw files as
