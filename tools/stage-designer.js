@@ -8,7 +8,7 @@
  * Catalogue: data/stage-designer/decks.json + legs.json.
  * Fascia, trim and carpet come later (fascia will match the chosen height).
  *
- * Version: 0.13.1
+ * Version: 0.13.2
  */
 
 (function () {
@@ -292,7 +292,9 @@
     all.forEach(function (b) { byW[b.width] = b; });
     var overhang = (typeof data.overhang === "number") ? data.overhang : 1;
     var longer = Math.max(o.width, o.depth), shorter = Math.min(o.width, o.depth);
-    var cutLength = +(longer + overhang).toFixed(3);
+    // Whole-metre cuts (carpet is ordered per metre) with at least `overhang`
+    // spare: round the stage length up to a metre, then add the overhang.
+    var cutLength = Math.ceil(longer) + overhang;
     var combo = coverWidth(shorter, widths);
     if (!combo) return { available: false, items: [], cuts: [] };
     // Carpet is sold per linear metre off a roll of a given width, so each width
