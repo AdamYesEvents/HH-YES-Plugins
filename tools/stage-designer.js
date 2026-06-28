@@ -504,7 +504,7 @@
         var ctx = c.getContext("2d");
         ctx.fillStyle = "#ffffff"; ctx.fillRect(0, 0, c.width, c.height);
         ctx.drawImage(img, 0, 0, c.width, c.height);
-        resolve({ dataUrl: c.toDataURL("image/png"), w: w, h: h });
+        resolve({ dataUrl: c.toDataURL("image/jpeg", 0.92), w: w, h: h });
       };
       img.onerror = function () { reject(new Error("svg render failed")); };
       img.src = "data:image/svg+xml;base64," + btoa(unescape(encodeURIComponent(svg)));
@@ -525,7 +525,7 @@
         pdf.text("Ref: " + code + "     " + new Date().toLocaleDateString(), margin, 25);
         var imgW = pageW - margin * 2, imgH = imgW * (png.h / png.w), maxImgH = 130;
         if (imgH > maxImgH) { imgH = maxImgH; imgW = imgH * (png.w / png.h); }
-        pdf.addImage(png.dataUrl, "PNG", margin, 31, imgW, imgH);
+        pdf.addImage(png.dataUrl, "JPEG", margin, 31, imgW, imgH);
         var y = 31 + imgH + 11;
         pdf.setFontSize(12); pdf.setTextColor(30, 30, 30); pdf.text("Kit list", margin, y); y += 6;
         pdf.setFontSize(10);
