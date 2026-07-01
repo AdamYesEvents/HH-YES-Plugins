@@ -1,14 +1,20 @@
 {
   "schema": "stage-designer/fascia",
-  "dataVersion": "0.1.0",
+  "dataVersion": "0.2.0",
+  "_note": "Panels are colour-independent (structural), sized by height + length. The finish (Felt/HIPS/Print) is a separate per-metre line priced on the total fascia meterage; rate is per metre (test values). Finish part code is generated FASC-{type}-{height}-{colourAbbr}.",
   "mounts": [
     { "system": "metric", "len": 1,   "partNumber": "1fm" },
     { "system": "metric", "len": 0.5, "partNumber": "05fm" }
   ],
-  "boards": [
-    { "system": "metric", "height": 200, "finish": "black", "len": 2,   "standard": "2002SB",  "corner": "2002CB" },
-    { "system": "metric", "height": 200, "finish": "black", "len": 1.5, "standard": "20015SB", "corner": "20015CB" },
-    { "system": "metric", "height": 200, "finish": "black", "len": 1,   "standard": "2001SB",  "corner": "2001CB" },
-    { "system": "metric", "height": 200, "finish": "black", "len": 0.5, "standard": "20005SB", "corner": "20005CB" }
+  "panels": [
+    { "system": "metric", "height": 200, "len": 2,   "standard": "FP200-2000",  "corner": "FPC200-2000" },
+    { "system": "metric", "height": 200, "len": 1.5, "standard": "FP200-1500",  "corner": "FPC200-1500" },
+    { "system": "metric", "height": 200, "len": 1,   "standard": "FP200-1000",  "corner": "FPC200-1000" },
+    { "system": "metric", "height": 200, "len": 0.5, "standard": "FP200-0500",  "corner": "FPC200-0500" }
+  ],
+  "finishes": [
+    { "type": "felt",  "label": "Felt",  "pricePerM": 6.5, "colours": ["black", "off white", "grey"] },
+    { "type": "hips",  "label": "HIPS",  "pricePerM": 7,   "colours": ["silver", "gold"] },
+    { "type": "print", "label": "Print", "pricePerM": 10,  "colours": ["custom"] }
   ]
 }

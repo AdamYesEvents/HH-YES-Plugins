@@ -8,7 +8,7 @@
  * Catalogue: data/stage-designer/decks.json + legs.json.
  * Fascia, trim and carpet come later (fascia will match the chosen height).
  *
- * Version: 0.17.2
+ * Version: 0.18.0
  */
 
 (function () {
@@ -187,17 +187,23 @@
     return arr.map(function (x) { return x * u; });
   }
 
-  // Fascia for a fasciad stage. o = { system,width,depth,sides(0/2/3/4),height,finish,fascia }
-  // Origin top-left, back (top) open. Corner boards sit on the FRONT (and back)
-  // edges at their corner ends; side edges are all standard. All edges tile with
-  // symTile (fewest boards, symmetric where possible).
-  // Returns { available, items:[{label,partNumber,qty}], placements:[{edge,offset,length,type}] }.
+  function colourAbbr(c) {
+    var map = { "black": "BLK", "off white": "OWH", "grey": "GRY", "silver": "SIL", "gold": "GLD", "custom": "CUS", "white": "WHT" };
+    return map[c] || String(c || "").replace(/[^a-z]/gi, "").slice(0, 3).toUpperCase();
+  }
+
+  // Fascia for a fasciad stage. o = { system,width,depth,sides(0/2/3/4),height,
+  // finishType,finishColour,fascia }. Panels are colour-independent (structural);
+  // the finish (Felt/HIPS/Print + colour) is one per-metre line priced on the
+  // total fascia meterage. Corner panels sit on the FRONT/back edges; sides are
+  // all standard. Edges tile with symTile (fewest panels).
+  // Returns { available, items, placements, meterage, finishCost, rate, ... }.
   function fasciaKit(o) {
     var fascia = o.fascia || {};
-    var boards = fascia.boards || [], mounts = fascia.mounts || [];
-    if (!o.sides) return { available: true, items: [], placements: [] };
+    var panels = fascia.panels || fascia.boards || [], mounts = fascia.mounts || [], finishes = fascia.finishes || [];
+    if (!o.sides) return { available: true, items: [], placements: [], meterage: 0, finishCost: 0 };
 
-    var avail = boards.filter(function (b) { return b.system === o.system && b.height === o.height && b.finish === o.finish; })
+    var avail = panels.filter(function (b) { return b.system === o.system && b.height === o.height; })
       .sort(function (a, b) { return b.len - a.len; });
     if (!avail.length) return { available: false, items: [], placements: [] };
     var lengths = avail.map(function (b) { return b.len; });
@@ -211,22 +217,33 @@
     if (hasLeft) edges.push({ edge: "left", len: D, cFirst: false, cLast: false });
     if (hasRight) edges.push({ edge: "right", len: D, cFirst: false, cLast: false });
 
-    var agg = {}, placements = [];
-    function add(code, label) { if (!agg[code]) agg[code] = { label: label, partNumber: code, qty: 0 }; agg[code].qty++; }
+    var agg = {}, order = [], placements = [], meterage = 0;
+    function add(code, label) { if (!agg[code]) { agg[code] = { label: label, partNumber: code, qty: 0 }; order.push(code); } agg[code].qty++; }
 
     edges.forEach(function (e) {
       var pieces = symTile(e.len, lengths), offset = 0;
       pieces.forEach(function (plen, idx) {
         var isCorner = (idx === 0 && e.cFirst) || (idx === pieces.length - 1 && e.cLast);
         var board = avail.filter(function (b) { return Math.abs(b.len - plen) < 1e-9; })[0];
-        add(isCorner ? board.corner : board.standard, plen + "m fascia (" + (isCorner ? "corner" : "standard") + ")");
+        add(isCorner ? board.corner : board.standard, plen + "m fascia panel (" + (isCorner ? "corner" : "standard") + ")");
         placements.push({ edge: e.edge, offset: offset, length: plen, type: isCorner ? "corner" : "standard" });
         offset += plen;
       });
       var rem = e.len;
       mountLens.forEach(function (m) { while (rem >= m.len - 1e-9) { add(m.partNumber, m.len + "m fascia mount"); rem -= m.len; } });
+      meterage += e.len;
     });
-    return { available: true, items: Object.keys(agg).map(function (k) { return agg[k]; }), placements: placements };
+    meterage = +meterage.toFixed(3);
+
+    var items = order.map(function (k) { return agg[k]; });
+    // finish: one per-metre line on the total meterage
+    var fin = finishes.filter(function (f) { return f.type === o.finishType; })[0];
+    var rate = fin ? (fin.pricePerM || 0) : 0, finishCost = +(rate * meterage).toFixed(2);
+    if (fin && meterage > 0) {
+      var code = "FASC-" + fin.type.toUpperCase() + "-" + o.height + "-" + colourAbbr(o.finishColour);
+      items.push({ label: fin.label + " finish - " + o.finishColour + " (" + o.height + "mm)", partNumber: code, qty: meterage, unitPrice: rate, isFinish: true });
+    }
+    return { available: true, items: items, placements: placements, meterage: meterage, finishCost: finishCost, rate: rate, finishLabel: fin ? fin.label : "", finishColour: o.finishColour };
   }
 
   // Which cut fit a corner piece uses, per edge end. Front/back: start=L, end=R.
@@ -379,7 +396,7 @@
     Promise.all([
       getJson("decks.json"),
       getJson("legs.json").catch(function () { return { legs: [], legsPerDeck: 4 }; }),
-      getJson("fascia.json").catch(function () { return { boards: [], mounts: [] }; }),
+      getJson("fascia.json").catch(function () { return { panels: [], mounts: [], finishes: [] }; }),
       getJson("trim.json").catch(function () { return { trim: [] }; }),
       getJson("carpet.json").catch(function () { return { carpet: [], overhang: 1 }; }),
       getJson("treads.json").catch(function () { return { treads: [], maxUnits: 4 }; }),
@@ -388,7 +405,7 @@
       catalogue = {
         systems: res[0].systems, decks: res[0].decks,
         legs: res[1].legs || [], legsPerDeck: res[1].legsPerDeck || 4,
-        fascia: { boards: (res[2].boards || []), mounts: (res[2].mounts || []) },
+        fascia: { panels: (res[2].panels || res[2].boards || []), mounts: (res[2].mounts || []), finishes: (res[2].finishes || []) },
         trim: { trim: (res[3].trim || []) },
         carpet: { carpet: (res[4].carpet || []), overhang: (typeof res[4].overhang === "number" ? res[4].overhang : 1) },
         treads: { treads: (res[5].treads || []), maxUnits: (res[5].maxUnits || 4) },
@@ -670,6 +687,8 @@
 
       var finishWrap = field("Fascia finish"); var finishSel = el("select", null, "width:100%;padding:8px;font-size:14px;"); finishWrap.appendChild(finishSel); colControls.appendChild(finishWrap);
 
+      var finishColWrap = field("Finish colour"); var finishColSel = el("select", null, "width:100%;padding:8px;font-size:14px;"); finishColWrap.appendChild(finishColSel); colControls.appendChild(finishColWrap);
+
       var trimWrap = field("Trim finish"); var trimSel = el("select", null, "width:100%;padding:8px;font-size:14px;"); trimWrap.appendChild(trimSel); colControls.appendChild(trimWrap);
 
       var treadsWrap = field("Treads"); var treadsSel = el("select", null, "width:100%;padding:8px;font-size:14px;");
@@ -709,14 +728,26 @@
         return l ? l.height : null;
       }
 
+      var titleCase = function (f) { return String(f || "").replace(/\b\w/g, function (m2) { return m2.toUpperCase(); }); };
+
+      // Fascia finish = type (Felt/HIPS/Print). The colour selector then follows the type.
       function populateFinishes() {
-        var h = currentHeight();
-        var finishes = [];
-        (cat.fascia.boards || []).filter(function (b) { return b.system === sysSel.value && b.height === h; })
-          .forEach(function (b) { if (finishes.indexOf(b.finish) < 0) finishes.push(b.finish); });
+        var fins = (cat.fascia.finishes || []);
+        var cur = finishSel.value;
         finishSel.innerHTML = "";
-        finishes.forEach(function (f) { var o = el("option"); o.value = f; o.textContent = f.charAt(0).toUpperCase() + f.slice(1); finishSel.appendChild(o); });
-        finishWrap.style.display = (parseInt(faceSel.value) > 0 && finishes.length) ? "" : "none";
+        fins.forEach(function (f) { var o = el("option"); o.value = f.type; o.textContent = f.label; finishSel.appendChild(o); });
+        if (cur && fins.some(function (f) { return f.type === cur; })) finishSel.value = cur;
+        finishWrap.style.display = (parseInt(faceSel.value) > 0 && fins.length) ? "" : "none";
+        populateFinishColours();
+      }
+
+      function populateFinishColours() {
+        var fin = (cat.fascia.finishes || []).filter(function (f) { return f.type === finishSel.value; })[0];
+        var cols = fin ? (fin.colours || []) : [], cur = finishColSel.value;
+        finishColSel.innerHTML = "";
+        cols.forEach(function (c) { var o = el("option"); o.value = c; o.textContent = titleCase(c); finishColSel.appendChild(o); });
+        if (cur && cols.indexOf(cur) >= 0) finishColSel.value = cur;
+        finishColWrap.style.display = (parseInt(faceSel.value) > 0 && cols.length) ? "" : "none";
       }
 
       function populateTrimFinishes() {
@@ -732,7 +763,7 @@
       // Disable the sides selector and force None where there's no fascia data.
       function syncFasciaControls() {
         var h = currentHeight();
-        var fasciaOK = (cat.fascia.boards || []).some(function (b) { return b.system === sysSel.value && b.height === h; });
+        var fasciaOK = (cat.fascia.panels || []).some(function (b) { return b.system === sysSel.value && b.height === h; });
         faceSel.disabled = !fasciaOK;
         if (!fasciaOK) faceSel.value = "0";
         fasciaNote.style.display = fasciaOK ? "none" : "";
@@ -806,22 +837,24 @@
           }
         }
 
-        // fascia
+        // fascia (colour-independent panels + a per-metre finish line)
         var sides = parseInt(faceSel.value) || 0;
-        var fasciaHtml = "", fasciaFinish = "", fasciaPlacements = [];
+        var fasciaHtml = "", fasciaFinish = "", fasciaPlacements = [], fasciaFinishCost = 0;
         if (sides > 0 && heightVal != null) {
-          var fk = fasciaKit({ system: sysSel.value, width: parseFloat(wIn.value), depth: parseFloat(dIn.value), sides: sides, height: heightVal, finish: finishSel.value, fascia: cat.fascia });
+          var fk = fasciaKit({ system: sysSel.value, width: parseFloat(wIn.value), depth: parseFloat(dIn.value), sides: sides, height: heightVal, finishType: finishSel.value, finishColour: finishColSel.value, fascia: cat.fascia });
           if (!fk.available) {
             fasciaHtml = '<div style="font-size:11px;letter-spacing:.04em;color:#888;text-transform:uppercase;margin:10px 0 4px;">Fascia</div>' +
               '<div style="font-size:12px;color:#b07b00;">No fascia at ' + heightVal + 'mm</div>';
           } else if (fk.items.length) {
             fk.items.forEach(function (it) { items.push(it); });
-            fasciaFinish = finishSel.value;
+            fasciaFinish = finishColSel.value;
             fasciaPlacements = fk.placements;
-            fasciaHtml = '<div style="font-size:11px;letter-spacing:.04em;color:#888;text-transform:uppercase;margin:10px 0 4px;">Fascia (' + fasciaFinish + ')</div>' +
+            fasciaFinishCost = fk.finishCost;
+            fasciaHtml = '<div style="font-size:11px;letter-spacing:.04em;color:#888;text-transform:uppercase;margin:10px 0 4px;">Fascia (' + fk.finishLabel + ' &ndash; ' + fasciaFinish + ')</div>' +
               fk.items.map(function (it) {
                 return '<div style="display:flex;justify-content:space-between;font-size:13px;padding:3px 0;"><span style="color:#333;">' + it.label + '</span><span style="color:#111;font-weight:500;">x ' + it.qty + '</span></div>';
-              }).join("");
+              }).join("") +
+              '<div style="margin-top:5px;font-size:12px;color:#555;">Finish: ' + fk.meterage + ' m &times; £' + fk.rate.toFixed(2) + '/m = <span style="font-weight:600;color:#222;">£' + fk.finishCost.toFixed(2) + '</span></div>';
           }
         }
 
@@ -932,7 +965,8 @@
       dIn.addEventListener("input", render);
       hSel.addEventListener("change", function () { syncFasciaControls(); syncTreadsControl(); render(); });
       faceSel.addEventListener("change", function () { populateFinishes(); populateTrimFinishes(); render(); });
-      finishSel.addEventListener("change", render);
+      finishSel.addEventListener("change", function () { populateFinishColours(); render(); });
+      finishColSel.addEventListener("change", render);
       trimSel.addEventListener("change", render);
       carpetSel.addEventListener("change", render);
       treadsSel.addEventListener("change", render);
