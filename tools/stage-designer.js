@@ -8,7 +8,7 @@
  * Catalogue: data/stage-designer/decks.json + legs.json.
  * Fascia, trim and carpet come later (fascia will match the chosen height).
  *
- * Version: 0.18.1
+ * Version: 0.19.0
  */
 
 (function () {
@@ -221,7 +221,15 @@
     function add(code, label) { if (!agg[code]) { agg[code] = { label: label, partNumber: code, qty: 0 }; order.push(code); } agg[code].qty++; }
 
     edges.forEach(function (e) {
-      var pieces = symTile(e.len, lengths), offset = 0;
+      var pieces = symTile(e.len, lengths);
+      // Both ends need a corner panel but it tiled to a single panel (e.g. a 2m
+      // front): one panel can only corner one end, so re-tile into >=2 panels
+      // (a 2m edge becomes 2x 1m corners).
+      if (e.cFirst && e.cLast && pieces.length < 2) {
+        var alt = symTile(e.len, lengths.filter(function (l) { return l < e.len; }));
+        if (alt.length >= 2) pieces = alt;
+      }
+      var offset = 0;
       pieces.forEach(function (plen, idx) {
         var isCorner = (idx === 0 && e.cFirst) || (idx === pieces.length - 1 && e.cLast);
         var board = avail.filter(function (b) { return Math.abs(b.len - plen) < 1e-9; })[0];
@@ -627,6 +635,32 @@
     if (typeof window.handleFileUpload === "function") window.handleFileUpload([file]);
   }
 
+  // Inject the spinner CSS once (used for the loading overlay + footer states).
+  function injectSpinStyle() {
+    if (document.getElementById("hh-spin-style")) return;
+    var st = document.createElement("style");
+    st.id = "hh-spin-style";
+    st.textContent = ".hh-spin{width:22px;height:22px;border:3px solid rgba(0,0,0,.15);border-top-color:#2563eb;border-radius:50%;animation:hh-spin .8s linear infinite;display:inline-block;vertical-align:middle;box-sizing:border-box;}@keyframes hh-spin{to{transform:rotate(360deg)}}";
+    document.head.appendChild(st);
+  }
+
+  // After inserting, HireHop may prompt an "Autopull" dialog (e.g. the deck
+  // boltset). Auto-press its Save button for a short window so the flow completes.
+  function autoConfirmAutopull(durationMs) {
+    var end = Date.now() + (durationMs || 16000);
+    var iv = setInterval(function () {
+      if (Date.now() > end) { clearInterval(iv); return; }
+      Array.prototype.slice.call(document.querySelectorAll(".ui-dialog")).forEach(function (d) {
+        if (d.offsetParent === null) return;
+        var t = d.querySelector(".ui-dialog-title");
+        if (!t || !/autopull/i.test(t.textContent)) return;
+        var btns = Array.prototype.slice.call(d.querySelectorAll(".ui-dialog-buttonpane button"));
+        var save = btns.filter(function (b) { return /save|ok|yes/i.test(b.textContent.trim()); })[0] || btns[0];
+        if (save) save.click();
+      });
+    }, 400);
+  }
+
   // ---- dialog ----------------------------------------------------------------
 
   var DIALOG_ID = "hh-stage-designer-dialog";
@@ -638,6 +672,13 @@
   }
 
   function openDialog(inst) {
+    injectSpinStyle();
+    // show a loading spinner immediately while the catalogue fetches
+    var pre = document.getElementById(DIALOG_ID);
+    if (pre) pre.parentNode.removeChild(pre);
+    var loading = el("div", { id: DIALOG_ID }, "position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:100000;display:flex;align-items:center;justify-content:center;font-family:sans-serif;");
+    loading.innerHTML = '<div style="background:#fff;border-radius:8px;padding:24px 32px;display:flex;gap:14px;align-items:center;font-size:14px;color:#333;"><span class="hh-spin"></span>Loading Stage Designer&hellip;</div>';
+    document.body.appendChild(loading);
     loadCatalogue(function (cat) {
       var existing = document.getElementById(DIALOG_ID);
       if (existing) existing.parentNode.removeChild(existing);
@@ -940,12 +981,15 @@
         foot.appendChild(msg); foot.appendChild(no); foot.appendChild(yes);
       }
 
+      var busyFoot = function (txt) { foot.innerHTML = '<div style="flex:1;display:flex;align-items:center;gap:10px;font-size:13px;color:#555;"><span class="hh-spin" style="width:16px;height:16px;border-width:2px;"></span>' + txt + '</div>'; };
+
       function doAdd() {
-        foot.innerHTML = '<div style="flex:1;font-size:13px;color:#555;">Building the PDF…</div>';
+        busyFoot("Building the PDF&hellip;");
         var code = genCode();
         var snapshot = { result: state.result, width: state.width, depth: state.depth, height: state.height, fasciaPlacements: state.fasciaPlacements, trimPlacements: state.trimPlacements, items: state.items.slice(), title: state.title, treadUnits: state.treadUnits, treadHeight: state.treadHeight, treadColour: state.treadColour };
         function insert(built) {
-          foot.innerHTML = '<div style="flex:1;font-size:13px;color:#555;">Adding to the job…</div>';
+          busyFoot("Adding to the job&hellip;");
+          autoConfirmAutopull(18000); // auto-Save the autopull prompt when it appears
           addStageKit(inst, state.items, state.title, function (r) {
             if (r.ok) { if (built) uploadPdf(built.pdf, built.fileName); close(); }
             else {
