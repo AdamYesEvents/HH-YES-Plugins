@@ -8,7 +8,7 @@
  * Catalogue: data/stage-designer/decks.json + legs.json.
  * Fascia, trim and carpet come later (fascia will match the chosen height).
  *
- * Version: 0.18.0
+ * Version: 0.18.1
  */
 
 (function () {
@@ -457,6 +457,8 @@
 
   // Insert each unresolved item as a custom (free-text) line under the heading,
   // one at a time. Name is "[partNumber] label" for easy find/replace later.
+  // If the item carries a unitPrice (e.g. the fascia finish £/m), stamp it on the
+  // line so the cost shows until it becomes a real stock item.
   function insertCustoms(inst, headingId, customs, done) {
     var tree = inst.items_to_supply_tree.jstree(true), i = 0;
     (function next() {
@@ -465,7 +467,10 @@
       tree.deselect_all(); tree.select_node("a" + headingId);
       inst.new_item(3);
       inst.custom_name.val("[" + it.partNumber + "] " + it.label);
-      inst.priced_edit.find("[name='qty']").val(it.qty);
+      inst.priced_edit.find("[name='qty']").val(it.qty).trigger("change");
+      if (it.unitPrice != null && inst.unit_price && inst.unit_price.length) {
+        inst.unit_price.val(Number(it.unitPrice).toFixed(2)).trigger("change");
+      }
       inst.save_item();
       setTimeout(next, 1800);
     })();
