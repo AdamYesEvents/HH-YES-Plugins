@@ -1,10 +1,27 @@
 {
   "schema": "stage-designer/trim",
-  "dataVersion": "0.1.0",
+  "dataVersion": "0.3.0",
+  "_note": "Corners are always 0.5m L/R. Centre runs use the fewest lengths (symTile). Codes are placeholders (SFT{mm}-{fit}-{colour}).",
   "trim": [
-    { "system": "metric", "finish": "black", "len": 2,   "C": "SFT2000-C", "L": "SFT2000-L", "R": "SFT2000-R" },
-    { "system": "metric", "finish": "black", "len": 1.5, "C": "SFT1500-C", "L": "SFT1500-L", "R": "SFT1500-R" },
-    { "system": "metric", "finish": "black", "len": 1,   "C": "SFT1000-C", "L": "SFT1000-L", "R": "SFT1000-R" },
-    { "system": "metric", "finish": "black", "len": 0.5, "C": "SFT500-C",  "L": "SFT500-L",  "R": "SFT500-R" }
+    { "system": "metric", "finish": "black", "len": 3,   "C": "SFT3000-C-BLK" },
+    { "system": "metric", "finish": "black", "len": 2.5, "C": "SFT2500-C-BLK" },
+    { "system": "metric", "finish": "black", "len": 2,   "C": "SFT2000-C-BLK" },
+    { "system": "metric", "finish": "black", "len": 1.5, "C": "SFT1500-C-BLK" },
+    { "system": "metric", "finish": "black", "len": 1,   "C": "SFT1000-C-BLK" },
+    { "system": "metric", "finish": "black", "len": 0.5, "C": "SFT500-C-BLK", "L": "SFT500-L-BLK", "R": "SFT500-R-BLK" },
+
+    { "system": "metric", "finish": "white", "len": 3,   "C": "SFT3000-C-WHT" },
+    { "system": "metric", "finish": "white", "len": 2.5, "C": "SFT2500-C-WHT" },
+    { "system": "metric", "finish": "white", "len": 2,   "C": "SFT2000-C-WHT" },
+    { "system": "metric", "finish": "white", "len": 1.5, "C": "SFT1500-C-WHT" },
+    { "system": "metric", "finish": "white", "len": 1,   "C": "SFT1000-C-WHT" },
+    { "system": "metric", "finish": "white", "len": 0.5, "C": "SFT500-C-WHT", "L": "SFT500-L-WHT", "R": "SFT500-R-WHT" },
+
+    { "system": "metric", "finish": "grey", "len": 3,   "C": "SFT3000-C-GRY" },
+    { "system": "metric", "finish": "grey", "len": 2.5, "C": "SFT2500-C-GRY" },
+    { "system": "metric", "finish": "grey", "len": 2,   "C": "SFT2000-C-GRY" },
+    { "system": "metric", "finish": "grey", "len": 1.5, "C": "SFT1500-C-GRY" },
+    { "system": "metric", "finish": "grey", "len": 1,   "C": "SFT1000-C-GRY" },
+    { "system": "metric", "finish": "grey", "len": 0.5, "C": "SFT500-C-GRY", "L": "SFT500-L-GRY", "R": "SFT500-R-GRY" }
   ]
 }
