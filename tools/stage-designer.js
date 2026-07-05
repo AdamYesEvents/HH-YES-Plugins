@@ -8,7 +8,7 @@
  * Catalogue: data/stage-designer/decks.json + legs.json.
  * Fascia, trim and carpet come later (fascia will match the chosen height).
  *
- * Version: 0.21.1
+ * Version: 0.22.0
  */
 
 (function () {
@@ -378,6 +378,14 @@
   // combining roll widths. Returns { available, items, cuts, cutLength, combo }.
   function carpetKit(o) {
     var data = o.carpet || {};
+    // Imperial 4x4ft: 1m carpet isn't wide enough for a 4ft (1.22m) deck, so use
+    // 2x the 2m-wide carpet.
+    if (o.system === "imperial") {
+      var roll = (data.carpet || []).filter(function (b) { return b.colour === o.colour && b.width === 2; })[0];
+      if (!roll) return { available: false, items: [], cuts: [] };
+      var cp = o.colour.charAt(0).toUpperCase() + o.colour.slice(1);
+      return { available: true, items: [{ label: cp + " Carpet 2m wide", partNumber: roll.partNumber, qty: 2 }], cuts: [{ width: 2, length: 2 }], cutLength: 2, combo: [2, 2] };
+    }
     var all = (data.carpet || []).filter(function (b) { return b.system === o.system && b.colour === o.colour; });
     if (!all.length) return { available: false, items: [], cuts: [] };
     var widths = all.map(function (b) { return b.width; }), byW = {};
@@ -444,7 +452,7 @@
   // Load data from this tool's own release tag (immutable + served instantly by
   // jsDelivr) rather than @main, which edge-caches and can lag / throttle purges.
   // Bump this to match the tag on each release so data ships with the code.
-  var DATA_REF = "stage-designer-v0.21.1";
+  var DATA_REF = "stage-designer-v0.22.0";
   var BASE = "https://cdn.jsdelivr.net/gh/" + REPO + "@" + DATA_REF + "/data/stage-designer/";
   var catalogue = null;
 
@@ -497,13 +505,14 @@
     return ids;
   }
 
-  function createHeading(inst, title, description) {
+  function createHeading(inst, title, description, memo) {
     var before = headingIdSet(inst);
     var tree = inst.items_to_supply_tree.jstree(true);
     tree.deselect_all();
     inst.new_item(0);
     inst.heading_name.val(title);
-    if (description && inst.heading_desc) inst.heading_desc.val(description);
+    if (description && inst.heading_desc) inst.heading_desc.val(description); // Item description
+    if (memo && inst.heading_int) inst.heading_int.val(memo);                 // Item memo (internal)
     inst.save_item();
     return new Promise(function (resolve) {
       var tries = 0;
@@ -545,7 +554,7 @@
   // Resolve each kit part, create the folder, then insert resolved parts as a
   // batch and any unresolved codes as custom lines (so a kit can be built even
   // before every stock code exists).
-  function addStageKit(inst, items, title, onDone, description) {
+  function addStageKit(inst, items, title, onDone, description, memo) {
     var shopping = {}, customs = [];
     var chain = Promise.resolve();
     items.forEach(function (it) {
@@ -557,7 +566,7 @@
       });
     });
     chain.then(function () {
-      createHeading(inst, title, description).then(function (headingId) {
+      createHeading(inst, title, description, memo).then(function (headingId) {
         if (!headingId) { onDone({ ok: false, error: "Could not create the stage folder" }); return; }
         var tree = inst.items_to_supply_tree.jstree(true);
         inst.set_item_edit_tree_headings();
@@ -660,9 +669,11 @@
         }
         pdf.setFontSize(15); pdf.setTextColor(30, 30, 30); pdf.text(String(snapshot.title), margin, 18);
         pdf.setFontSize(10); pdf.setTextColor(90, 90, 90);
-        pdf.text("Job " + (jd.ID || ""), margin, 25);
-        pdf.text("Delivery: " + (fmtDate(jd.OUT_DATE) || "-") + "      Ref: " + code, margin, 31);
-        var top = 38, imgW = pageW - margin * 2, imgH = imgW * (png.h / png.w), maxImgH = 135;
+        var hy = 25;
+        if (snapshot.memo) { pdf.text(String(snapshot.memo), margin, hy); hy += 6; }
+        pdf.text("Job " + (jd.ID || ""), margin, hy);
+        pdf.text("Delivery: " + (fmtDate(jd.OUT_DATE) || "-") + "      Ref: " + code, margin, hy + 6);
+        var top = hy + 13, imgW = pageW - margin * 2, imgH = imgW * (png.h / png.w), maxImgH = 130;
         if (imgH > maxImgH) { imgH = maxImgH; imgW = imgH * (png.w / png.h); }
         pdf.addImage(png.dataUrl, "JPEG", margin, top, imgW, imgH);
         var y = top + imgH + 11;
@@ -975,7 +986,7 @@
 
         // fascia (colour-independent panels + a per-metre finish line)
         var sides = parseInt(faceSel.value) || 0;
-        var fasciaHtml = "", fasciaFinish = "", fasciaPlacements = [], fasciaFinishCost = 0;
+        var fasciaHtml = "", fasciaFinish = "", fasciaPlacements = [], fasciaFinishCost = 0, fasciaFinishType = "";
         if (sides > 0 && heightVal != null) {
           var fk = fasciaKit({ system: sysSel.value, width: parseFloat(wIn.value), depth: parseFloat(dIn.value), sides: sides, height: heightVal, finishType: finishSel.value, finishColour: finishColSel.value, fascia: cat.fascia });
           if (!fk.available) {
@@ -984,6 +995,7 @@
           } else if (fk.items.length) {
             fk.items.forEach(function (it) { items.push(it); });
             fasciaFinish = finishColSel.value;
+            fasciaFinishType = fk.finishLabel;
             fasciaPlacements = fk.placements;
             fasciaFinishCost = fk.finishCost;
             fasciaHtml = '<div style="font-size:11px;letter-spacing:.04em;color:#888;text-transform:uppercase;margin:10px 0 4px;">Fascia (' + fk.finishLabel + ' &ndash; ' + fasciaFinish + ')</div>' +
@@ -1035,7 +1047,15 @@
         state.treadUnits = treadsHtml ? treadUnits : 0; state.treadHeight = treadHeight;
         state.treadColour = ({ black: "#333333", white: "#e8e8e8", grey: "#9a9a9a" })[(carpetSel.value || "black")] || "#333333";
         var cap = function (x) { return x ? x.charAt(0).toUpperCase() + x.slice(1) : x; };
-        state.title = "Stage " + (+parseFloat(wIn.value)) + "x" + (+parseFloat(dIn.value)) + (heightLabel ? " @ " + heightLabel + "mm" : "") + (carpetColour ? ", " + cap(carpetColour) + " Carpet" : "") + (fasciaFinish ? ", " + cap(fasciaFinish) + " Fascia" : "") + (trimFinish ? ", " + cap(trimFinish) + " Trim" : "") + (treadsHtml ? ", " + treadUnits + " Tread" + (treadUnits > 1 ? "s" : "") : "");
+        // Short heading name + a full finishing breakdown for the memo/description.
+        var memoParts = [];
+        if (fasciaFinish) memoParts.push(sides + " Sided");
+        if (carpetColour) memoParts.push(cap(carpetColour) + " Carpet");
+        if (trimFinish) memoParts.push(cap(trimFinish) + " Trim");
+        if (fasciaFinish) memoParts.push(cap(fasciaFinish) + " " + fasciaFinishType + " Fascia");
+        if (treadsHtml) memoParts.push(treadUnits + " Tread" + (treadUnits > 1 ? "s" : ""));
+        state.memo = memoParts.join(", ");
+        state.title = "Stage " + (+parseFloat(wIn.value)) + "x" + (+parseFloat(dIn.value)) + (heightLabel ? " @ " + heightLabel + "mm" : "") + (state.memo ? " with Finishing" : "");
 
         var missing = items.filter(function (it) { return !isRealPart(it.partNumber); });
         kitBox.innerHTML = '<div style="font-size:11px;letter-spacing:.04em;color:#888;text-transform:uppercase;margin-bottom:6px;">Generated kit</div>' +
@@ -1075,7 +1095,9 @@
       function doAdd() {
         busyFoot("Building the PDF&hellip;");
         var code = genCode();
-        var snapshot = { result: state.result, width: state.width, depth: state.depth, height: state.height, fasciaPlacements: state.fasciaPlacements, trimPlacements: state.trimPlacements, items: state.items.slice(), title: state.title, treadUnits: state.treadUnits, treadHeight: state.treadHeight, treadColour: state.treadColour };
+        var memo = state.memo || "";
+        var description = memo ? (code + " - " + memo) : code; // Item description = code + finishing breakdown
+        var snapshot = { result: state.result, width: state.width, depth: state.depth, height: state.height, fasciaPlacements: state.fasciaPlacements, trimPlacements: state.trimPlacements, items: state.items.slice(), title: state.title, memo: memo, treadUnits: state.treadUnits, treadHeight: state.treadHeight, treadColour: state.treadColour };
         function insert(built) {
           busyFoot("Adding to the job&hellip;"); // autopull is handled inside addStageKit, before the custom rows
           addStageKit(inst, state.items, state.title, function (r) {
@@ -1088,7 +1110,7 @@
               back.textContent = "Back"; back.addEventListener("click", render);
               foot.appendChild(err); foot.appendChild(back);
             }
-          }, code);
+          }, description, memo);
         }
         // Build + offer a local save first (on the click's user gesture), then insert
         // the kit and upload the same PDF to the Files tab.
