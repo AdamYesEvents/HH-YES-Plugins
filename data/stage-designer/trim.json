@@ -22,6 +22,10 @@
     { "system": "metric", "finish": "grey", "len": 2,   "C": "SFT2000-G" },
     { "system": "metric", "finish": "grey", "len": 1.5, "C": "SFT1500-G" },
     { "system": "metric", "finish": "grey", "len": 1,   "C": "SFT1000-G" },
-    { "system": "metric", "finish": "grey", "len": 0.5, "C": "SFT500-G", "L": "SFT500-L-G", "R": "SFT500-R-G" }
+    { "system": "metric", "finish": "grey", "len": 0.5, "C": "SFT500-G", "L": "SFT500-L-G", "R": "SFT500-R-G" },
+
+    { "system": "imperial", "finish": "black", "len": 4, "C": "SFT1220-B" },
+    { "system": "imperial", "finish": "white", "len": 4, "C": "SFT1220-W" },
+    { "system": "imperial", "finish": "grey",  "len": 4, "C": "SFT1220-G" }
   ]
 }

@@ -3,7 +3,7 @@
   "dataVersion": "0.1.0",
   "systems": {
     "metric":   { "unit": "m",  "increment": 0.5, "min": 2, "max": 10 },
-    "imperial": { "unit": "ft", "increment": 4,   "min": 4, "max": 24 }
+    "imperial": { "unit": "ft", "increment": 4,   "min": 4, "max": 4 }
   },
   "decks": [
     { "id": "deck-2x1m",   "system": "metric",   "label": "2 x 1m LiteDeck Panel",     "width": 2,   "depth": 1,   "partNumber": "TestDeck21", "weightKg": null },

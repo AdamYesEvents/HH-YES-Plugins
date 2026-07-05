@@ -8,7 +8,7 @@
  * Catalogue: data/stage-designer/decks.json + legs.json.
  * Fascia, trim and carpet come later (fascia will match the chosen height).
  *
- * Version: 0.20.0
+ * Version: 0.21.0
  */
 
 (function () {
@@ -198,10 +198,50 @@
   // total fascia meterage. Corner panels sit on the FRONT/back edges; sides are
   // all standard. Edges tile with symTile (fewest panels).
   // Returns { available, items, placements, meterage, finishCost, rate, ... }.
+  // Build the per-metre finish line for a given meterage. Uses the real stock
+  // code for (type, height, colour) from the data; falls back to a generated one.
+  function fasciaFinishInfo(finishes, o, meterage) {
+    var fin = (finishes || []).filter(function (f) { return f.type === o.finishType; })[0];
+    var rate = fin ? (fin.pricePerM || 0) : 0, finishCost = +(rate * meterage).toFixed(2), item = null;
+    if (fin && meterage > 0) {
+      var byHeight = fin.codes && fin.codes[o.height];
+      var code = (byHeight && byHeight[o.finishColour]) || ("FASC-" + fin.type.toUpperCase() + "-" + o.height + "-" + colourAbbr(o.finishColour));
+      item = { label: fin.label + " finish - " + o.finishColour + " (" + o.height + "mm)", partNumber: code, qty: meterage, unitPrice: rate, isFinish: true };
+    }
+    return { item: item, rate: rate, finishCost: finishCost, finishLabel: fin ? fin.label : "" };
+  }
+
+  // Imperial (4ft) fascia: 4-sided only, one 4ft board per edge - front/back are
+  // 2x-corner boards, left/right are standard - plus one support fixing per board.
+  // Finish meterage = perimeter rounded up to the next whole metre.
+  function fasciaKitImperial(o, panels, mounts, finishes) {
+    var panel = panels.filter(function (b) { return b.system === "imperial" && b.height === o.height; })[0];
+    if (!panel) return { available: false, items: [], placements: [] };
+    var mount = mounts.filter(function (m) { return m.system === "imperial"; })[0];
+    var edges = [
+      { edge: "front", len: o.width, corner: true }, { edge: "back", len: o.width, corner: true },
+      { edge: "left", len: o.depth, corner: false }, { edge: "right", len: o.depth, corner: false }
+    ];
+    var agg = {}, order = [], placements = [], perimFt = 0;
+    function add(code, label) { if (!agg[code]) { agg[code] = { label: label, partNumber: code, qty: 0 }; order.push(code); } agg[code].qty++; }
+    edges.forEach(function (e) {
+      add(e.corner ? panel.corner : panel.standard, o.width + "ft fascia board (" + (e.corner ? "2x corner" : "standard") + ")");
+      if (mount) add(mount.partNumber, o.width + "ft fascia support fixing");
+      placements.push({ edge: e.edge, offset: 0, length: e.len, type: e.corner ? "corner" : "standard" });
+      perimFt += e.len;
+    });
+    var items = order.map(function (k) { return agg[k]; });
+    var meterage = Math.ceil(perimFt * 0.3048); // perimeter in metres, up to next metre
+    var fi = fasciaFinishInfo(finishes, o, meterage);
+    if (fi.item) items.push(fi.item);
+    return { available: true, items: items, placements: placements, meterage: meterage, finishCost: fi.finishCost, rate: fi.rate, finishLabel: fi.finishLabel, finishColour: o.finishColour };
+  }
+
   function fasciaKit(o) {
     var fascia = o.fascia || {};
     var panels = fascia.panels || fascia.boards || [], mounts = fascia.mounts || [], finishes = fascia.finishes || [];
     if (!o.sides) return { available: true, items: [], placements: [], meterage: 0, finishCost: 0 };
+    if (o.system === "imperial") return fasciaKitImperial(o, panels, mounts, finishes);
 
     var avail = panels.filter(function (b) { return b.system === o.system && b.height === o.height; })
       .sort(function (a, b) { return b.len - a.len; });
@@ -244,16 +284,9 @@
     meterage = +meterage.toFixed(3);
 
     var items = order.map(function (k) { return agg[k]; });
-    // finish: one per-metre line on the total meterage. Use the real stock code
-    // for (type, height, colour) from the data; fall back to a generated code.
-    var fin = finishes.filter(function (f) { return f.type === o.finishType; })[0];
-    var rate = fin ? (fin.pricePerM || 0) : 0, finishCost = +(rate * meterage).toFixed(2);
-    if (fin && meterage > 0) {
-      var byHeight = fin.codes && fin.codes[o.height];
-      var code = (byHeight && byHeight[o.finishColour]) || ("FASC-" + fin.type.toUpperCase() + "-" + o.height + "-" + colourAbbr(o.finishColour));
-      items.push({ label: fin.label + " finish - " + o.finishColour + " (" + o.height + "mm)", partNumber: code, qty: meterage, unitPrice: rate, isFinish: true });
-    }
-    return { available: true, items: items, placements: placements, meterage: meterage, finishCost: finishCost, rate: rate, finishLabel: fin ? fin.label : "", finishColour: o.finishColour };
+    var fi = fasciaFinishInfo(finishes, o, meterage);
+    if (fi.item) items.push(fi.item);
+    return { available: true, items: items, placements: placements, meterage: meterage, finishCost: fi.finishCost, rate: fi.rate, finishLabel: fi.finishLabel, finishColour: o.finishColour };
   }
 
   // Which cut fit a corner piece uses, per edge end. Front/back: start=L, end=R.
@@ -270,6 +303,21 @@
   function trimKit(o) {
     var trim = o.trim || {}, boards = trim.trim || [];
     if (!o.sides) return { available: true, items: [], placements: [] };
+
+    // Imperial (4ft): one 4ft trim per edge (2x 45 deg cuts), 4-sided.
+    if (o.system === "imperial") {
+      var it = boards.filter(function (b) { return b.system === "imperial" && b.finish === o.finish; })[0];
+      if (!it) return { available: false, items: [], placements: [] };
+      var iedges = [{ edge: "front", len: o.width }, { edge: "back", len: o.width }, { edge: "left", len: o.depth }, { edge: "right", len: o.depth }];
+      var iagg = {}, iplace = [];
+      iedges.forEach(function (e) {
+        if (!iagg[it.C]) iagg[it.C] = { label: o.width + "ft trim (2x 45° cuts)", partNumber: it.C, qty: 0 };
+        iagg[it.C].qty++;
+        iplace.push({ edge: e.edge, offset: 0, length: e.len, type: "corner" });
+      });
+      return { available: true, items: Object.keys(iagg).map(function (k) { return iagg[k]; }), placements: iplace };
+    }
+
     var avail = boards.filter(function (b) { return b.system === o.system && b.finish === o.finish; }).sort(function (a, b) { return b.len - a.len; });
     if (!avail.length) return { available: false, items: [], placements: [] };
     var lengths = avail.map(function (b) { return b.len; }), byLen = {};
@@ -743,7 +791,6 @@
       carpetWrap.appendChild(carpetSel); colControls.appendChild(carpetWrap);
 
       var faceWrap = field("Fascia sides"); var faceSel = el("select", null, "width:100%;padding:8px;font-size:14px;");
-      [["0", "None"], ["2", "2 sided (left + front)"], ["3", "3 sided"], ["4", "4 sided"]].forEach(function (o) { var op = el("option"); op.value = o[0]; op.textContent = o[1]; faceSel.appendChild(op); });
       faceWrap.appendChild(faceSel);
       var fasciaNote = el("div", null, "margin-top:6px;font-size:11px;color:#999;display:none;");
       fasciaNote.textContent = "No fascia at this height — fascia & trim unavailable.";
@@ -757,12 +804,6 @@
       var trimWrap = field("Trim finish"); var trimSel = el("select", null, "width:100%;padding:8px;font-size:14px;"); trimWrap.appendChild(trimSel); colControls.appendChild(trimWrap);
 
       var treadsWrap = field("Treads"); var treadsSel = el("select", null, "width:100%;padding:8px;font-size:14px;");
-      (function () {
-        var maxU = (cat.treads && cat.treads.maxUnits) || 4;
-        var opts = [["0", "None"]];
-        for (var u = 1; u <= maxU; u++) opts.push([String(u), u + (u > 1 ? " units" : " unit")]);
-        opts.forEach(function (o) { var op = el("option"); op.value = o[0]; op.textContent = o[1]; treadsSel.appendChild(op); });
-      })();
       treadsWrap.appendChild(treadsSel);
       var treadsNote = el("div", null, "margin-top:6px;font-size:11px;color:#999;display:none;");
       treadsNote.textContent = "Treads available on 400mm or 600mm stages only.";
@@ -777,7 +818,33 @@
 
       var state = { result: null, unit: "", title: "", items: [] };
 
-      function legsForSystem() { return cat.legs.filter(function (l) { return l.system === sysSel.value; }); }
+      // Legs are mm scaff legs shared by both systems; imperial falls back to them.
+      function legsForSystem() {
+        var own = cat.legs.filter(function (l) { return l.system === sysSel.value; });
+        return own.length ? own : cat.legs.filter(function (l) { return l.system === "metric"; });
+      }
+
+      // Imperial is 4-sided only; metric offers 2/3/4-sided.
+      function populateFasciaSides() {
+        var opts = sysSel.value === "imperial"
+          ? [["0", "None"], ["4", "4 sided"]]
+          : [["0", "None"], ["2", "2 sided (left + front)"], ["3", "3 sided"], ["4", "4 sided"]];
+        var cur = faceSel.value;
+        faceSel.innerHTML = "";
+        opts.forEach(function (o) { var op = el("option"); op.value = o[0]; op.textContent = o[1]; faceSel.appendChild(op); });
+        if (opts.some(function (o) { return o[0] === cur; })) faceSel.value = cur;
+      }
+
+      // Imperial (4x4ft) can only take 1 tread unit; metric up to maxUnits.
+      function populateTreads() {
+        var maxU = sysSel.value === "imperial" ? 1 : ((cat.treads && cat.treads.maxUnits) || 4);
+        var cur = treadsSel.value;
+        treadsSel.innerHTML = "";
+        var opts = [["0", "None"]];
+        for (var u = 1; u <= maxU; u++) opts.push([String(u), u + (u > 1 ? " units" : " unit")]);
+        opts.forEach(function (o) { var op = el("option"); op.value = o[0]; op.textContent = o[1]; treadsSel.appendChild(op); });
+        if (opts.some(function (o) { return o[0] === cur; })) treadsSel.value = cur;
+      }
 
       function populateHeights() {
         var legs = legsForSystem();
@@ -918,8 +985,7 @@
             fasciaHtml = '<div style="font-size:11px;letter-spacing:.04em;color:#888;text-transform:uppercase;margin:10px 0 4px;">Fascia (' + fk.finishLabel + ' &ndash; ' + fasciaFinish + ')</div>' +
               fk.items.map(function (it) {
                 return '<div style="display:flex;justify-content:space-between;font-size:13px;padding:3px 0;"><span style="color:#333;">' + it.label + '</span><span style="color:#111;font-weight:500;">x ' + it.qty + '</span></div>';
-              }).join("") +
-              '<div style="margin-top:5px;font-size:12px;color:#555;">Finish: ' + fk.meterage + ' m &times; £' + fk.rate.toFixed(2) + '/m = <span style="font-weight:600;color:#222;">£' + fk.finishCost.toFixed(2) + '</span></div>';
+              }).join("");
           }
         }
 
@@ -1027,7 +1093,7 @@
         }).catch(function () { insert(null); });
       }
 
-      sysSel.addEventListener("change", function () { applySystemBounds(); populateHeights(); syncFasciaControls(); syncTreadsControl(); render(); });
+      sysSel.addEventListener("change", function () { applySystemBounds(); populateHeights(); populateFasciaSides(); populateTreads(); syncFasciaControls(); syncTreadsControl(); render(); });
       wIn.addEventListener("input", render);
       dIn.addEventListener("input", render);
       hSel.addEventListener("change", function () { syncFasciaControls(); syncTreadsControl(); render(); });
@@ -1041,6 +1107,8 @@
       document.body.appendChild(backdrop);
       applySystemBounds();
       populateHeights();
+      populateFasciaSides();
+      populateTreads();
       syncFasciaControls();
       syncTreadsControl();
       render();
