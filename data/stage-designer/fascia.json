@@ -1,16 +1,26 @@
 {
   "schema": "stage-designer/fascia",
-  "dataVersion": "0.2.0",
-  "_note": "Panels are colour-independent (structural), sized by height + length. The finish (Felt/HIPS/Print) is a separate per-metre line priced on the total fascia meterage; rate is per metre (test values). Finish part code is generated FASC-{type}-{height}-{colourAbbr}.",
+  "dataVersion": "0.3.0",
+  "_note": "Panels are colour-independent (structural), by height + length (real SFB codes). Mounts are the fascia support fixings with wing bolt set (SFBS). The finish (Felt/HIPS/Print) is a separate per-metre line priced on total fascia meterage; finish part code generated FASC-{type}-{height}-{colourAbbr}.",
   "mounts": [
-    { "system": "metric", "len": 1,   "partNumber": "1fm" },
-    { "system": "metric", "len": 0.5, "partNumber": "05fm" }
+    { "system": "metric", "len": 1,   "partNumber": "SFBS1000" },
+    { "system": "metric", "len": 0.5, "partNumber": "SFBS500" }
   ],
   "panels": [
-    { "system": "metric", "height": 200, "len": 2,   "standard": "FP200-2000",  "corner": "FPC200-2000" },
-    { "system": "metric", "height": 200, "len": 1.5, "standard": "FP200-1500",  "corner": "FPC200-1500" },
-    { "system": "metric", "height": 200, "len": 1,   "standard": "FP200-1000",  "corner": "FPC200-1000" },
-    { "system": "metric", "height": 200, "len": 0.5, "standard": "FP200-0500",  "corner": "FPC200-0500" }
+    { "system": "metric", "height": 200, "len": 2,   "standard": "SFB-200-2000", "corner": "SFB-200-2000-C" },
+    { "system": "metric", "height": 200, "len": 1.5, "standard": "SFB-200-1500", "corner": "SFB-200-1500-C" },
+    { "system": "metric", "height": 200, "len": 1,   "standard": "SFB-200-1000", "corner": "SFB-200-1000-C" },
+    { "system": "metric", "height": 200, "len": 0.5, "standard": "SFB-200-500",  "corner": "SFB-200-500-C" },
+
+    { "system": "metric", "height": 400, "len": 2,   "standard": "SFB-400-2000", "corner": "SFB-400-2000-C" },
+    { "system": "metric", "height": 400, "len": 1.5, "standard": "SFB-400-1500", "corner": "SFB-400-1500-C" },
+    { "system": "metric", "height": 400, "len": 1,   "standard": "SFB-400-1000", "corner": "SFB-400-1000-C" },
+    { "system": "metric", "height": 400, "len": 0.5, "standard": "SFB-400-500",  "corner": "SFB-400-500-C" },
+
+    { "system": "metric", "height": 600, "len": 2,   "standard": "SFB-600-2000", "corner": "SFB-600-2000-C" },
+    { "system": "metric", "height": 600, "len": 1.5, "standard": "SFB-600-1500", "corner": "SFB-600-1500-C" },
+    { "system": "metric", "height": 600, "len": 1,   "standard": "SFB-600-1000", "corner": "SFB-600-1000-C" },
+    { "system": "metric", "height": 600, "len": 0.5, "standard": "SFB-600-500",  "corner": "SFB-600-500-C" }
   ],
   "finishes": [
     { "type": "felt",  "label": "Felt",  "pricePerM": 6.5, "colours": ["black", "off white", "grey"] },
