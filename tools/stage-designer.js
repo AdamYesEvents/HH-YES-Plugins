@@ -508,10 +508,16 @@
         var tree = inst.items_to_supply_tree.jstree(true);
         inst.set_item_edit_tree_headings();
         tree.deselect_all(); tree.select_node("a" + headingId); inst.set_parent_vals(true);
-        function doCustoms() { insertCustoms(inst, headingId, customs, function () { onDone({ ok: true, headingId: headingId, parts: Object.keys(shopping).length, customs: customs.length }); }); }
+        function doCustoms() {
+          // re-target the heading (the batch/autopull rebuilt the tree), then insert
+          var t = inst.items_to_supply_tree.jstree(true);
+          t.deselect_all(); t.select_node("a" + headingId); inst.set_parent_vals(true);
+          insertCustoms(inst, headingId, customs, function () { onDone({ ok: true, headingId: headingId, parts: Object.keys(shopping).length, customs: customs.length }); });
+        }
         if (Object.keys(shopping).length && inst.picklist_heading.val() == headingId) {
           inst.save_items_list(shopping);
-          setTimeout(doCustoms, 2600); // let the batch save + tree rebuild settle
+          // dismiss the modal Autopull prompt first, THEN insert the custom rows
+          dismissAutopullThen(doCustoms);
         } else {
           doCustoms();
         }
@@ -648,21 +654,28 @@
     document.head.appendChild(st);
   }
 
-  // After inserting, HireHop may prompt an "Autopull" dialog (e.g. the deck
-  // boltset). Auto-press its Save button for a short window so the flow completes.
-  function autoConfirmAutopull(durationMs) {
-    var end = Date.now() + (durationMs || 16000);
+  function findAutopullDialog() {
+    return Array.prototype.slice.call(document.querySelectorAll(".ui-dialog")).filter(function (d) {
+      return d.offsetParent !== null && /autopull/i.test((d.querySelector(".ui-dialog-title") || {}).textContent || "");
+    })[0];
+  }
+
+  // The batch insert (deck) makes HireHop prompt a modal "Autopull" dialog (the
+  // boltset). It must be dismissed BEFORE the custom rows start, or its modal
+  // blocks the tree and the custom saves collide. Poll for it, press Save, wait
+  // for it to close, then continue. Proceeds anyway if it never appears.
+  function dismissAutopullThen(cb) {
+    var tries = 0, dismissed = false;
     var iv = setInterval(function () {
-      if (Date.now() > end) { clearInterval(iv); return; }
-      Array.prototype.slice.call(document.querySelectorAll(".ui-dialog")).forEach(function (d) {
-        if (d.offsetParent === null) return;
-        var t = d.querySelector(".ui-dialog-title");
-        if (!t || !/autopull/i.test(t.textContent)) return;
+      tries++;
+      var d = findAutopullDialog();
+      if (d) {
         var btns = Array.prototype.slice.call(d.querySelectorAll(".ui-dialog-buttonpane button"));
         var save = btns.filter(function (b) { return /save|ok|yes/i.test(b.textContent.trim()); })[0] || btns[0];
-        if (save) save.click();
-      });
-    }, 400);
+        if (save) { save.click(); dismissed = true; }
+      }
+      if ((dismissed && !findAutopullDialog()) || tries > 30) { clearInterval(iv); setTimeout(cb, 1200); }
+    }, 200);
   }
 
   // ---- dialog ----------------------------------------------------------------
@@ -992,8 +1005,7 @@
         var code = genCode();
         var snapshot = { result: state.result, width: state.width, depth: state.depth, height: state.height, fasciaPlacements: state.fasciaPlacements, trimPlacements: state.trimPlacements, items: state.items.slice(), title: state.title, treadUnits: state.treadUnits, treadHeight: state.treadHeight, treadColour: state.treadColour };
         function insert(built) {
-          busyFoot("Adding to the job&hellip;");
-          autoConfirmAutopull(18000); // auto-Save the autopull prompt when it appears
+          busyFoot("Adding to the job&hellip;"); // autopull is handled inside addStageKit, before the custom rows
           addStageKit(inst, state.items, state.title, function (r) {
             if (r.ok) { if (built) uploadPdf(built.pdf, built.fileName); close(); }
             else {
