@@ -8,7 +8,7 @@
  * Catalogue: data/stage-designer/decks.json + legs.json.
  * Fascia, trim and carpet come later (fascia will match the chosen height).
  *
- * Version: 0.19.1
+ * Version: 0.20.0
  */
 
 (function () {
@@ -244,11 +244,13 @@
     meterage = +meterage.toFixed(3);
 
     var items = order.map(function (k) { return agg[k]; });
-    // finish: one per-metre line on the total meterage
+    // finish: one per-metre line on the total meterage. Use the real stock code
+    // for (type, height, colour) from the data; fall back to a generated code.
     var fin = finishes.filter(function (f) { return f.type === o.finishType; })[0];
     var rate = fin ? (fin.pricePerM || 0) : 0, finishCost = +(rate * meterage).toFixed(2);
     if (fin && meterage > 0) {
-      var code = "FASC-" + fin.type.toUpperCase() + "-" + o.height + "-" + colourAbbr(o.finishColour);
+      var byHeight = fin.codes && fin.codes[o.height];
+      var code = (byHeight && byHeight[o.finishColour]) || ("FASC-" + fin.type.toUpperCase() + "-" + o.height + "-" + colourAbbr(o.finishColour));
       items.push({ label: fin.label + " finish - " + o.finishColour + " (" + o.height + "mm)", partNumber: code, qty: meterage, unitPrice: rate, isFinish: true });
     }
     return { available: true, items: items, placements: placements, meterage: meterage, finishCost: finishCost, rate: rate, finishLabel: fin ? fin.label : "", finishColour: o.finishColour };

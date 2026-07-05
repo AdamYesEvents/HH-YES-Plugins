@@ -23,8 +23,29 @@
     { "system": "metric", "height": 600, "len": 0.5, "standard": "SFB-600-500",  "corner": "SFB-600-500-C" }
   ],
   "finishes": [
-    { "type": "felt",  "label": "Felt",  "pricePerM": 6.5, "colours": ["black", "off white", "grey"] },
-    { "type": "hips",  "label": "HIPS",  "pricePerM": 7,   "colours": ["silver", "gold"] },
-    { "type": "print", "label": "Print", "pricePerM": 10,  "colours": ["custom"] }
+    {
+      "type": "felt", "label": "Felt", "pricePerM": 6.5, "colours": ["black", "off white", "grey"],
+      "codes": {
+        "200": { "black": "SFELT200-B", "off white": "SFELT200-W", "grey": "SFELT200-G" },
+        "400": { "black": "SFELT400-B", "off white": "SFELT400-W", "grey": "SFELT400-G" },
+        "600": { "black": "SFELT600-B", "off white": "SFELT600-W", "grey": "SFELT600-G" }
+      }
+    },
+    {
+      "type": "hips", "label": "HIPS", "pricePerM": 7, "colours": ["silver", "gold"],
+      "codes": {
+        "200": { "silver": "SHIPS200-S", "gold": "SHIPS200-G" },
+        "400": { "silver": "SHIPS400-S", "gold": "SHIPS400-G" },
+        "600": { "silver": "SHIPS600-S", "gold": "SHIPS600-G" }
+      }
+    },
+    {
+      "type": "print", "label": "Foamex", "pricePerM": 10, "colours": ["custom"],
+      "codes": {
+        "200": { "custom": "SPFOAMEX200" },
+        "400": { "custom": "SPFOAMEX400" },
+        "600": { "custom": "SPFOAMEX600" }
+      }
+    }
   ]
 }
