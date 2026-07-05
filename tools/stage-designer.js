@@ -415,11 +415,12 @@
   function treadsKit(o) {
     var data = o.treads || {};
     if (!o.units) return { available: true, items: [], units: 0 };
-    var def = (data.treads || []).filter(function (t) { return t.system === o.system && t.height === o.height; })[0];
+    // Treads (and their 1m carpet) are shared physical units, matched by height.
+    var def = (data.treads || []).filter(function (t) { return t.height === o.height; })[0];
     if (!def) return { available: false, items: [], units: o.units };
     var items = [];
     (def.parts || []).forEach(function (p) { items.push({ label: p.label, partNumber: p.partNumber, qty: p.qty * o.units }); });
-    var roll = ((o.carpet && o.carpet.carpet) || []).filter(function (b) { return b.system === o.system && b.colour === o.colour && b.width === 1; })[0];
+    var roll = ((o.carpet && o.carpet.carpet) || []).filter(function (b) { return b.colour === o.colour && b.width === 1; })[0];
     if (roll) {
       var cap = o.colour.charAt(0).toUpperCase() + o.colour.slice(1);
       items.push({ label: cap + " Carpet 1m × 1m (per tread)", partNumber: roll.partNumber, qty: o.units });
@@ -907,7 +908,7 @@
       // Treads only fit a stage whose height matches a tread unit (400 / 600).
       function syncTreadsControl() {
         var h = currentHeight();
-        var treadsOK = ((cat.treads && cat.treads.treads) || []).some(function (t) { return t.system === sysSel.value && t.height === h; });
+        var treadsOK = ((cat.treads && cat.treads.treads) || []).some(function (t) { return t.height === h; });
         treadsSel.disabled = !treadsOK;
         if (!treadsOK) treadsSel.value = "0";
         treadsNote.style.display = treadsOK ? "none" : "";
