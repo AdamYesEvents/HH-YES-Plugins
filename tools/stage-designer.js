@@ -474,15 +474,17 @@
     (function next() {
       if (i >= customs.length) { done(); return; }
       var it = customs[i++];
-      tree.deselect_all(); tree.select_node("a" + headingId);
-      inst.new_item(3);
-      inst.custom_name.val("[" + it.partNumber + "] " + it.label);
-      inst.priced_edit.find("[name='qty']").val(it.qty).trigger("change");
-      if (it.unitPrice != null && inst.unit_price && inst.unit_price.length) {
-        inst.unit_price.val(Number(it.unitPrice).toFixed(2)).trigger("change");
-      }
-      inst.save_item();
-      setTimeout(next, CUSTOM_ROW_GAP_MS);
+      try {
+        tree.deselect_all(); tree.select_node("a" + headingId);
+        inst.new_item(3);
+        inst.custom_name.val("[" + it.partNumber + "] " + it.label);
+        inst.priced_edit.find("[name='qty']").val(it.qty).trigger("change");
+        if (it.unitPrice != null && inst.unit_price && inst.unit_price.length) {
+          inst.unit_price.val(Number(it.unitPrice).toFixed(2)).trigger("change");
+        }
+        inst.save_item();
+      } catch (e) { try { console.warn("[stage-designer] custom row failed:", it.partNumber, e && e.message); } catch (x) { } }
+      setTimeout(next, CUSTOM_ROW_GAP_MS); // always continue, even if a row throws
     })();
   }
 
