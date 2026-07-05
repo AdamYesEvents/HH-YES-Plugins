@@ -8,7 +8,7 @@
  * Catalogue: data/stage-designer/decks.json + legs.json.
  * Fascia, trim and carpet come later (fascia will match the chosen height).
  *
- * Version: 0.19.0
+ * Version: 0.19.1
  */
 
 (function () {
@@ -463,15 +463,20 @@
     });
   }
 
+  var CUSTOM_ROW_GAP_MS = 1500; // gap after each custom row lands (avoids HireHop's connection limit)
+
   // Insert each unresolved item as a custom (free-text) line under the heading,
   // one at a time. Name is "[partNumber] label" for easy find/replace later.
   // If the item carries a unitPrice (e.g. the fascia finish £/m), stamp it on the
-  // line so the cost shows until it becomes a real stock item.
+  // line so the cost shows until it becomes a real stock item. Each row waits to
+  // land (so only one save is ever in flight), then a fixed gap before the next.
   function insertCustoms(inst, headingId, customs, done) {
-    var tree = inst.items_to_supply_tree.jstree(true), i = 0;
+    var i = 0;
+    function nodeCount() { var t = inst.items_to_supply_tree.jstree(true); return (t.get_json("#", { flat: true }) || []).length; }
     (function next() {
       if (i >= customs.length) { done(); return; }
       var it = customs[i++];
+      var tree = inst.items_to_supply_tree.jstree(true);
       tree.deselect_all(); tree.select_node("a" + headingId);
       inst.new_item(3);
       inst.custom_name.val("[" + it.partNumber + "] " + it.label);
@@ -479,8 +484,14 @@
       if (it.unitPrice != null && inst.unit_price && inst.unit_price.length) {
         inst.unit_price.val(Number(it.unitPrice).toFixed(2)).trigger("change");
       }
+      var before = nodeCount();
       inst.save_item();
-      setTimeout(next, 1800);
+      // wait for the row to be saved (node added) or a safety timeout, then gap
+      var waited = 0;
+      var iv = setInterval(function () {
+        waited += 250;
+        if (nodeCount() > before || waited >= 9000) { clearInterval(iv); setTimeout(next, CUSTOM_ROW_GAP_MS); }
+      }, 250);
     })();
   }
 
