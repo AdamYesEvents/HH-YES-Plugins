@@ -463,20 +463,17 @@
     });
   }
 
-  var CUSTOM_ROW_GAP_MS = 1500; // gap after each custom row lands (avoids HireHop's connection limit)
+  var CUSTOM_ROW_GAP_MS = 1500; // gap between custom rows (avoids HireHop's connection limit)
 
   // Insert each unresolved item as a custom (free-text) line under the heading,
-  // one at a time. Name is "[partNumber] label" for easy find/replace later.
-  // If the item carries a unitPrice (e.g. the fascia finish £/m), stamp it on the
-  // line so the cost shows until it becomes a real stock item. Each row waits to
-  // land (so only one save is ever in flight), then a fixed gap before the next.
+  // one at a time, spaced by CUSTOM_ROW_GAP_MS. Name is "[partNumber] label" for
+  // easy find/replace later. If the item carries a unitPrice (e.g. the fascia
+  // finish £/m), stamp it on the line so the cost shows until it becomes stock.
   function insertCustoms(inst, headingId, customs, done) {
-    var i = 0;
-    function nodeCount() { var t = inst.items_to_supply_tree.jstree(true); return (t.get_json("#", { flat: true }) || []).length; }
+    var tree = inst.items_to_supply_tree.jstree(true), i = 0;
     (function next() {
       if (i >= customs.length) { done(); return; }
       var it = customs[i++];
-      var tree = inst.items_to_supply_tree.jstree(true);
       tree.deselect_all(); tree.select_node("a" + headingId);
       inst.new_item(3);
       inst.custom_name.val("[" + it.partNumber + "] " + it.label);
@@ -484,14 +481,8 @@
       if (it.unitPrice != null && inst.unit_price && inst.unit_price.length) {
         inst.unit_price.val(Number(it.unitPrice).toFixed(2)).trigger("change");
       }
-      var before = nodeCount();
       inst.save_item();
-      // wait for the row to be saved (node added) or a safety timeout, then gap
-      var waited = 0;
-      var iv = setInterval(function () {
-        waited += 250;
-        if (nodeCount() > before || waited >= 9000) { clearInterval(iv); setTimeout(next, CUSTOM_ROW_GAP_MS); }
-      }, 250);
+      setTimeout(next, CUSTOM_ROW_GAP_MS);
     })();
   }
 
