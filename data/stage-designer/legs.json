@@ -1,12 +1,14 @@
 {
   "schema": "stage-designer/legs",
-  "dataVersion": "0.1.0",
+  "dataVersion": "0.2.0",
   "legsPerDeck": 4,
   "legs": [
-    { "id": "leg-200", "system": "metric", "label": "200mm Scaff Legs", "height": 200, "partNumber": "l200" },
-    { "id": "leg-270", "system": "metric", "label": "270mm Scaff Legs", "height": 270, "partNumber": "l270" },
-    { "id": "leg-300", "system": "metric", "label": "300mm Scaff Legs", "height": 300, "partNumber": "l300" },
-    { "id": "leg-400", "system": "metric", "label": "400mm Scaff Legs", "height": 400, "partNumber": "l400" },
-    { "id": "leg-600", "system": "metric", "label": "600mm Scaff Legs", "height": 600, "partNumber": "l600" }
+    { "id": "leg-200",  "system": "metric", "label": "200mm Scaff Legs",  "height": 200,  "partNumber": "YW-00018" },
+    { "id": "leg-270",  "system": "metric", "label": "270mm Scaff Legs",  "height": 270,  "partNumber": "YW-00019" },
+    { "id": "leg-300",  "system": "metric", "label": "300mm Scaff Legs",  "height": 300,  "partNumber": "YW-00021" },
+    { "id": "leg-400",  "system": "metric", "label": "400mm Scaff Legs",  "height": 400,  "partNumber": "YW-00023" },
+    { "id": "leg-600",  "system": "metric", "label": "600mm Scaff Legs",  "height": 600,  "partNumber": "YW-00025" },
+    { "id": "leg-800",  "system": "metric", "label": "800mm Scaff Legs",  "height": 800,  "partNumber": "YW-00026" },
+    { "id": "leg-1000", "system": "metric", "label": "1000mm Scaff Legs", "height": 1000, "partNumber": "YW-00013" }
   ]
 }
