@@ -8,7 +8,7 @@
  * Catalogue: data/stage-designer/decks.json + legs.json.
  * Fascia, trim and carpet come later (fascia will match the chosen height).
  *
- * Version: 0.24.0
+ * Version: 0.24.1
  */
 
 (function () {
@@ -452,7 +452,7 @@
   // Load data from this tool's own release tag (immutable + served instantly by
   // jsDelivr) rather than @main, which edge-caches and can lag / throttle purges.
   // Bump this to match the tag on each release so data ships with the code.
-  var DATA_REF = "stage-designer-v0.24.0";
+  var DATA_REF = "stage-designer-v0.24.1";
   var BASE = "https://cdn.jsdelivr.net/gh/" + REPO + "@" + DATA_REF + "/data/stage-designer/";
   var catalogue = null;
 
@@ -792,7 +792,7 @@
           pdf.setTextColor(20, 20, 20); pdf.text("x " + it.qty, pageW - margin, y, { align: "right" });
           y += 6;
         });
-        var fileName = (jd.ID ? jd.ID + " - " : "") + snapshot.width + "x" + snapshot.depth + "@" + (snapshot.height || 0) + "mm stage-" + code + ".pdf";
+        var fileName = (jd.ID ? jd.ID + " - " : "") + snapshot.width + "x" + snapshot.depth + (snapshot.sysUnit || "") + "@" + (snapshot.height || 0) + "mm stage-" + code + ".pdf";
         return { pdf: pdf, fileName: fileName };
       });
     });
@@ -1179,7 +1179,8 @@
         if (fasciaFinish) memoParts.push(cap(fasciaFinish) + " " + fasciaFinishType + " Fascia");
         if (treadsHtml) memoParts.push(treadUnits + " Tread" + (treadUnits > 1 ? "s" : ""));
         state.memo = memoParts.join(", ");
-        state.title = "Stage " + (+parseFloat(wIn.value)) + "x" + (+parseFloat(dIn.value)) + (heightLabel ? " @ " + heightLabel + "mm" : "") + (state.memo ? " with Finishing" : "");
+        var sysUnit = (cat.systems[sysSel.value] && cat.systems[sysSel.value].unit) || "";
+        state.title = "Stage " + (+parseFloat(wIn.value)) + "x" + (+parseFloat(dIn.value)) + sysUnit + (heightLabel ? " @ " + heightLabel + "mm" : "") + (state.memo ? " with Finishing" : "");
 
         var missing = items.filter(function (it) { return !isRealPart(it.partNumber); });
         kitBox.innerHTML = '<div style="font-size:11px;letter-spacing:.04em;color:#888;text-transform:uppercase;margin-bottom:6px;">Generated kit</div>' +
@@ -1227,7 +1228,7 @@
         var memo = state.memo || "";
         var description = memo ? (code + " - " + memo) : code; // Item description = code + finishing breakdown
         var parentHeadingId = state.parentHeadingId || null; // "insert at cursor": nest under the user-selected folder
-        var snapshot = { result: state.result, width: state.width, depth: state.depth, height: state.height, fasciaPlacements: state.fasciaPlacements, trimPlacements: state.trimPlacements, items: state.items.slice(), title: state.title, memo: memo, treadUnits: state.treadUnits, treadHeight: state.treadHeight, treadColour: state.treadColour };
+        var snapshot = { result: state.result, width: state.width, depth: state.depth, height: state.height, sysUnit: ((cat.systems[sysSel.value] && cat.systems[sysSel.value].unit) || ""), fasciaPlacements: state.fasciaPlacements, trimPlacements: state.trimPlacements, items: state.items.slice(), title: state.title, memo: memo, treadUnits: state.treadUnits, treadHeight: state.treadHeight, treadColour: state.treadColour };
         function insert(built) {
           busyFoot("Adding to the job&hellip;"); // autopull is handled inside addStageKit, before the custom rows
           addStageKit(inst, state.items, state.title, function (r) {
