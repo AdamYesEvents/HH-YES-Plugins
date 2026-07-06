@@ -8,7 +8,7 @@
  * Catalogue: data/stage-designer/decks.json + legs.json.
  * Fascia, trim and carpet come later (fascia will match the chosen height).
  *
- * Version: 0.23.3
+ * Version: 0.24.0
  */
 
 (function () {
@@ -452,7 +452,7 @@
   // Load data from this tool's own release tag (immutable + served instantly by
   // jsDelivr) rather than @main, which edge-caches and can lag / throttle purges.
   // Bump this to match the tag on each release so data ships with the code.
-  var DATA_REF = "stage-designer-v0.23.3";
+  var DATA_REF = "stage-designer-v0.24.0";
   var BASE = "https://cdn.jsdelivr.net/gh/" + REPO + "@" + DATA_REF + "/data/stage-designer/";
   var catalogue = null;
 
@@ -470,7 +470,8 @@
       getJson("trim.json").catch(function () { return { trim: [] }; }),
       getJson("carpet.json").catch(function () { return { carpet: [], overhang: 1 }; }),
       getJson("treads.json").catch(function () { return { treads: [], maxUnits: 4 }; }),
-      getJson("branding.json").catch(function () { return { depots: {}, default: {} }; })
+      getJson("branding.json").catch(function () { return { depots: {}, default: {} }; }),
+      getJson("accessories.json").catch(function () { return { byCategory: {} }; })
     ]).then(function (res) {
       catalogue = {
         systems: res[0].systems, decks: res[0].decks,
@@ -479,7 +480,8 @@
         trim: { trim: (res[3].trim || []) },
         carpet: { carpet: (res[4].carpet || []), overhang: (typeof res[4].overhang === "number" ? res[4].overhang : 1) },
         treads: { treads: (res[5].treads || []), maxUnits: (res[5].maxUnits || 4) },
-        branding: res[6] || { depots: {}, default: {} }
+        branding: res[6] || { depots: {}, default: {} },
+        accessories: (res[7] && res[7].byCategory) || {}
       };
       cb(catalogue);
     }).catch(function () { cb(null); });
@@ -510,7 +512,27 @@
   // next transaction doesn't slam HireHop's server-side "too many transactions"
   // rate limit (which triggers around a save every 1.5s sustained).
   var HEADING_SETTLE_MS = 3000;
+  var HEADING_MAX_RETRIES = 2;
+  var HEADING_RETRY_BACKOFF_MS = 9000; // long pause so a hit rate limit clears
+  var HEADING_TIMEOUT_MS = 20000;      // per-attempt wait for the new node to appear
+
+  function findVisibleErrorDialog() {
+    return Array.prototype.slice.call(document.querySelectorAll(".ui-dialog")).filter(function (d) {
+      if (d.offsetParent === null) return false;
+      var t = d.querySelector(".ui-dialog-title") || {};
+      return /error/i.test(t.textContent || "");
+    })[0];
+  }
+  function closeErrorDialog(d) {
+    if (!d) return;
+    var btn = Array.prototype.slice.call(d.querySelectorAll(".ui-dialog-buttonpane button")).filter(function (b) { return /close|ok/i.test(b.textContent.trim()); })[0];
+    if (btn) btn.click(); else { var x = d.querySelector(".ui-dialog-titlebar-close"); if (x) x.click(); }
+  }
+
   function createHeading(inst, title, description, memo, parentHeadingId) {
+    return createHeadingAttempt(inst, title, description, memo, parentHeadingId, 0);
+  }
+  function createHeadingAttempt(inst, title, description, memo, parentHeadingId, attempt) {
     var before = headingIdSet(inst);
     var tree = inst.items_to_supply_tree.jstree(true);
     tree.deselect_all();
@@ -524,13 +546,33 @@
     if (memo && inst.heading_int) inst.heading_int.val(memo);                 // Item memo (internal)
     inst.save_item();
     return new Promise(function (resolve) {
-      var tries = 0;
+      var start = Date.now();
       var iv = setInterval(function () {
-        tries++;
         var now = headingIdSet(inst);
         var newId = Object.keys(now).filter(function (id) { return !before[id]; })[0];
-        if (newId) { clearInterval(iv); setTimeout(function () { resolve(parseInt(newId)); }, HEADING_SETTLE_MS); }
-        else if (tries > 50) { clearInterval(iv); resolve(null); }
+        if (newId) { clearInterval(iv); setTimeout(function () { resolve(parseInt(newId)); }, HEADING_SETTLE_MS); return; }
+        // Retry if HireHop shows an Error dialog (usually a transient rate-limit warning).
+        var errDlg = findVisibleErrorDialog();
+        if (errDlg && attempt < HEADING_MAX_RETRIES) {
+          clearInterval(iv);
+          closeErrorDialog(errDlg);
+          try { if (inst.item_edit_dlg && inst.item_edit_dlg.dialog("isOpen")) inst.item_edit_dlg.dialog("close"); } catch (e) { }
+          try { console.warn("[stage-designer] heading retry", attempt + 1, "after error dialog"); } catch (e) { }
+          setTimeout(function () {
+            createHeadingAttempt(inst, title, description, memo, parentHeadingId, attempt + 1).then(resolve);
+          }, HEADING_RETRY_BACKOFF_MS);
+          return;
+        }
+        if (Date.now() - start > HEADING_TIMEOUT_MS) {
+          clearInterval(iv);
+          if (attempt < HEADING_MAX_RETRIES) {
+            try { if (inst.item_edit_dlg && inst.item_edit_dlg.dialog("isOpen")) inst.item_edit_dlg.dialog("close"); } catch (e) { }
+            try { console.warn("[stage-designer] heading retry", attempt + 1, "after timeout"); } catch (e) { }
+            setTimeout(function () {
+              createHeadingAttempt(inst, title, description, memo, parentHeadingId, attempt + 1).then(resolve);
+            }, HEADING_RETRY_BACKOFF_MS);
+          } else resolve(null);
+        }
       }, 200);
     });
   }
@@ -1098,6 +1140,23 @@
               '<div style="font-size:11px;letter-spacing:.04em;color:#888;text-transform:uppercase;">Treads — ' + treadHeight + 'mm &times; ' + treadUnits + '</div>' +
               '<div style="display:flex;gap:5px;">' + boxes + '</div></div>';
           }
+        }
+
+        // Accessories: appended per-category (Deck / Carpet / Trim). NOT shown in
+        // the preview kit list. Trim Corner Clip uses qtyPerCorner * corner count
+        // (sides 2 -> 1, 3 -> 2, 4 -> 4).
+        function pushAccessories(catName, corners) {
+          var list = (cat.accessories && cat.accessories[catName]) || [];
+          list.forEach(function (a) {
+            var qty = (typeof a.qtyPerCorner === "number") ? (a.qtyPerCorner * corners) : (a.qty || 0);
+            if (qty > 0) items.push({ label: a.label, partNumber: a.partNumber, qty: qty, category: catName });
+          });
+        }
+        pushAccessories("Deck", 0);
+        if (carpetHtml) pushAccessories("Carpet", 0);
+        if (trimHtml) {
+          var cornerCount = sides === 4 ? 4 : (sides === 3 ? 2 : (sides === 2 ? 1 : 0));
+          pushAccessories("Trim", cornerCount);
         }
 
         var sw = function (col, lbl) { return '<span style="display:inline-flex;align-items:center;gap:4px;"><span style="width:10px;height:10px;border-radius:2px;background:' + col + ';"></span>' + lbl + '</span>'; };
