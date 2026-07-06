@@ -8,15 +8,15 @@
       "system": "metric",
       "height": 400,
       "parts": [
-        { "label": "400mm tread unit", "partNumber": "st400", "qty": 1 }
+        { "label": "Black Wooden Step Unit 400mm", "partNumber": "YW-00030", "qty": 1 }
       ]
     },
     {
       "system": "metric",
       "height": 600,
       "parts": [
-        { "label": "400mm tread unit", "partNumber": "st400", "qty": 1 },
-        { "label": "600mm tread extension", "partNumber": "st400-2", "qty": 1 }
+        { "label": "Black Wooden Step Unit 400mm", "partNumber": "YW-00030", "qty": 1 },
+        { "label": "600mm tread extension", "partNumber": "YW-00036", "qty": 1 }
       ]
     }
   ]
