@@ -1,20 +1,20 @@
 {
   "schema": "stage-designer/accessories",
-  "dataVersion": "0.1.0",
+  "dataVersion": "0.2.0",
   "_note": "Accessories are appended to a category's sub-heading when that category has items. They are NOT shown in the preview kit list. Trim Corner Clip uses qtyPerCorner (1 per corner, resolved from the fascia sides configuration).",
   "byCategory": {
     "Deck": [
-      { "label": "Deck - Tool Kit",       "partNumber": "TK-001", "qty": 1 },
-      { "label": "Black Tape 50mm",       "partNumber": "TAPE-03", "qty": 1 },
-      { "label": "White Tape 50mm",       "partNumber": "TAPE-02", "qty": 1 },
-      { "label": "Black Tape 25mm",       "partNumber": "TAPE-05", "qty": 1 },
-      { "label": "White Tape 25mm",       "partNumber": "TAPE-04", "qty": 1 }
+      { "label": "Deck - Tool Kit",           "partNumber": "TK-001",  "qty": 1 },
+      { "label": "Black Gaffer Tape 50mm",    "partNumber": "TAPE-03", "qty": 2 },
+      { "label": "White Gaffer Tape 50mm",    "partNumber": "TAPE-02", "qty": 2 },
+      { "label": "Black Gaffer Tape 25mm",    "partNumber": "TAPE-05", "qty": 1 },
+      { "label": "White Gaffer Tape 25mm",    "partNumber": "TAPE-04", "qty": 1 }
     ],
     "Carpet": [
-      { "label": "Double Sided Tape",     "partNumber": "TAPE-01", "qty": 1 }
+      { "label": "Double Sided Tape",         "partNumber": "TAPE-01", "qty": 1 }
     ],
     "Trim": [
-      { "label": "Trim Corner Clip",      "partNumber": "SFB-CLIP", "qtyPerCorner": 1 }
+      { "label": "Trim Corner Clip",          "partNumber": "SFB-CLIP", "qtyPerCorner": 1 }
     ]
   }
 }

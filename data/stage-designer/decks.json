@@ -1,17 +1,17 @@
 {
   "schema": "stage-designer/decks",
-  "dataVersion": "0.1.0",
+  "dataVersion": "0.2.0",
   "systems": {
     "metric":   { "unit": "m",  "increment": 0.5, "min": 2, "max": 10 },
     "imperial": { "unit": "ft", "increment": 4,   "min": 4, "max": 4 }
   },
   "decks": [
-    { "id": "deck-2x1m",   "system": "metric",   "label": "2 x 1m LiteDeck Panel",     "width": 2,   "depth": 1,   "partNumber": "TestDeck21", "weightKg": null },
-    { "id": "deck-1x1m",   "system": "metric",   "label": "1 x 1m LiteDeck Panel",     "width": 1,   "depth": 1,   "partNumber": "TestDeck11", "weightKg": null },
-    { "id": "deck-2x05m",  "system": "metric",   "label": "2 x 0.5m LiteDeck Panel",   "width": 2,   "depth": 0.5, "partNumber": "TestDeck02", "weightKg": null },
-    { "id": "deck-1x05m",  "system": "metric",   "label": "1 x 0.5m LiteDeck Panel",   "width": 1,   "depth": 0.5, "partNumber": "TestDeck01", "weightKg": null },
-    { "id": "deck-05x05m", "system": "metric",   "label": "0.5 x 0.5m LiteDeck Panel", "width": 0.5, "depth": 0.5, "partNumber": "TestDeck55", "weightKg": null },
-    { "id": "deck-8x4ft",  "system": "imperial", "label": "8 x 4ft Stage Deck",        "width": 8,   "depth": 4,   "partNumber": "TBD-I804",  "weightKg": null },
-    { "id": "deck-4x4ft",  "system": "imperial", "label": "4 x 4ft LiteDeck Panel",    "width": 4,   "depth": 4,   "partNumber": "YW-04049",  "weightKg": null }
+    { "id": "deck-2x1m",   "system": "metric",   "label": "2 x 1m Prolyte LiteDeck Panel",       "width": 2,   "depth": 1,   "partNumber": "YW-00010", "weightKg": null },
+    { "id": "deck-1x1m",   "system": "metric",   "label": "1 x 1m Prolyte LiteDeck Panel",       "width": 1,   "depth": 1,   "partNumber": "YW-00004", "weightKg": null },
+    { "id": "deck-2x05m",  "system": "metric",   "label": "2 x 0.5m LiteDeck (Prolyte/GT Tour)", "width": 2,   "depth": 0.5, "partNumber": "YW-00009", "weightKg": null },
+    { "id": "deck-1x05m",  "system": "metric",   "label": "1 x 0.5m Deck Panel (Prolyte/GT Tour)","width": 1,  "depth": 0.5, "partNumber": "YW-00003", "weightKg": null },
+    { "id": "deck-05x05m", "system": "metric",   "label": "0.5 x 0.5m Deck Panel (GT Tour)",     "width": 0.5, "depth": 0.5, "partNumber": "YW-00001", "weightKg": null },
+    { "id": "deck-8x4ft",  "system": "imperial", "label": "8 x 4ft Stage Deck",                  "width": 8,   "depth": 4,   "partNumber": "TBD-I804", "weightKg": null },
+    { "id": "deck-4x4ft",  "system": "imperial", "label": "4 x 4ft LiteDeck Panel",              "width": 4,   "depth": 4,   "partNumber": "YW-04049", "weightKg": null }
   ]
 }
