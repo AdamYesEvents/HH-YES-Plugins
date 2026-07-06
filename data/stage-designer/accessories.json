@@ -11,7 +11,7 @@
       { "label": "White Gaffer Tape 25mm",    "partNumber": "TAPE-04", "qty": 1 }
     ],
     "Carpet": [
-      { "label": "Double Sided Tape",         "partNumber": "TAPE-01", "qty": 1 }
+      { "label": "Double Sided Tape",         "partNumber": "TAPE-01", "qty": 2 }
     ],
     "Trim": [
       { "label": "Trim Corner Clip",          "partNumber": "SFB-CLIP", "qtyPerCorner": 1 }
