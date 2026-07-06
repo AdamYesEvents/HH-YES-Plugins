@@ -8,7 +8,7 @@
  * Catalogue: data/stage-designer/decks.json + legs.json.
  * Fascia, trim and carpet come later (fascia will match the chosen height).
  *
- * Version: 0.23.0
+ * Version: 0.23.1
  */
 
 (function () {
@@ -452,7 +452,7 @@
   // Load data from this tool's own release tag (immutable + served instantly by
   // jsDelivr) rather than @main, which edge-caches and can lag / throttle purges.
   // Bump this to match the tag on each release so data ships with the code.
-  var DATA_REF = "stage-designer-v0.23.0";
+  var DATA_REF = "stage-designer-v0.23.1";
   var BASE = "https://cdn.jsdelivr.net/gh/" + REPO + "@" + DATA_REF + "/data/stage-designer/";
   var catalogue = null;
 
@@ -507,8 +507,9 @@
 
   // parentHeadingId: nest under this heading (both user-selected folders and our
   // own sub-headings). After the heading save, settle for HEADING_SETTLE_MS so the
-  // next transaction doesn't slam HireHop.
-  var HEADING_SETTLE_MS = 1500;
+  // next transaction doesn't slam HireHop's server-side "too many transactions"
+  // rate limit (which triggers around a save every 1.5s sustained).
+  var HEADING_SETTLE_MS = 3000;
   function createHeading(inst, title, description, memo, parentHeadingId) {
     var before = headingIdSet(inst);
     var tree = inst.items_to_supply_tree.jstree(true);
@@ -552,7 +553,7 @@
     return null;
   }
 
-  var CUSTOM_ROW_GAP_MS = 1500; // gap between custom rows (avoids HireHop's connection limit)
+  var CUSTOM_ROW_GAP_MS = 3000; // gap between custom rows (HireHop's rate limit trips around 1.5s sustained)
 
   // Insert each unresolved item as a custom (free-text) line under the heading,
   // one at a time, spaced by CUSTOM_ROW_GAP_MS. Name is "[partNumber] label" for
@@ -621,7 +622,7 @@
       inst.save_items_list(shopping);
       // Only the Deck category triggers HireHop's Autopull modal (the boltset).
       if (hasAutopull) dismissAutopullThen(doCustoms);
-      else setTimeout(doCustoms, 2600);
+      else setTimeout(doCustoms, 3500);
     } else {
       doCustoms();
     }
@@ -803,7 +804,7 @@
         var save = btns.filter(function (b) { return /save|ok|yes/i.test(b.textContent.trim()); })[0] || btns[0];
         if (save) { save.click(); dismissed = true; }
       }
-      if ((dismissed && !findAutopullDialog()) || tries > 30) { clearInterval(iv); setTimeout(cb, 1200); }
+      if ((dismissed && !findAutopullDialog()) || tries > 30) { clearInterval(iv); setTimeout(cb, 3000); }
     }, 200);
   }
 
