@@ -8,7 +8,7 @@
  * Catalogue: data/stage-designer/decks.json + legs.json.
  * Fascia, trim and carpet come later (fascia will match the chosen height).
  *
- * Version: 0.22.0
+ * Version: 0.23.0
  */
 
 (function () {
@@ -452,7 +452,7 @@
   // Load data from this tool's own release tag (immutable + served instantly by
   // jsDelivr) rather than @main, which edge-caches and can lag / throttle purges.
   // Bump this to match the tag on each release so data ships with the code.
-  var DATA_REF = "stage-designer-v0.22.0";
+  var DATA_REF = "stage-designer-v0.23.0";
   var BASE = "https://cdn.jsdelivr.net/gh/" + REPO + "@" + DATA_REF + "/data/stage-designer/";
   var catalogue = null;
 
@@ -505,10 +505,18 @@
     return ids;
   }
 
-  function createHeading(inst, title, description, memo) {
+  // parentHeadingId: nest under this heading (both user-selected folders and our
+  // own sub-headings). After the heading save, settle for HEADING_SETTLE_MS so the
+  // next transaction doesn't slam HireHop.
+  var HEADING_SETTLE_MS = 1500;
+  function createHeading(inst, title, description, memo, parentHeadingId) {
     var before = headingIdSet(inst);
     var tree = inst.items_to_supply_tree.jstree(true);
     tree.deselect_all();
+    if (parentHeadingId) {
+      tree.select_node("a" + parentHeadingId);
+      try { inst.set_item_edit_tree_headings(); } catch (e) { }
+    }
     inst.new_item(0);
     inst.heading_name.val(title);
     if (description && inst.heading_desc) inst.heading_desc.val(description); // Item description
@@ -520,10 +528,28 @@
         tries++;
         var now = headingIdSet(inst);
         var newId = Object.keys(now).filter(function (id) { return !before[id]; })[0];
-        if (newId) { clearInterval(iv); resolve(parseInt(newId)); }
+        if (newId) { clearInterval(iv); setTimeout(function () { resolve(parseInt(newId)); }, HEADING_SETTLE_MS); }
         else if (tries > 50) { clearInterval(iv); resolve(null); }
-      }, 150);
+      }, 200);
     });
+  }
+
+  // Walk from the currently selected node up to the nearest heading (kind 0).
+  // Returns its ID, or null if nothing suitable is selected. Used so an "Add
+  // stage kit" click respects whatever folder the user has selected in the tree.
+  function selectedParentHeadingId(inst) {
+    try {
+      var tree = inst.items_to_supply_tree.jstree(true);
+      var sel = tree.get_selected(true);
+      if (!sel || !sel.length) return null;
+      var n = sel[0];
+      while (n && n.data) {
+        if (n.data.kind === 0) return n.data.ID;
+        if (!n.parent || n.parent === "#") return null;
+        n = tree.get_node(n.parent);
+      }
+    } catch (e) { }
+    return null;
   }
 
   var CUSTOM_ROW_GAP_MS = 1500; // gap between custom rows (avoids HireHop's connection limit)
@@ -551,39 +577,77 @@
     })();
   }
 
-  // Resolve each kit part, create the folder, then insert resolved parts as a
-  // batch and any unresolved codes as custom lines (so a kit can be built even
-  // before every stock code exists).
-  function addStageKit(inst, items, title, onDone, description, memo) {
-    var shopping = {}, customs = [];
-    var chain = Promise.resolve();
+  // Group items by their category tag, preserving first-seen order.
+  function groupByCategory(items) {
+    var groups = {}, order = [];
     items.forEach(function (it) {
-      chain = chain.then(function () {
-        return resolvePart(inst, it.partNumber, it.qty).then(function (d) {
-          if (!d || typeof d.error !== "undefined") customs.push(it);
-          else { var key = (d.TYPE == 1 ? "a" : "b") + d.ID; shopping[key] = (shopping[key] || 0) + it.qty; }
-        }, function () { customs.push(it); });
+      var cat = it.category || "Other";
+      if (!groups[cat]) { groups[cat] = []; order.push(cat); }
+      groups[cat].push(it);
+    });
+    return { order: order, groups: groups };
+  }
+
+  // Resolve every part in one pass (serial, gentle), then hand back { shoppingByCat, customsByCat }.
+  function resolveAllByCategory(inst, grouped) {
+    var shoppingByCat = {}, customsByCat = {};
+    grouped.order.forEach(function (c) { shoppingByCat[c] = {}; customsByCat[c] = []; });
+    var chain = Promise.resolve();
+    grouped.order.forEach(function (cat) {
+      grouped.groups[cat].forEach(function (it) {
+        chain = chain.then(function () {
+          return resolvePart(inst, it.partNumber, it.qty).then(function (d) {
+            if (!d || typeof d.error !== "undefined") customsByCat[cat].push(it);
+            else { var key = (d.TYPE == 1 ? "a" : "b") + d.ID; shoppingByCat[cat][key] = (shoppingByCat[cat][key] || 0) + it.qty; }
+          }, function () { customsByCat[cat].push(it); });
+        });
       });
     });
-    chain.then(function () {
-      createHeading(inst, title, description, memo).then(function (headingId) {
-        if (!headingId) { onDone({ ok: false, error: "Could not create the stage folder" }); return; }
-        var tree = inst.items_to_supply_tree.jstree(true);
-        inst.set_item_edit_tree_headings();
-        tree.deselect_all(); tree.select_node("a" + headingId); inst.set_parent_vals(true);
-        function doCustoms() {
-          // re-target the heading (the batch/autopull rebuilt the tree), then insert
-          var t = inst.items_to_supply_tree.jstree(true);
-          t.deselect_all(); t.select_node("a" + headingId); inst.set_parent_vals(true);
-          insertCustoms(inst, headingId, customs, function () { onDone({ ok: true, headingId: headingId, parts: Object.keys(shopping).length, customs: customs.length }); });
+    return chain.then(function () { return { shoppingByCat: shoppingByCat, customsByCat: customsByCat }; });
+  }
+
+  // Insert one category's items under a sub-heading: batch save the resolved
+  // parts, wait for the autopull prompt (deck), then insert customs.
+  function insertOneCategory(inst, subHeadingId, shopping, customs, hasAutopull, done) {
+    inst.set_item_edit_tree_headings();
+    var tree = inst.items_to_supply_tree.jstree(true);
+    tree.deselect_all(); tree.select_node("a" + subHeadingId); inst.set_parent_vals(true);
+    function doCustoms() {
+      var t = inst.items_to_supply_tree.jstree(true);
+      t.deselect_all(); t.select_node("a" + subHeadingId); inst.set_parent_vals(true);
+      insertCustoms(inst, subHeadingId, customs, done);
+    }
+    if (Object.keys(shopping).length && inst.picklist_heading.val() == subHeadingId) {
+      inst.save_items_list(shopping);
+      // Only the Deck category triggers HireHop's Autopull modal (the boltset).
+      if (hasAutopull) dismissAutopullThen(doCustoms);
+      else setTimeout(doCustoms, 2600);
+    } else {
+      doCustoms();
+    }
+  }
+
+  // Build a tree under an optional user-selected folder:
+  //   parentSel (optional) -> "Stage ..." main heading -> "Deck" / "Fascia" / ... sub-headings -> items
+  function addStageKit(inst, items, title, onDone, description, memo, parentHeadingId) {
+    var grouped = groupByCategory(items);
+    resolveAllByCategory(inst, grouped).then(function (res) {
+      createHeading(inst, title, description, memo, parentHeadingId).then(function (mainId) {
+        if (!mainId) { onDone({ ok: false, error: "Could not create the stage folder" }); return; }
+        var i = 0, parts = 0, customs = 0;
+        function nextCategory() {
+          if (i >= grouped.order.length) { onDone({ ok: true, headingId: mainId, parts: parts, customs: customs }); return; }
+          var cat = grouped.order[i++];
+          var shopping = res.shoppingByCat[cat], customList = res.customsByCat[cat];
+          if (!Object.keys(shopping).length && !customList.length) { nextCategory(); return; }
+          createHeading(inst, cat, "", "", mainId).then(function (subId) {
+            if (!subId) { console.warn("[stage-designer] sub-heading failed:", cat); nextCategory(); return; }
+            parts += Object.keys(shopping).length;
+            customs += customList.length;
+            insertOneCategory(inst, subId, shopping, customList, cat === "Deck", nextCategory);
+          });
         }
-        if (Object.keys(shopping).length && inst.picklist_heading.val() == headingId) {
-          inst.save_items_list(shopping);
-          // dismiss the modal Autopull prompt first, THEN insert the custom rows
-          dismissAutopullThen(doCustoms);
-        } else {
-          doCustoms();
-        }
+        nextCategory();
       });
     });
   }
@@ -954,7 +1018,7 @@
         // decks
         var items = res.kit.map(function (k) {
           var deck = cat.decks.filter(function (d) { return d.id === k.deckId; })[0];
-          return { label: k.label, partNumber: deck ? deck.partNumber : null, qty: k.qty };
+          return { label: k.label, partNumber: deck ? deck.partNumber : null, qty: k.qty, category: "Deck" };
         });
         var decksHtml = res.kit.map(function (k) {
           return '<div style="display:flex;justify-content:space-between;font-size:13px;padding:3px 0;"><span style="color:#333;">' + k.label + '</span><span style="color:#111;font-weight:500;">x ' + k.qty + '</span></div>';
@@ -966,7 +1030,7 @@
         var legsHtml = "", heightLabel = "", heightVal = null;
         if (leg) {
           var legQty = legCount(res, cat.legsPerDeck);
-          items.push({ label: leg.label, partNumber: leg.partNumber, qty: legQty });
+          items.push({ label: leg.label, partNumber: leg.partNumber, qty: legQty, category: "Deck" });
           heightLabel = leg.height; heightVal = leg.height;
           legsHtml = '<div style="font-size:11px;letter-spacing:.04em;color:#888;text-transform:uppercase;margin:10px 0 4px;">Legs</div>' +
             '<div style="display:flex;justify-content:space-between;font-size:13px;padding:3px 0;"><span style="color:#333;">' + leg.label + '</span><span style="color:#111;font-weight:500;">x ' + legQty + '</span></div>';
@@ -977,7 +1041,7 @@
         if (carpetSel.value) {
           var cpt = carpetKit({ system: sysSel.value, width: parseFloat(wIn.value), depth: parseFloat(dIn.value), colour: carpetSel.value, carpet: cat.carpet });
           if (cpt.available && cpt.items.length) {
-            cpt.items.forEach(function (it) { items.push(it); });
+            cpt.items.forEach(function (it) { items.push(Object.assign({}, it, { category: "Carpet" })); });
             carpetColour = carpetSel.value;
             carpetHtml = '<div style="font-size:11px;letter-spacing:.04em;color:#888;text-transform:uppercase;margin:10px 0 4px;">Carpet (' + carpetColour + ')</div>' +
               cpt.items.map(function (it) { return '<div style="display:flex;justify-content:space-between;font-size:13px;padding:3px 0;"><span style="color:#333;">' + it.label + '</span><span style="color:#111;font-weight:500;">x ' + it.qty + '</span></div>'; }).join("");
@@ -993,7 +1057,7 @@
             fasciaHtml = '<div style="font-size:11px;letter-spacing:.04em;color:#888;text-transform:uppercase;margin:10px 0 4px;">Fascia</div>' +
               '<div style="font-size:12px;color:#b07b00;">No fascia at ' + heightVal + 'mm</div>';
           } else if (fk.items.length) {
-            fk.items.forEach(function (it) { items.push(it); });
+            fk.items.forEach(function (it) { items.push(Object.assign({}, it, { category: "Fascia" })); });
             fasciaFinish = finishColSel.value;
             fasciaFinishType = fk.finishLabel;
             fasciaPlacements = fk.placements;
@@ -1010,7 +1074,7 @@
         if (sides > 0) {
           var tk = trimKit({ system: sysSel.value, width: parseFloat(wIn.value), depth: parseFloat(dIn.value), sides: sides, finish: trimSel.value, trim: cat.trim });
           if (tk.available && tk.items.length) {
-            tk.items.forEach(function (it) { items.push(it); });
+            tk.items.forEach(function (it) { items.push(Object.assign({}, it, { category: "Trim" })); });
             trimFinish = trimSel.value;
             trimPlacements = tk.placements;
             trimHtml = '<div style="font-size:11px;letter-spacing:.04em;color:#888;text-transform:uppercase;margin:10px 0 4px;">Trim (' + trimFinish + ')</div>' +
@@ -1023,7 +1087,7 @@
         if (treadUnits > 0 && treadHeight) {
           var trd = treadsKit({ system: sysSel.value, height: treadHeight, units: treadUnits, colour: (carpetSel.value || "black"), treads: cat.treads, carpet: cat.carpet });
           if (trd.available && trd.items.length) {
-            trd.items.forEach(function (it) { items.push(it); });
+            trd.items.forEach(function (it) { items.push(Object.assign({}, it, { category: "Treads" })); });
             treadsHtml = '<div style="font-size:11px;letter-spacing:.04em;color:#888;text-transform:uppercase;margin:10px 0 4px;">Treads (' + treadHeight + 'mm)</div>' +
               trd.items.map(function (it) { return '<div style="display:flex;justify-content:space-between;font-size:13px;padding:3px 0;"><span style="color:#333;">' + it.label + '</span><span style="color:#111;font-weight:500;">x ' + it.qty + '</span></div>'; }).join("");
             var hex = ({ black: "#333333", white: "#e8e8e8", grey: "#9a9a9a" })[(carpetSel.value || "black")] || "#333333";
@@ -1080,9 +1144,14 @@
       }
 
       function confirmAdd() {
+        // Re-read the tree selection now (user may have selected a folder while the dialog was open)
+        state.parentHeadingId = selectedParentHeadingId(inst);
+        state.parentHeadingTitle = state.parentHeadingId ? (function () {
+          try { var n = inst.items_to_supply_tree.jstree(true).get_node("a" + state.parentHeadingId); return n && n.data ? n.data.title : ""; } catch (e) { return ""; }
+        })() : "";
         foot.innerHTML = "";
         var msg = el("div", null, "flex:1;font-size:13px;color:#333;");
-        msg.textContent = "Add to a '" + state.title + "' folder?";
+        msg.textContent = "Add '" + state.title + "'" + (state.parentHeadingTitle ? " inside '" + state.parentHeadingTitle + "'" : " as a new folder") + "?";
         var no = el("button", null, "padding:8px 14px;font-size:14px;cursor:pointer;");
         no.textContent = "Cancel"; no.addEventListener("click", render);
         var yes = el("button", null, "padding:8px 16px;font-size:14px;background:#2563eb;color:#fff;border:none;border-radius:4px;cursor:pointer;");
@@ -1097,6 +1166,7 @@
         var code = genCode();
         var memo = state.memo || "";
         var description = memo ? (code + " - " + memo) : code; // Item description = code + finishing breakdown
+        var parentHeadingId = state.parentHeadingId || null; // "insert at cursor": nest under the user-selected folder
         var snapshot = { result: state.result, width: state.width, depth: state.depth, height: state.height, fasciaPlacements: state.fasciaPlacements, trimPlacements: state.trimPlacements, items: state.items.slice(), title: state.title, memo: memo, treadUnits: state.treadUnits, treadHeight: state.treadHeight, treadColour: state.treadColour };
         function insert(built) {
           busyFoot("Adding to the job&hellip;"); // autopull is handled inside addStageKit, before the custom rows
@@ -1110,7 +1180,7 @@
               back.textContent = "Back"; back.addEventListener("click", render);
               foot.appendChild(err); foot.appendChild(back);
             }
-          }, description, memo);
+          }, description, memo, parentHeadingId);
         }
         // Build + offer a local save first (on the click's user gesture), then insert
         // the kit and upload the same PDF to the Files tab.
