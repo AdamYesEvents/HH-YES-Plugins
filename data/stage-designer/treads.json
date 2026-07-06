@@ -1,6 +1,6 @@
 {
   "schema": "stage-designer/treads",
-  "dataVersion": "0.2.0",
+  "dataVersion": "0.2.1",
   "maxUnits": 4,
   "width": 1,
   "treads": [
