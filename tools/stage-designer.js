@@ -8,7 +8,7 @@
  * Catalogue: data/stage-designer/decks.json + legs.json.
  * Fascia, trim and carpet come later (fascia will match the chosen height).
  *
- * Version: 0.24.1
+ * Version: 0.25.0
  */
 
 (function () {
@@ -452,7 +452,7 @@
   // Load data from this tool's own release tag (immutable + served instantly by
   // jsDelivr) rather than @main, which edge-caches and can lag / throttle purges.
   // Bump this to match the tag on each release so data ships with the code.
-  var DATA_REF = "stage-designer-v0.24.1";
+  var DATA_REF = "stage-designer-v0.25.0";
   var BASE = "https://cdn.jsdelivr.net/gh/" + REPO + "@" + DATA_REF + "/data/stage-designer/";
   var catalogue = null;
 
@@ -489,7 +489,19 @@
 
   // ---- HireHop insertion helpers (resolve -> heading -> batch save) -----------
 
+  var RESOLVE_MAX_TRIES = 3;    // total attempts before giving up on a code
+  var RESOLVE_RETRY_MS = 800;   // delay between retries (small, but enough to clear a race)
+
+  // Look up a part number in HireHop's stock. Retries on ANY failure - a network
+  // hiccup, a non-JSON response, or an "error" field in the reply - because these
+  // are usually transient (rate limit, HireHop's own cache race) and shouldn't
+  // silently drop a real stock item to a custom line. On the final failure we
+  // return the last response (or an error placeholder) so the caller can decide.
   function resolvePart(inst, partNumber, qty) {
+    return resolvePartAttempt(inst, partNumber, qty, 0, null);
+  }
+  function resolvePartAttempt(inst, partNumber, qty, tries, lastReply) {
+    if (tries >= RESOLVE_MAX_TRIES) return Promise.resolve(lastReply || { error: -1 });
     var params = {
       id: "sd_" + Date.now() + "_" + Math.random().toString(36).slice(2),
       qty: qty, part_number: partNumber,
@@ -498,7 +510,28 @@
       price_group: parseInt(inst.options.job_data.PRICE_GROUP) || 0
     };
     var qs = Object.keys(params).map(function (k) { return encodeURIComponent(k) + "=" + encodeURIComponent(params[k]); }).join("&");
-    return fetch("/php_functions/items_get_part_number_details.php?" + qs).then(function (r) { return r.json(); });
+    return fetch("/php_functions/items_get_part_number_details.php?" + qs)
+      .then(function (r) { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
+      .then(function (d) {
+        if (!d || typeof d.error !== "undefined") {
+          if (tries + 1 < RESOLVE_MAX_TRIES) {
+            try { console.warn("[stage-designer] resolve retry", tries + 1, "for", partNumber, "reply:", d && d.error); } catch (e) { }
+            return new Promise(function (res) { setTimeout(function () { res(resolvePartAttempt(inst, partNumber, qty, tries + 1, d)); }, RESOLVE_RETRY_MS); });
+          }
+          try { console.warn("[stage-designer] resolve failed after", tries + 1, "for", partNumber, "-> custom fallback (reply:", d, ")"); } catch (e) { }
+          return d;
+        }
+        if (tries > 0) { try { console.info("[stage-designer] resolve succeeded on retry", tries + 1, "for", partNumber); } catch (e) { } }
+        return d;
+      })
+      .catch(function (err) {
+        if (tries + 1 < RESOLVE_MAX_TRIES) {
+          try { console.warn("[stage-designer] resolve error retry", tries + 1, "for", partNumber, err && err.message); } catch (e) { }
+          return new Promise(function (res) { setTimeout(function () { res(resolvePartAttempt(inst, partNumber, qty, tries + 1, { error: -2 })); }, RESOLVE_RETRY_MS); });
+        }
+        try { console.warn("[stage-designer] resolve error after", tries + 1, "for", partNumber, err && err.message); } catch (e) { }
+        return { error: -2 };
+      });
   }
 
   function headingIdSet(inst) {

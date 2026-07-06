@@ -12,6 +12,6 @@
     { "id": "deck-1x05m",  "system": "metric",   "label": "1 x 0.5m LiteDeck Panel",   "width": 1,   "depth": 0.5, "partNumber": "TestDeck01", "weightKg": null },
     { "id": "deck-05x05m", "system": "metric",   "label": "0.5 x 0.5m LiteDeck Panel", "width": 0.5, "depth": 0.5, "partNumber": "TestDeck55", "weightKg": null },
     { "id": "deck-8x4ft",  "system": "imperial", "label": "8 x 4ft Stage Deck",        "width": 8,   "depth": 4,   "partNumber": "TBD-I804",  "weightKg": null },
-    { "id": "deck-4x4ft",  "system": "imperial", "label": "4 x 4ft Stage Deck",        "width": 4,   "depth": 4,   "partNumber": "TBD-I404",  "weightKg": null }
+    { "id": "deck-4x4ft",  "system": "imperial", "label": "4 x 4ft LiteDeck Panel",    "width": 4,   "depth": 4,   "partNumber": "YW-04049",  "weightKg": null }
   ]
 }
