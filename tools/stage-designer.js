@@ -8,7 +8,7 @@
  * Catalogue: data/stage-designer/decks.json + legs.json.
  * Fascia, trim and carpet come later (fascia will match the chosen height).
  *
- * Version: 0.26.0
+ * Version: 0.26.1
  */
 
 (function () {
@@ -458,7 +458,7 @@
   // Load data from this tool's own release tag (immutable + served instantly by
   // jsDelivr) rather than @main, which edge-caches and can lag / throttle purges.
   // Bump this to match the tag on each release so data ships with the code.
-  var DATA_REF = "stage-designer-v0.26.0";
+  var DATA_REF = "stage-designer-v0.26.1";
   var BASE = "https://cdn.jsdelivr.net/gh/" + REPO + "@" + DATA_REF + "/data/stage-designer/";
   var catalogue = null;
 
@@ -568,10 +568,14 @@
     if (btn) btn.click(); else { var x = d.querySelector(".ui-dialog-titlebar-close"); if (x) x.click(); }
   }
 
-  function createHeading(inst, title, description, memo, parentHeadingId) {
-    return createHeadingAttempt(inst, title, description, memo, parentHeadingId, 0);
+  // flag: HireHop heading flag (0=None, 1=Hidden, 2=Crew, 3=Technical, 4=Transport, 5=Grouped).
+  // The root stage heading is set to 5 (Grouped) so the whole package rolls up into a
+  // single line on customer-facing quotes/invoices; sub-headings stay 0 so the internal
+  // Supplying tree still shows the Deck/Fascia/Trim/Treads/Carpet breakdown.
+  function createHeading(inst, title, description, memo, parentHeadingId, flag) {
+    return createHeadingAttempt(inst, title, description, memo, parentHeadingId, flag, 0);
   }
-  function createHeadingAttempt(inst, title, description, memo, parentHeadingId, attempt) {
+  function createHeadingAttempt(inst, title, description, memo, parentHeadingId, flag, attempt) {
     var before = headingIdSet(inst);
     var tree = inst.items_to_supply_tree.jstree(true);
     tree.deselect_all();
@@ -583,6 +587,7 @@
     inst.heading_name.val(title);
     if (description && inst.heading_desc) inst.heading_desc.val(description); // Item description
     if (memo && inst.heading_int) inst.heading_int.val(memo);                 // Item memo (internal)
+    if (typeof flag === "number" && inst.item_edit_flag) inst.item_edit_flag.val(flag); // Grouped etc.
     inst.save_item();
     return new Promise(function (resolve) {
       var start = Date.now();
@@ -598,7 +603,7 @@
           try { if (inst.item_edit_dlg && inst.item_edit_dlg.dialog("isOpen")) inst.item_edit_dlg.dialog("close"); } catch (e) { }
           try { console.warn("[stage-designer] heading retry", attempt + 1, "after error dialog"); } catch (e) { }
           setTimeout(function () {
-            createHeadingAttempt(inst, title, description, memo, parentHeadingId, attempt + 1).then(resolve);
+            createHeadingAttempt(inst, title, description, memo, parentHeadingId, flag, attempt + 1).then(resolve);
           }, HEADING_RETRY_BACKOFF_MS);
           return;
         }
@@ -608,7 +613,7 @@
             try { if (inst.item_edit_dlg && inst.item_edit_dlg.dialog("isOpen")) inst.item_edit_dlg.dialog("close"); } catch (e) { }
             try { console.warn("[stage-designer] heading retry", attempt + 1, "after timeout"); } catch (e) { }
             setTimeout(function () {
-              createHeadingAttempt(inst, title, description, memo, parentHeadingId, attempt + 1).then(resolve);
+              createHeadingAttempt(inst, title, description, memo, parentHeadingId, flag, attempt + 1).then(resolve);
             }, HEADING_RETRY_BACKOFF_MS);
           } else resolve(null);
         }
@@ -714,7 +719,7 @@
   function addStageKit(inst, items, title, onDone, description, memo, parentHeadingId) {
     var grouped = groupByCategory(items);
     resolveAllByCategory(inst, grouped).then(function (res) {
-      createHeading(inst, title, description, memo, parentHeadingId).then(function (mainId) {
+      createHeading(inst, title, description, memo, parentHeadingId, 5 /* Grouped */).then(function (mainId) {
         if (!mainId) { onDone({ ok: false, error: "Could not create the stage folder" }); return; }
         var i = 0, parts = 0, customs = 0;
         function nextCategory() {
