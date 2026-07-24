@@ -1,13 +1,11 @@
 /*!
- * HireHop Plugin Loader (Stage / Video tools)
- * This is the single URL you put in HireHop -> Settings -> Company Settings -> Plugins.
- * It loads the individual tool scripts from this repo and provides the shared
- * machinery that injects their entries into the Supplying tab's New (+) menu
- * (both the top-left New button dropdown and the right-click context menu).
+ * HireHop Plugin Loader - Stage Designer ONLY
+ * Same loader as loader.js but ships only the Stage Designer tool (no Video
+ * Wall Creator). For a HireHop instance that should not receive the video
+ * tool. Full loader (both tools) is at loader.js.
  *
- * Load via jsDelivr (NOT raw.githubusercontent.com, which serves text/plain+nosniff
- * and will not execute). Pin the loader to a release tag, e.g.:
- *   https://cdn.jsdelivr.net/gh/AdamYesEvents/HH-YES-Plugins@v0.1.45/loader.js
+ * Install via jsDelivr:
+ *   https://cdn.jsdelivr.net/gh/AdamYesEvents/HH-YES-Plugins@v0.1.45/loader-stage-designer.js
  *
  * Version: 0.1.45
  */
@@ -17,16 +15,11 @@
   var REPO = "AdamYesEvents/HH-YES-Plugins";
 
   // ===========================================================================
-  // CONFIG - turn tools on/off and choose which version of each to load.
-  //   on  : load this tool or not
-  //   ref : git ref served via jsDelivr - "main" for the latest, or pin to a
-  //         tag for stability, e.g. "stage-designer-v0.1.0"
-  // To update a tool: edit its file and push (ref "main" + purge jsDelivr), or
-  // create a tag and set ref to it here.
+  // CONFIG - Stage Designer only. Pinned per-tool tag so the tool version is
+  // decoupled from the loader version.
   // ===========================================================================
   var TOOLS = {
-    "stage-designer":    { on: true, ref: "stage-designer-v0.26.0" },
-    "videowall-creator": { on: true, ref: "videowall-creator-v0.1.0" }
+    "stage-designer": { on: true, ref: "stage-designer-v0.26.0" }
   };
 
   // ---------------------------------------------------------------------------
