@@ -1,8 +1,9 @@
 {
   "schema": "stage-designer/treads",
-  "dataVersion": "0.3.0",
+  "dataVersion": "0.4.0",
   "maxUnits": 4,
   "width": 1,
+  "_note": "Parts with onlyWhenNoFascia:true are only pulled if the stage has NO fascia. Fascia around the stage provides the extra structural support the 600mm tread needs, so the adaptor plate is dropped when fascia is present.",
   "treads": [
     {
       "system": "metric",
@@ -16,7 +17,7 @@
       "height": 600,
       "parts": [
         { "label": "Black Wooden Step Unit 400mm", "partNumber": "YW-00030", "qty": 1 },
-        { "label": "Wooden Step Unit 600mm Adaptor plate", "partNumber": "YW-00036", "qty": 1 }
+        { "label": "Wooden Step Unit 600mm Adaptor plate", "partNumber": "YW-00036", "qty": 1, "onlyWhenNoFascia": true }
       ]
     }
   ]

@@ -8,7 +8,7 @@
  * Catalogue: data/stage-designer/decks.json + legs.json.
  * Fascia, trim and carpet come later (fascia will match the chosen height).
  *
- * Version: 0.25.2
+ * Version: 0.26.0
  */
 
 (function () {
@@ -427,7 +427,13 @@
     var def = (data.treads || []).filter(function (t) { return t.height === o.height; })[0];
     if (!def) return { available: false, items: [], units: o.units };
     var items = [];
-    (def.parts || []).forEach(function (p) { items.push({ label: p.label, partNumber: p.partNumber, qty: p.qty * o.units }); });
+    // Parts flagged onlyWhenNoFascia (the 600mm adaptor plate) are dropped when
+    // the stage has fascia around it - the fascia provides the structural
+    // support the tread would otherwise need the adaptor for.
+    (def.parts || []).forEach(function (p) {
+      if (p.onlyWhenNoFascia && o.hasFascia) return;
+      items.push({ label: p.label, partNumber: p.partNumber, qty: p.qty * o.units });
+    });
     var roll = ((o.carpet && o.carpet.carpet) || []).filter(function (b) { return b.colour === o.colour && b.width === 1; })[0];
     if (roll) {
       var cap = o.colour.charAt(0).toUpperCase() + o.colour.slice(1);
@@ -452,7 +458,7 @@
   // Load data from this tool's own release tag (immutable + served instantly by
   // jsDelivr) rather than @main, which edge-caches and can lag / throttle purges.
   // Bump this to match the tag on each release so data ships with the code.
-  var DATA_REF = "stage-designer-v0.25.2";
+  var DATA_REF = "stage-designer-v0.26.0";
   var BASE = "https://cdn.jsdelivr.net/gh/" + REPO + "@" + DATA_REF + "/data/stage-designer/";
   var catalogue = null;
 
@@ -1161,7 +1167,7 @@
         // treads (steps up to the stage; height matches the stage, carpeted in the stage colour)
         var treadsHtml = "", treadBoxHtml = "", treadUnits = parseInt(treadsSel.value) || 0, treadHeight = heightVal;
         if (treadUnits > 0 && treadHeight) {
-          var trd = treadsKit({ system: sysSel.value, height: treadHeight, units: treadUnits, colour: (carpetSel.value || "black"), treads: cat.treads, carpet: cat.carpet });
+          var trd = treadsKit({ system: sysSel.value, height: treadHeight, units: treadUnits, colour: (carpetSel.value || "black"), hasFascia: fasciaPlacements.length > 0, treads: cat.treads, carpet: cat.carpet });
           if (trd.available && trd.items.length) {
             trd.items.forEach(function (it) { items.push(Object.assign({}, it, { category: "Treads" })); });
             treadsHtml = '<div style="font-size:11px;letter-spacing:.04em;color:#888;text-transform:uppercase;margin:10px 0 4px;">Treads (' + treadHeight + 'mm)</div>' +
