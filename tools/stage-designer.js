@@ -8,7 +8,7 @@
  * Catalogue: data/stage-designer/decks.json + legs.json.
  * Fascia, trim and carpet come later (fascia will match the chosen height).
  *
- * Version: 0.28.2
+ * Version: 0.29.0
  */
 
 (function () {
@@ -237,6 +237,53 @@
     return { available: true, items: items, placements: placements, meterage: meterage, finishCost: fi.finishCost, rate: fi.rate, finishLabel: fi.finishLabel, finishColour: o.finishColour };
   }
 
+  // Small-stage fascia builder: given a hardcoded per-edge rule (see SMALL_STAGE_RULES),
+  // place one panel per edge + a mount per panel length + a finish line for the perimeter.
+  function fasciaKitSmall(o, rule, byLen, mounts, finishes) {
+    var mountLens = mounts.filter(function (m) { return m.system === o.system; }).sort(function (a, b) { return b.len - a.len; });
+    var agg = {}, order = [], placements = [], meterage = 0;
+    function add(code, label) { if (!agg[code]) { agg[code] = { label: label, partNumber: code, qty: 0 }; order.push(code); } agg[code].qty++; }
+    rule.forEach(function (r) {
+      var b = byLen[r.len], code = r.type === "corner" ? b.corner : b.standard;
+      add(code, r.len + "m fascia panel (" + r.type + ")");
+      placements.push({ edge: r.edge, offset: 0, length: r.len, type: r.type });
+      // mounts along this edge
+      var rem = r.len;
+      mountLens.forEach(function (m) { while (rem >= m.len - 1e-9) { add(m.partNumber, m.len + "m fascia mount"); rem -= m.len; } });
+      meterage += r.len;
+    });
+    meterage = +meterage.toFixed(3);
+    var items = order.map(function (k) { return agg[k]; });
+    var fi = fasciaFinishInfo(finishes, o, meterage);
+    if (fi.item) items.push(fi.item);
+    return { available: true, items: items, placements: placements, meterage: meterage, finishCost: fi.finishCost, rate: fi.rate, finishLabel: fi.finishLabel, finishColour: o.finishColour };
+  }
+
+  // Small-stage fascia rules override the general symTile algorithm because on
+  // very short edges the algorithm produces awkward panel counts. Data-driven,
+  // keyed by "{width}x{depth}m {sides}-sided". Each rule lists one entry per
+  // edge: which panel length (m) and which type (standard/corner). Only applied
+  // when metric AND all required panels exist at that length + height.
+  //   1x1m 2-sided:  front=1m corner  |  left=1m standard
+  //   1x1m 3-sided:  front=1m corner  |  left=1m corner  |  right=1m standard
+  //   1x1m 4-sided:  front + back + left + right all 1m corner
+  var SMALL_STAGE_RULES = {
+    "1x1m 2": [
+      { edge: "front", len: 1, type: "corner" }, { edge: "left", len: 1, type: "standard" }
+    ],
+    "1x1m 3": [
+      { edge: "front", len: 1, type: "corner" }, { edge: "left", len: 1, type: "corner" }, { edge: "right", len: 1, type: "standard" }
+    ],
+    "1x1m 4": [
+      { edge: "front", len: 1, type: "corner" }, { edge: "back", len: 1, type: "corner" },
+      { edge: "left", len: 1, type: "corner" }, { edge: "right", len: 1, type: "corner" }
+    ]
+  };
+  function smallStageRule(system, w, d, sides) {
+    if (system !== "metric") return null;
+    return SMALL_STAGE_RULES[w + "x" + d + "m " + sides] || null;
+  }
+
   function fasciaKit(o) {
     var fascia = o.fascia || {};
     var panels = fascia.panels || fascia.boards || [], mounts = fascia.mounts || [], finishes = fascia.finishes || [];
@@ -246,6 +293,15 @@
     var avail = panels.filter(function (b) { return b.system === o.system && b.height === o.height; })
       .sort(function (a, b) { return b.len - a.len; });
     if (!avail.length) return { available: false, items: [], placements: [] };
+
+    // Small-stage rule (1x1m for now, 1.5x1.5m to follow): if a rule matches
+    // AND the required panels exist at this height, use it instead of symTile.
+    var rule = smallStageRule(o.system, o.width, o.depth, o.sides);
+    if (rule) {
+      var byLen = {}; avail.forEach(function (b) { byLen[b.len] = b; });
+      var ok = rule.every(function (r) { var b = byLen[r.len]; return b && (r.type === "corner" ? b.corner : b.standard); });
+      if (ok) return fasciaKitSmall(o, rule, byLen, mounts, finishes);
+    }
     var lengths = avail.map(function (b) { return b.len; });
     var mountLens = mounts.filter(function (m) { return m.system === o.system; }).sort(function (a, b) { return b.len - a.len; });
 
