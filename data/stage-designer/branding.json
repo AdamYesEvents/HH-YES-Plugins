@@ -1,7 +1,7 @@
 {
   "schema": "stage-designer/branding",
   "dataVersion": "0.3.0",
-  "_note": "logoUrl: an SVG or hosted image URL for the top-right of the PDF. Must be CORS-accessible (hosting it in this repo / jsDelivr works). SVGs need an intrinsic width/height. Leave empty for no logo. logoBox = max width/height in mm; the image is fitted preserving aspect ratio.",
+  "_note": "logoUrl: OPTIONAL override for the PDF logo. Leave empty and the tool auto-pulls /uploads_img/{user.COMPANY_ID}_100.png from HireHop (same origin, whatever the company uploaded in Settings). Set this only for a custom image (e.g. a bigger version, or a special-case brand). For external URLs, the host must send CORS headers; SVGs need intrinsic width/height. logoBox = max width/height in mm; image fitted preserving aspect ratio.",
   "logoUrl": "",
   "logoBox": { "width": 38, "height": 28 },
 

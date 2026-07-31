@@ -8,7 +8,7 @@
  * Catalogue: data/stage-designer/decks.json + legs.json.
  * Fascia, trim and carpet come later (fascia will match the chosen height).
  *
- * Version: 0.27.1
+ * Version: 0.28.0
  */
 
 (function () {
@@ -777,11 +777,16 @@
     });
   }
 
-  // Load an image URL to a data URL (needs CORS) for embedding. Resolves null on failure.
+  // Load an image URL to a data URL for embedding. Same-origin (e.g. HireHop's
+  // own /uploads_img/) works directly. For external URLs we set crossOrigin so
+  // the source needs CORS headers to avoid tainting the canvas. Resolves null
+  // on any failure (image not found, network error, canvas taint).
   function loadImageDataUrl(url) {
     return new Promise(function (resolve) {
       if (!url) return resolve(null);
-      var img = new Image(); img.crossOrigin = "anonymous";
+      var isSameOrigin = /^\//.test(url) || url.indexOf(location.origin) === 0;
+      var img = new Image();
+      if (!isSameOrigin) img.crossOrigin = "anonymous";
       img.onload = function () {
         try {
           var c = document.createElement("canvas"); c.width = img.naturalWidth; c.height = img.naturalHeight;
@@ -801,10 +806,15 @@
 
   // Build the one-page PDF (logo, job header, labelled layout, kit list).
   // Resolves { pdf, fileName }. Reads job number / delivery date from job_data.
+  // Logo is auto-pulled from HireHop at /uploads_img/{COMPANY_ID}_100.png (same
+  // origin, whatever the company uploaded in Settings). branding.logoUrl in the
+  // JSON is a manual override for the rare case a specific company needs a
+  // different image.
   function buildPdf(snapshot, code, branding) {
     var jd = window.job_data || {};
     var brand = branding || {};
-    var logoUrl = brand.logoUrl || "";
+    var companyId = (typeof user !== "undefined" && user && user.COMPANY_ID) || null;
+    var logoUrl = brand.logoUrl || (companyId ? ("/uploads_img/" + companyId + "_100.png") : "");
     var box = brand.logoBox || { width: 38, height: 28 };
     return Promise.all([loadJsPdf(), loadImageDataUrl(logoUrl)]).then(function (r) {
       var JsPDF = r[0], logo = r[1];
