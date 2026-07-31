@@ -7,9 +7,9 @@
  *
  * Load via jsDelivr (NOT raw.githubusercontent.com, which serves text/plain+nosniff
  * and will not execute). Pin the loader to a release tag, e.g.:
- *   https://cdn.jsdelivr.net/gh/AdamYesEvents/HH-YES-Plugins@v0.1.46/loader.js
+ *   https://cdn.jsdelivr.net/gh/AdamYesEvents/HH-YES-Plugins@v0.1.47/loader.js
  *
- * Version: 0.1.46
+ * Version: 0.1.47
  */
 
 (function () {
@@ -44,10 +44,12 @@
   };
 
   function ready() {
+    // Accept any current HireHop API (>= 1.3). Old check was <=1.3 which silently
+    // blocked instances on newer API versions like 1.31.
     return typeof user !== "undefined" &&
            typeof doc_type !== "undefined" &&
            typeof hh_api_version !== "undefined" &&
-           hh_api_version <= 1.3;
+           hh_api_version >= 1.3;
   }
 
   function buildEntry($, tool, inst) {
