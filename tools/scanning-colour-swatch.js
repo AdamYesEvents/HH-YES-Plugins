@@ -2,7 +2,7 @@
  * HireHop Tool: Heading Colour Swatch (Scanning + Supplying)
  * Standalone — NOT loaded by loader.js. Load directly on the scanning popup
  * and/or the job page (bookmarklet, Tampermonkey, or paste-and-run) via:
- *   https://cdn.jsdelivr.net/gh/AdamYesEvents/HH-YES-Plugins@scanning-colour-swatch-v0.2.0/tools/scanning-colour-swatch.js
+ *   https://cdn.jsdelivr.net/gh/AdamYesEvents/HH-YES-Plugins@scanning-colour-swatch-v0.2.1/tools/scanning-colour-swatch.js
  *
  * Reads the job's headings via /frames/items_to_supply_list.php, finds the
  * first custom-field value on each heading that looks like a hex colour
@@ -13,14 +13,16 @@
  *   • /modules/scanning/...   -> new "colour" column in the tree grid (pqgrid6)
  *                                before the Item/TITLE column. Clicking the
  *                                page's Refresh button re-fetches colours.
- *   • /job.php               -> in-anchor swatch on every visible node of the
- *                                Supplying tab's jsTree (#items_tree1).
+ *   • /job.php               -> swatch pinned to the tree's left edge on every
+ *                                visible node of the Supplying tab's jsTree
+ *                                (#items_tree1). Renders as a proper column at
+ *                                the far left, aligned across every depth.
  *
  * Convention (user-defined, plugin doesn't care about the field name):
  *   solid   = "#E30613"           - a single hex value
  *   2-tone  = "#FFD500/#00843D"   - two hex values joined by "/" (diagonal)
  *
- * Version: 0.2.0
+ * Version: 0.2.1
  */
 
 (function () {
@@ -182,18 +184,38 @@
   // Supplying tab — jsTree (#items_tree1)
   // ---------------------------------------------------------------------------
 
-  function paintTreeNode(li, hex) {
-    // Clean up any prior swatch (may live directly on the LI or, from older
-    // versions, inside the anchor)
+  function prepareSupplyingTree(tree) {
+    // Idempotent: only apply once
+    if (tree.dataset.hhPadded === '1') return;
+    tree.dataset.hhPadded = '1';
+    tree.style.position    = 'relative';
+    tree.style.paddingLeft = '22px';
+  }
+
+  function paintTreeNode(tree, li, hex) {
+    // Clean up any prior swatch on this node (LI first-child from v0.2.0, or
+    // anchor-child from v0.1.x, or the current anchor-with-negative-left form)
     var stale = li.querySelectorAll(':scope > .hh-swatch, :scope > .jstree-anchor > .hh-swatch');
     for (var s = 0; s < stale.length; s++) stale[s].remove();
     if (!hex) return;
-    var wrap = document.createElement('span');
-    wrap.innerHTML = swatchHtml(hex, 4);
-    var span = wrap.firstChild;
-    // Insert as the LI's first child so it appears before every jstree icon
-    // (expand/collapse chevron, theme icon) and the label.
-    li.insertBefore(span, li.firstChild);
+    var anchor = li.querySelector(':scope > .jstree-anchor');
+    if (!anchor) return;
+    anchor.style.position = 'relative';
+    // Absolute-positioned swatch, pinned to the tree's left edge regardless
+    // of the anchor's own indent (nested items would otherwise sit deep in).
+    var treeRect   = tree.getBoundingClientRect();
+    var anchorRect = anchor.getBoundingClientRect();
+    var leftOffset = -(anchorRect.left - treeRect.left) + 4;
+    var span = document.createElement('span');
+    span.className = 'hh-swatch';
+    span.style.cssText = 'position:absolute;left:' + leftOffset + 'px;top:4px;width:14px;height:14px;border:1px solid #888;border-radius:2px;';
+    if (HEX_PAIR_RE.test(hex)) {
+      var parts = hex.split('/');
+      span.style.background = 'linear-gradient(135deg,' + parts[0] + ' 50%,' + parts[1] + ' 50%)';
+    } else {
+      span.style.background = hex;
+    }
+    anchor.insertBefore(span, anchor.firstChild);
   }
 
   function paintSupplyingTree() {
@@ -203,16 +225,18 @@
     if (!$tree.length) return;
     var inst = $tree.jstree(true);
     if (!inst || !inst.get_children_dom) return;
+    var tree = $tree[0];
+    prepareSupplyingTree(tree);
     var roots = inst.get_children_dom('#').toArray();
     for (var i = 0; i < roots.length; i++) {
       var li = roots[i];
       if (!li.classList.contains('node_heading')) continue;
       var headingId = li.id.replace(/^[a-z]/, '');
       var hex = colourById.get(String(headingId));
-      paintTreeNode(li, hex);
+      paintTreeNode(tree, li, hex);
       var descendants = li.querySelectorAll('.jstree-node');
       for (var j = 0; j < descendants.length; j++) {
-        paintTreeNode(descendants[j], hex);
+        paintTreeNode(tree, descendants[j], hex);
       }
     }
   }
