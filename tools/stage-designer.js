@@ -8,7 +8,7 @@
  * Catalogue: data/stage-designer/decks.json + legs.json.
  * Fascia, trim and carpet come later (fascia will match the chosen height).
  *
- * Version: 0.30.0
+ * Version: 0.30.1
  */
 
 (function () {
@@ -96,7 +96,10 @@
   function buildGridSvg(result, width, depth, fascia, trim, opts) {
     if (!result || !result.ok) return "";
     opts = opts || {};
-    var maxW = opts.maxW || 320, maxH = opts.maxH || 220, pad = 1, m = 20, ft = 7, tt = 4, toff = 10;
+    // Extra outer padding when edge labels (FRONT/BACK/LEFT/RIGHT) are shown,
+    // so the words don't crowd the fascia/trim bands.
+    var labelPad = opts.edgeLabels ? 16 : 0;
+    var maxW = opts.maxW || 320, maxH = opts.maxH || 220, pad = 1, m = 20 + labelPad, ft = 7, tt = 4, toff = 10;
     var scale = Math.min(maxW / width, maxH / depth);
     var W = width * scale, H = depth * scale, ox = m, oy = m;
     var deckRects = result.placements.map(function (p) {
@@ -137,11 +140,11 @@
     // (typically the PDF; on-screen preview keeps them off to reduce clutter).
     var edgeSvg = "";
     if (opts.edgeLabels) {
-      var cxMid = ox + W / 2, cyMid = oy + H / 2, ls = 10;
-      edgeSvg += '<text x="' + cxMid + '" y="10" font-family="Arial,Helvetica,sans-serif" font-size="' + ls + '" fill="#666" text-anchor="middle" letter-spacing="1">BACK</text>';
-      edgeSvg += '<text x="' + cxMid + '" y="' + (SH - 4) + '" font-family="Arial,Helvetica,sans-serif" font-size="' + ls + '" fill="#666" text-anchor="middle" letter-spacing="1">FRONT</text>';
-      edgeSvg += '<text x="7" y="' + cyMid + '" font-family="Arial,Helvetica,sans-serif" font-size="' + ls + '" fill="#666" text-anchor="middle" letter-spacing="1" transform="rotate(-90 7 ' + cyMid + ')">LEFT</text>';
-      edgeSvg += '<text x="' + (SW - 7) + '" y="' + cyMid + '" font-family="Arial,Helvetica,sans-serif" font-size="' + ls + '" fill="#666" text-anchor="middle" letter-spacing="1" transform="rotate(90 ' + (SW - 7) + ' ' + cyMid + ')">RIGHT</text>';
+      var cxMid = ox + W / 2, cyMid = oy + H / 2, ls = 11, edgeGap = 8;
+      edgeSvg += '<text x="' + cxMid + '" y="' + edgeGap + '" font-family="Arial,Helvetica,sans-serif" font-size="' + ls + '" fill="#666" text-anchor="middle" letter-spacing="1">BACK</text>';
+      edgeSvg += '<text x="' + cxMid + '" y="' + (SH - edgeGap + 3) + '" font-family="Arial,Helvetica,sans-serif" font-size="' + ls + '" fill="#666" text-anchor="middle" letter-spacing="1">FRONT</text>';
+      edgeSvg += '<text x="' + edgeGap + '" y="' + cyMid + '" font-family="Arial,Helvetica,sans-serif" font-size="' + ls + '" fill="#666" text-anchor="middle" letter-spacing="1" transform="rotate(-90 ' + edgeGap + ' ' + cyMid + ')">LEFT</text>';
+      edgeSvg += '<text x="' + (SW - edgeGap) + '" y="' + cyMid + '" font-family="Arial,Helvetica,sans-serif" font-size="' + ls + '" fill="#666" text-anchor="middle" letter-spacing="1" transform="rotate(90 ' + (SW - edgeGap) + ' ' + cyMid + ')">RIGHT</text>';
     }
     return '<svg width="' + SW + '" height="' + SH + '" viewBox="0 0 ' + SW + ' ' + SH + '" xmlns="http://www.w3.org/2000/svg">' +
       deckRects + fasciaRects + trimRects + treadSvg + edgeSvg +
@@ -940,7 +943,9 @@
         pdf.text("Delivery: " + (fmtDate(jd.OUT_DATE) || "-") + "      Ref: " + code, margin, hy + 6);
         var top = hy + 13, imgW = pageW - margin * 2, imgH = imgW * (png.h / png.w), maxImgH = 130;
         if (imgH > maxImgH) { imgH = maxImgH; imgW = imgH * (png.w / png.h); }
-        pdf.addImage(png.dataUrl, "JPEG", margin, top, imgW, imgH);
+        // Centre the plan horizontally when it's narrower than the text column.
+        var imgX = margin + Math.max(0, ((pageW - margin * 2) - imgW) / 2);
+        pdf.addImage(png.dataUrl, "JPEG", imgX, top, imgW, imgH);
         var y = top + imgH + 6;
         // Legend: only include swatches for elements actually present in the snapshot
         var hasFasciaStd = (snapshot.fasciaPlacements || []).some(function (p) { return p.type === "standard"; });
@@ -964,13 +969,31 @@
         });
         y += 8;
         pdf.setFontSize(12); pdf.setTextColor(30, 30, 30); pdf.text("Kit list", margin, y); y += 6;
-        pdf.setFontSize(10);
+        // Group by category, same order + labels as the Supplying tree sub-headings.
+        var CAT_ORDER = ["Deck", "Carpet", "Fascia", "Trim", "Treads"];
+        var grouped = {}, other = [];
         (snapshot.items || []).forEach(function (it) {
-          if (y > 285) { pdf.addPage(); y = 20; }
-          pdf.setTextColor(60, 60, 60); pdf.text(String(it.label), margin, y);
-          pdf.setTextColor(20, 20, 20); pdf.text("x " + it.qty, pageW - margin, y, { align: "right" });
-          y += 6;
+          var cat = it.category || "Other";
+          if (CAT_ORDER.indexOf(cat) >= 0) { (grouped[cat] = grouped[cat] || []).push(it); }
+          else other.push(it);
         });
+        function drawGroup(label, list) {
+          if (!list || !list.length) return;
+          if (y > 275) { pdf.addPage(); y = 20; }
+          pdf.setFontSize(10); pdf.setTextColor(90, 90, 90); pdf.text(label.toUpperCase(), margin, y);
+          pdf.setDrawColor(200, 200, 200); pdf.line(margin + pdf.getTextWidth(label) + 3, y - 1, pageW - margin, y - 1);
+          y += 5;
+          pdf.setFontSize(10);
+          list.forEach(function (it) {
+            if (y > 285) { pdf.addPage(); y = 20; }
+            pdf.setTextColor(60, 60, 60); pdf.text(String(it.label), margin + 2, y);
+            pdf.setTextColor(20, 20, 20); pdf.text("x " + it.qty, pageW - margin, y, { align: "right" });
+            y += 5.5;
+          });
+          y += 3;
+        }
+        CAT_ORDER.forEach(function (c) { drawGroup(c, grouped[c]); });
+        drawGroup("Other", other);
         var fileName = (jd.ID ? jd.ID + " - " : "") + snapshot.width + "x" + snapshot.depth + (snapshot.sysUnit || "") + "@" + (snapshot.height || 0) + "mm stage-" + code + ".pdf";
         return { pdf: pdf, fileName: fileName };
       });
