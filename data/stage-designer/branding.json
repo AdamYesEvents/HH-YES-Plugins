@@ -1,7 +1,7 @@
 {
   "schema": "stage-designer/branding",
   "dataVersion": "0.3.0",
-  "_note": "logoUrl: OPTIONAL override for the PDF logo. Leave empty and the tool auto-pulls /uploads_img/{user.COMPANY_ID}_100.png from HireHop (same origin, whatever the company uploaded in Settings). Set this only for a custom image (e.g. a bigger version, or a special-case brand). For external URLs, the host must send CORS headers; SVGs need intrinsic width/height. logoBox = max width/height in mm; image fitted preserving aspect ratio.",
+  "_note": "logoUrl: OPTIONAL override for the PDF logo. Leave empty and the tool reads the src of the <img id='comp_logo'> element HireHop already renders in every page header - each company's logo is at /uploads_img/{COMPANY_ID}_{hash}.png where the hash varies per upload, so we grab it live off the DOM. Set logoUrl only for a custom image. For external URLs, the host must send CORS headers; SVGs need intrinsic width/height. logoBox = max width/height in mm; image fitted preserving aspect ratio.",
   "logoUrl": "",
   "logoBox": { "width": 38, "height": 28 },
 

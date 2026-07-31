@@ -8,7 +8,7 @@
  * Catalogue: data/stage-designer/decks.json + legs.json.
  * Fascia, trim and carpet come later (fascia will match the chosen height).
  *
- * Version: 0.28.0
+ * Version: 0.28.1
  */
 
 (function () {
@@ -806,15 +806,17 @@
 
   // Build the one-page PDF (logo, job header, labelled layout, kit list).
   // Resolves { pdf, fileName }. Reads job number / delivery date from job_data.
-  // Logo is auto-pulled from HireHop at /uploads_img/{COMPANY_ID}_100.png (same
-  // origin, whatever the company uploaded in Settings). branding.logoUrl in the
-  // JSON is a manual override for the rare case a specific company needs a
-  // different image.
+  // Logo is grabbed off the <img id="comp_logo"> element HireHop already renders
+  // in every page header - each company has a versioned filename like
+  // /uploads_img/{COMPANY_ID}_{hash}.png that we can't compute. branding.logoUrl
+  // in the JSON is a manual override; final fallback is /uploads_img/{ID}.png.
   function buildPdf(snapshot, code, branding) {
     var jd = window.job_data || {};
     var brand = branding || {};
     var companyId = (typeof user !== "undefined" && user && user.COMPANY_ID) || null;
-    var logoUrl = brand.logoUrl || (companyId ? ("/uploads_img/" + companyId + "_100.png") : "");
+    var pageLogo = document.getElementById("comp_logo");
+    var pageLogoSrc = (pageLogo && pageLogo.getAttribute("src")) || "";
+    var logoUrl = brand.logoUrl || pageLogoSrc || (companyId ? ("/uploads_img/" + companyId + ".png") : "");
     var box = brand.logoBox || { width: 38, height: 28 };
     return Promise.all([loadJsPdf(), loadImageDataUrl(logoUrl)]).then(function (r) {
       var JsPDF = r[0], logo = r[1];
