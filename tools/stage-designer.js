@@ -8,7 +8,7 @@
  * Catalogue: data/stage-designer/decks.json + legs.json.
  * Fascia, trim and carpet come later (fascia will match the chosen height).
  *
- * Version: 0.29.2
+ * Version: 0.30.0
  */
 
 (function () {
@@ -133,8 +133,18 @@
       bottomExtra = 16 + td + 18;
     }
     var SW = W + 2 * m, SH = H + 2 * m + bottomExtra;
+    // Edge labels (Front/Back/Left/Right) - only when opts.edgeLabels is true
+    // (typically the PDF; on-screen preview keeps them off to reduce clutter).
+    var edgeSvg = "";
+    if (opts.edgeLabels) {
+      var cxMid = ox + W / 2, cyMid = oy + H / 2, ls = 10;
+      edgeSvg += '<text x="' + cxMid + '" y="10" font-family="Arial,Helvetica,sans-serif" font-size="' + ls + '" fill="#666" text-anchor="middle" letter-spacing="1">BACK</text>';
+      edgeSvg += '<text x="' + cxMid + '" y="' + (SH - 4) + '" font-family="Arial,Helvetica,sans-serif" font-size="' + ls + '" fill="#666" text-anchor="middle" letter-spacing="1">FRONT</text>';
+      edgeSvg += '<text x="7" y="' + cyMid + '" font-family="Arial,Helvetica,sans-serif" font-size="' + ls + '" fill="#666" text-anchor="middle" letter-spacing="1" transform="rotate(-90 7 ' + cyMid + ')">LEFT</text>';
+      edgeSvg += '<text x="' + (SW - 7) + '" y="' + cyMid + '" font-family="Arial,Helvetica,sans-serif" font-size="' + ls + '" fill="#666" text-anchor="middle" letter-spacing="1" transform="rotate(90 ' + (SW - 7) + ' ' + cyMid + ')">RIGHT</text>';
+    }
     return '<svg width="' + SW + '" height="' + SH + '" viewBox="0 0 ' + SW + ' ' + SH + '" xmlns="http://www.w3.org/2000/svg">' +
-      deckRects + fasciaRects + trimRects + treadSvg +
+      deckRects + fasciaRects + trimRects + treadSvg + edgeSvg +
       '<rect x="' + (ox + 0.5) + '" y="' + (oy + 0.5) + '" width="' + (W - 1) + '" height="' + (H - 1) + '" fill="none" stroke="#26215C" stroke-width="2"/></svg>';
   }
 
@@ -798,7 +808,12 @@
         if (!mainId) { onDone({ ok: false, error: "Could not create the stage folder" }); return; }
         var i = 0, parts = 0, customs = 0;
         function nextCategory() {
-          if (i >= grouped.order.length) { onDone({ ok: true, headingId: mainId, parts: parts, customs: customs }); return; }
+          if (i >= grouped.order.length) {
+            // Final sweep: HireHop can fire another Autopull dialog after the
+            // full kit finishes (linked items etc.). Auto-Save it, then finish.
+            dismissAutopullThen(function () { onDone({ ok: true, headingId: mainId, parts: parts, customs: customs }); });
+            return;
+          }
           var cat = grouped.order[i++];
           var shopping = res.shoppingByCat[cat], customList = res.customsByCat[cat];
           if (!Object.keys(shopping).length && !customList.length) { nextCategory(); return; }
@@ -896,7 +911,7 @@
     return Promise.all([loadJsPdf(), loadImageDataUrl(logoUrl)]).then(function (r) {
       var JsPDF = r[0], logo = r[1];
       var svg = buildGridSvg(snapshot.result, snapshot.width, snapshot.depth, snapshot.fasciaPlacements, snapshot.trimPlacements,
-        { maxW: 470, maxH: 330, labelHeight: snapshot.height || "", labelFont: 9, treads: snapshot.treadUnits > 0 ? { units: snapshot.treadUnits, height: snapshot.treadHeight, colour: snapshot.treadColour } : null });
+        { maxW: 470, maxH: 330, labelHeight: snapshot.height || "", labelFont: 9, edgeLabels: true, treads: snapshot.treadUnits > 0 ? { units: snapshot.treadUnits, height: snapshot.treadHeight, colour: snapshot.treadColour } : null });
       return svgToPng(svg, 3).then(function (png) {
         var pdf = new JsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
         var pageW = 210, margin = 14;
@@ -926,7 +941,28 @@
         var top = hy + 13, imgW = pageW - margin * 2, imgH = imgW * (png.h / png.w), maxImgH = 130;
         if (imgH > maxImgH) { imgH = maxImgH; imgW = imgH * (png.w / png.h); }
         pdf.addImage(png.dataUrl, "JPEG", margin, top, imgW, imgH);
-        var y = top + imgH + 11;
+        var y = top + imgH + 6;
+        // Legend: only include swatches for elements actually present in the snapshot
+        var hasFasciaStd = (snapshot.fasciaPlacements || []).some(function (p) { return p.type === "standard"; });
+        var hasFasciaCorner = (snapshot.fasciaPlacements || []).some(function (p) { return p.type === "corner"; });
+        var hasTrimCentre = (snapshot.trimPlacements || []).some(function (p) { return p.type === "centre"; });
+        var hasTrimCorner = (snapshot.trimPlacements || []).some(function (p) { return p.type === "corner"; });
+        var hasTreads = snapshot.treadUnits > 0;
+        var legend = [{ col: [127, 119, 221], label: "Deck" }];
+        if (hasFasciaStd) legend.push({ col: [29, 158, 117], label: "Fascia" });
+        if (hasFasciaCorner) legend.push({ col: [216, 90, 48], label: "Fascia corner" });
+        if (hasTrimCentre) legend.push({ col: [59, 130, 246], label: "Trim" });
+        if (hasTrimCorner) legend.push({ col: [30, 64, 175], label: "Trim corner" });
+        if (hasTreads) legend.push({ col: [154, 154, 154], label: "Treads" });
+        pdf.setFontSize(9); pdf.setTextColor(90, 90, 90);
+        var lx = margin, sw = 3, gap = 5, itemGap = 8;
+        legend.forEach(function (it) {
+          pdf.setFillColor(it.col[0], it.col[1], it.col[2]);
+          pdf.rect(lx, y - 2.6, sw, sw, "F");
+          pdf.text(it.label, lx + sw + 1.5, y);
+          lx += sw + 1.5 + pdf.getTextWidth(it.label) + itemGap;
+        });
+        y += 8;
         pdf.setFontSize(12); pdf.setTextColor(30, 30, 30); pdf.text("Kit list", margin, y); y += 6;
         pdf.setFontSize(10);
         (snapshot.items || []).forEach(function (it) {
