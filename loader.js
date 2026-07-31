@@ -9,7 +9,7 @@
  * and will not execute). Pin the loader to a release tag, e.g.:
  *   https://cdn.jsdelivr.net/gh/AdamYesEvents/HH-YES-Plugins@v0.1.52/loader.js
  *
- * Version: 0.1.57
+ * Version: 0.1.58
  */
 
 (function () {
@@ -25,7 +25,7 @@
   // create a tag and set ref to it here.
   // ===========================================================================
   var TOOLS = {
-    "stage-designer":    { on: true, ref: "ace6b17" },
+    "stage-designer":    { on: true, ref: "5dbb336" },
     "videowall-creator": { on: true, ref: "videowall-creator-v0.1.0" }
   };
 
