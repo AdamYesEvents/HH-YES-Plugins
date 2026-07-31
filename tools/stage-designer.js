@@ -8,7 +8,7 @@
  * Catalogue: data/stage-designer/decks.json + legs.json.
  * Fascia, trim and carpet come later (fascia will match the chosen height).
  *
- * Version: 0.26.1
+ * Version: 0.27.0
  */
 
 (function () {
@@ -458,7 +458,7 @@
   // Load data from this tool's own release tag (immutable + served instantly by
   // jsDelivr) rather than @main, which edge-caches and can lag / throttle purges.
   // Bump this to match the tag on each release so data ships with the code.
-  var DATA_REF = "stage-designer-v0.26.1";
+  var DATA_REF = "stage-designer-v0.27.0";
   var BASE = "https://cdn.jsdelivr.net/gh/" + REPO + "@" + DATA_REF + "/data/stage-designer/";
   var catalogue = null;
 
@@ -1287,10 +1287,16 @@
             }
           }, description, memo, parentHeadingId);
         }
-        // Build + offer a local save first (on the click's user gesture), then insert
-        // the kit and upload the same PDF to the Files tab.
+        // Build the PDF. On the click's user gesture, offer a local "Save As"
+        // ONLY for companies opted into the pdfSavePrompt feature in branding.json
+        // (whitelist of user.COMPANY_ID). All companies still get the PDF uploaded
+        // to the Files tab via insert->uploadPdf.
+        var myCompanyId = (typeof user !== "undefined" && user && user.COMPANY_ID) || null;
+        var savePromptIds = ((cat.branding && cat.branding.features && cat.branding.features.pdfSavePrompt && cat.branding.features.pdfSavePrompt.companyIds) || []).map(function (n) { return +n; });
+        var wantsLocalSave = savePromptIds.indexOf(+myCompanyId) >= 0;
         buildPdf(snapshot, code, cat.branding).then(function (built) {
-          return savePdfLocal(built.pdf, built.fileName).then(function () { insert(built); });
+          if (wantsLocalSave) return savePdfLocal(built.pdf, built.fileName).then(function () { insert(built); });
+          insert(built);
         }).catch(function () { insert(null); });
       }
 

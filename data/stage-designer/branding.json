@@ -1,7 +1,14 @@
 {
   "schema": "stage-designer/branding",
-  "dataVersion": "0.2.0",
+  "dataVersion": "0.3.0",
   "_note": "logoUrl: an SVG or hosted image URL for the top-right of the PDF. Must be CORS-accessible (hosting it in this repo / jsDelivr works). SVGs need an intrinsic width/height. Leave empty for no logo. logoBox = max width/height in mm; the image is fitted preserving aspect ratio.",
   "logoUrl": "",
-  "logoBox": { "width": 38, "height": 28 }
+  "logoBox": { "width": 38, "height": 28 },
+
+  "_features_note": "features.pdfSavePrompt.companyIds is a whitelist of HireHop numeric user.COMPANY_IDs that get the local Save-As prompt when they Add a stage kit. All other companies still get the PDF auto-uploaded to the Files tab but skip the interactive save dialog. Empty list = feature off for everyone.",
+  "features": {
+    "pdfSavePrompt": {
+      "companyIds": []
+    }
+  }
 }

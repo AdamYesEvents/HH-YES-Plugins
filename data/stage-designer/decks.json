@@ -2,7 +2,7 @@
   "schema": "stage-designer/decks",
   "dataVersion": "0.2.0",
   "systems": {
-    "metric":   { "unit": "m",  "increment": 0.5, "min": 2, "max": 10 },
+    "metric":   { "unit": "m",  "increment": 0.5, "min": 1, "max": 10 },
     "imperial": { "unit": "ft", "increment": 4,   "min": 4, "max": 4 }
   },
   "decks": [
