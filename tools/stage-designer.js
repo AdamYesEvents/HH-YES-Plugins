@@ -8,7 +8,7 @@
  * Catalogue: data/stage-designer/decks.json + legs.json.
  * Fascia, trim and carpet come later (fascia will match the chosen height).
  *
- * Version: 0.28.1
+ * Version: 0.28.2
  */
 
 (function () {
@@ -825,14 +825,26 @@
       return svgToPng(svg, 3).then(function (png) {
         var pdf = new JsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
         var pageW = 210, margin = 14;
+        var logoWidth = 0;
         if (logo) {
           var lw = box.width, lh = box.height, ar = logo.w / logo.h;
           if (lw / lh > ar) lw = lh * ar; else lh = lw / ar;
           pdf.addImage(logo.dataUrl, "PNG", pageW - margin - lw, 12, lw, lh);
+          logoWidth = lw;
         }
-        pdf.setFontSize(15); pdf.setTextColor(30, 30, 30); pdf.text(String(snapshot.title), margin, 18);
+        // Top line: HireHop job name (JOB_NAME preferred, falls back to NAME).
+        // Wraps if long so it never overruns the logo.
+        var jobName = String(jd.JOB_NAME || jd.NAME || "");
+        var textWidth = pageW - margin * 2 - (logoWidth ? logoWidth + 4 : 0);
+        var hy = 17;
+        if (jobName) {
+          pdf.setFontSize(16); pdf.setTextColor(20, 20, 20);
+          var lines = pdf.splitTextToSize(jobName, textWidth);
+          pdf.text(lines, margin, hy);
+          hy += lines.length * 6 + 2;
+        }
+        pdf.setFontSize(13); pdf.setTextColor(50, 50, 50); pdf.text(String(snapshot.title), margin, hy); hy += 6;
         pdf.setFontSize(10); pdf.setTextColor(90, 90, 90);
-        var hy = 25;
         if (snapshot.memo) { pdf.text(String(snapshot.memo), margin, hy); hy += 6; }
         pdf.text("Job " + (jd.ID || ""), margin, hy);
         pdf.text("Delivery: " + (fmtDate(jd.OUT_DATE) || "-") + "      Ref: " + code, margin, hy + 6);
