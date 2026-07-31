@@ -5,10 +5,10 @@
   "logoUrl": "",
   "logoBox": { "width": 38, "height": 28 },
 
-  "_features_note": "features.pdfSavePrompt.companyIds is a whitelist of HireHop numeric user.COMPANY_IDs that get the local Save-As prompt when they Add a stage kit. All other companies still get the PDF auto-uploaded to the Files tab but skip the interactive save dialog. Empty list = feature off for everyone.",
+  "_features_note": "features.pdfSavePrompt.companyIds is a whitelist of HireHop numeric user.COMPANY_IDs that get the local Save-As prompt when they Add a stage kit. All other companies still get the PDF auto-uploaded to the Files tab but skip the interactive save dialog. Empty list = feature off for everyone. Current: 5949=YES Events, 8109=YES Demo (both opted in). 3198=Wise (opted out - Files-tab upload only).",
   "features": {
     "pdfSavePrompt": {
-      "companyIds": []
+      "companyIds": [5949, 8109]
     }
   }
 }
