@@ -8,7 +8,7 @@
  * Catalogue: data/stage-designer/decks.json + legs.json.
  * Fascia, trim and carpet come later (fascia will match the chosen height).
  *
- * Version: 0.29.1
+ * Version: 0.29.2
  */
 
 (function () {
@@ -291,7 +291,12 @@
     // 1x2m (mirror of 2x1)
     "1x2m 2": [{ edge: "front", len: 1, type: "standard" }, { edge: "left", len: 2, type: "corner" }],
     "1x2m 3": [{ edge: "front", len: 1, type: "corner" }, { edge: "left", len: 2, type: "corner" }, { edge: "right", len: 2, type: "standard" }],
-    "1x2m 4": [{ edge: "front", len: 1, type: "corner" }, { edge: "back", len: 1, type: "corner" }, { edge: "left", len: 2, type: "corner" }, { edge: "right", len: 2, type: "corner" }]
+    "1x2m 4": [{ edge: "front", len: 1, type: "corner" }, { edge: "back", len: 1, type: "corner" }, { edge: "left", len: 2, type: "corner" }, { edge: "right", len: 2, type: "corner" }],
+
+    // 1.5x1.5m (square, same shape as 1x1m rules but with 1.5m panels)
+    "1.5x1.5m 2": [{ edge: "front", len: 1.5, type: "corner" }, { edge: "left", len: 1.5, type: "standard" }],
+    "1.5x1.5m 3": [{ edge: "front", len: 1.5, type: "corner" }, { edge: "left", len: 1.5, type: "corner" }, { edge: "right", len: 1.5, type: "standard" }],
+    "1.5x1.5m 4": [{ edge: "front", len: 1.5, type: "corner" }, { edge: "back", len: 1.5, type: "corner" }, { edge: "left", len: 1.5, type: "corner" }, { edge: "right", len: 1.5, type: "corner" }]
   };
   function smallStageRule(system, w, d, sides) {
     if (system !== "metric") return null;
