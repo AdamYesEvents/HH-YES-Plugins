@@ -2,7 +2,7 @@
  * HireHop Tool: Heading Colour Swatch (Scanning + Supplying)
  * Standalone — NOT loaded by loader.js. Load directly on the scanning popup
  * and/or the job page (bookmarklet, Tampermonkey, or paste-and-run) via:
- *   https://cdn.jsdelivr.net/gh/AdamYesEvents/HH-YES-Plugins@scanning-colour-swatch-v0.6.3/tools/scanning-colour-swatch.js
+ *   https://cdn.jsdelivr.net/gh/AdamYesEvents/HH-YES-Plugins@scanning-colour-swatch-v0.6.4/tools/scanning-colour-swatch.js
  *
  * Reads the job's headings via /frames/items_to_supply_list.php, collects
  * every custom-field value on each heading that looks like a hex colour
@@ -16,10 +16,11 @@
  *                                Also auto-selects the Tree view on load and
  *                                re-fetches on the Refresh button click.
  *
- *   • /job.php  (Supplying)   -> tints the folder icon of every coloured
- *                                heading (and every sub-heading) in the jsTree,
- *                                AND puts a side-by-side swatch at the far
- *                                left of every row under a coloured room.
+ *   • /job.php  (Supplying)   -> adds a leftmost heading cell to the header
+ *                                (🎨) and a matching side-by-side swatch at
+ *                                the far left of every row under a coloured
+ *                                room. Folder icons are NOT tinted — the
+ *                                swatch alone carries the colour.
  *                                Also hides colour custom-fields in the
  *                                Edit-heading dialog on non-root headings,
  *                                so colour is only picked on the top-level
@@ -34,7 +35,7 @@
  * "/", so users can compose any 2-tone (or 3-tone) tape colour without a
  * plugin change.
  *
- * Version: 0.6.3
+ * Version: 0.6.4
  */
 
 (function () {
@@ -311,25 +312,23 @@
     for (var m = 0; m < oldMenu.length; m++) oldMenu[m].remove();
   }
 
-  // Tint the folder icon with the FIRST custom field's colour. If it's a
-  // legacy Earth-style hex-pair value, backgroundForHex renders it as
-  // stripes inside the folder. B-Colour (if any) is shown separately in
-  // the left swatch column, not in the icon.
-  function tintHeadingIcon(li, fields) {
+  // Reset any folder-icon tint left over from v0.4.x / v0.5.x / v0.6.x-early.
+  // v0.6.4 drops the icon tint in favour of the left swatch alone.
+  function clearHeadingIconTint(li) {
     var icon = li.querySelector(':scope > .jstree-anchor > i.jstree-themeicon');
-    if (!icon || !fields || !fields.length) return;
-    var pos = li.classList.contains('jstree-open') ? HH_POS_OPEN : HH_POS_CLOSED;
-    var maskValue = 'url("' + HH_ICON_SPRITE + '") ' + pos + ' no-repeat';
-    icon.style.setProperty('background-image', 'none',    'important');
-    icon.style.setProperty('mask',              maskValue, 'important');
-    icon.style.setProperty('-webkit-mask',      maskValue, 'important');
-    icon.style.setProperty('background', backgroundForHex(fields[0]), 'important');
-    icon.dataset.hhTinted = '1';
+    if (!icon || !icon.dataset.hhTinted) return;
+    icon.style.removeProperty('background-image');
+    icon.style.removeProperty('mask');
+    icon.style.removeProperty('-webkit-mask');
+    icon.style.removeProperty('background');
+    icon.style.removeProperty('background-color');
+    delete icon.dataset.hhTinted;
   }
 
   // Extreme-left swatch inside each row's anchor, absolute-positioned so it
   // sits in the container's left padding zone regardless of tree indent.
-  // Renders one tile per custom field, side by side.
+  // Renders one tile per custom field, side by side, vertically centred
+  // against the anchor.
   function paintLeftSwatch(anchor, fields, container) {
     var stale = anchor.querySelector(':scope > .hh-left-swatch');
     if (stale) stale.remove();
@@ -339,10 +338,36 @@
     var leftOffset = -(aRect.left - cRect.left) + 4;
     var span = document.createElement('span');
     span.className = 'hh-left-swatch';
-    span.style.cssText = 'position:absolute;left:' + leftOffset + 'px;top:4px;';
+    span.style.cssText = 'position:absolute;left:' + leftOffset + 'px;top:50%;transform:translateY(-50%);line-height:0;';
     span.innerHTML = sideBySideSwatchHtml(fields);
     anchor.style.position = 'relative';
     anchor.appendChild(span);
+  }
+
+  // Add a matching heading cell at position 0 of the .supplying_list_heads
+  // table so the swatch gutter has a real header column. Width tracks the
+  // gutter so borders line up with the row cells beneath.
+  function ensureSupplyingSwatchHeader() {
+    var header = document.querySelector('.supplying_list_heads');
+    if (!header || !header.rows[0]) return;
+    var row = header.rows[0];
+    var W = swatchZoneWidthPx();
+    var existing = row.querySelector('.hh-swatch-head');
+    if (existing) {
+      if (existing.style.width !== W + 'px') {
+        existing.style.width    = W + 'px';
+        existing.style.minWidth = W + 'px';
+        existing.style.maxWidth = W + 'px';
+      }
+      return;
+    }
+    var th = document.createElement('th');
+    // "compulsory" keeps it out of HireHop's ui-sortable ("items: th:not(.compulsory)")
+    th.className = 'hh-swatch-head compulsory ltr';
+    th.style.cssText = 'width:' + W + 'px;min-width:' + W + 'px;max-width:' + W + 'px;text-align:center;border-right:1px solid #aaa;';
+    th.title = 'Colour';
+    th.textContent = '🎨';
+    row.insertBefore(th, row.cells[0] || null);
   }
 
   function prepareSupplyingLeftGutter(container) {
@@ -363,20 +388,25 @@
     if (!inst || !inst.get_children_dom) return;
     var container = $tree[0].parentElement;   // .items_tree_container
     if (container) prepareSupplyingLeftGutter(container);
+    ensureSupplyingSwatchHeader();
     var roots = inst.get_children_dom('#').toArray();
     for (var i = 0; i < roots.length; i++) {
       var rootLi = roots[i];
       if (!rootLi.classList.contains('node_heading')) continue;
       var fields = colourById.get(String(rootLi.id.replace(/^[a-z]/, '')));
-      if (!fields) continue;
-      // Tint the folder icon on every heading (root + sub) beneath this room
-      tintHeadingIcon(rootLi, fields);
-      var subHeadings = rootLi.querySelectorAll('.jstree-node.node_heading');
-      for (var j = 0; j < subHeadings.length; j++) {
-        tintHeadingIcon(subHeadings[j], fields);
+      if (!fields) {
+        // Not coloured — make sure no stale tint or swatch remains
+        clearHeadingIconTint(rootLi);
+        var rootA = rootLi.querySelector(':scope > .jstree-anchor');
+        if (rootA) { var oldS = rootA.querySelector(':scope > .hh-left-swatch'); if (oldS) oldS.remove(); }
+        continue;
       }
-      // And paint the extreme-left swatch on EVERY descendant row so
-      // items in this room also show its colour on the far left.
+      // Clear any leftover tint (we no longer colour the folder icons)
+      clearHeadingIconTint(rootLi);
+      var subHeadings = rootLi.querySelectorAll('.jstree-node.node_heading');
+      for (var j = 0; j < subHeadings.length; j++) clearHeadingIconTint(subHeadings[j]);
+      // Paint the extreme-left swatch on every descendant row so items
+      // in this room show its colour on the far left too.
       var rootAnchor = rootLi.querySelector(':scope > .jstree-anchor');
       if (rootAnchor && container) paintLeftSwatch(rootAnchor, fields, container);
       var descendants = rootLi.querySelectorAll('.jstree-node');
