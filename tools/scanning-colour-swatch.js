@@ -2,7 +2,7 @@
  * HireHop Tool: Heading Colour Swatch (Scanning + Supplying)
  * Standalone — NOT loaded by loader.js. Load directly on the scanning popup
  * and/or the job page (bookmarklet, Tampermonkey, or paste-and-run) via:
- *   https://cdn.jsdelivr.net/gh/AdamYesEvents/HH-YES-Plugins@scanning-colour-swatch-v0.3.1/tools/scanning-colour-swatch.js
+ *   https://cdn.jsdelivr.net/gh/AdamYesEvents/HH-YES-Plugins@scanning-colour-swatch-v0.3.2/tools/scanning-colour-swatch.js
  *
  * Reads the job's headings via /frames/items_to_supply_list.php, finds the
  * first custom-field value on each heading that looks like a hex colour
@@ -24,7 +24,7 @@
  *   solid   = "#E30613"           - a single hex value
  *   2-tone  = "#FFD500/#00843D"   - two hex values joined by "/" (diagonal)
  *
- * Version: 0.3.1
+ * Version: 0.3.2
  */
 
 (function () {
@@ -261,18 +261,59 @@
     return true;
   }
 
+  function fieldOf(el) {
+    var m = el.className.match(/column_([A-Z_0-9]+)/);
+    return m ? m[1] : null;
+  }
+
+  // Insert row cells at the position that matches HH_COLOUR's index in the
+  // header, so they line up with the header's current sort order.
   function ensureRowCell(li, hex) {
     var table = li.querySelector(':scope > .jstree-anchor > table.cust_node');
     if (!table) return;
+    var header = document.querySelector('.supplying_list_heads');
+    var headerCells = header && header.rows[0] ? header.rows[0].cells : [];
+    var targetIndex = -1;
+    for (var h = 0; h < headerCells.length; h++) {
+      if (fieldOf(headerCells[h]) === COL_FIELD) { targetIndex = h; break; }
+    }
     for (var r = 0; r < table.rows.length; r++) {
       var row = table.rows[r];
       var existing = row.querySelector('.' + COL_CLASS);
       if (existing) existing.remove();
-      var td = row.insertCell(row.cells.length);
+      var td = document.createElement('td');
       td.className = COL_CLASS;
       td.style.cssText = 'width:' + COL_WIDTH + ';text-align:center;padding:0;';
       if (hhHidden) td.style.display = 'none';
       if (hex) td.appendChild(swatchElement(hex));
+      var before = (targetIndex >= 0 && row.cells[targetIndex]) ? row.cells[targetIndex] : null;
+      row.insertBefore(td, before);
+    }
+  }
+
+  // Rebuild every row's cell order to match the header. Called after a
+  // header drag lands, and defensively after paintAllRows finishes.
+  function reorderRowsToMatchHeader() {
+    var header = document.querySelector('.supplying_list_heads');
+    if (!header || !header.rows[0]) return;
+    var headerCells = header.rows[0].cells;
+    var rowTables = document.querySelectorAll('table.cust_node');
+    for (var t = 0; t < rowTables.length; t++) {
+      var trow = rowTables[t].rows[0];
+      if (!trow) continue;
+      var byField = {};
+      var compulsory = null;
+      for (var c = 0; c < trow.cells.length; c++) {
+        var cell = trow.cells[c];
+        var f = fieldOf(cell);
+        if (f) byField[f] = cell;
+        else if (!compulsory) compulsory = cell;
+      }
+      for (var i = 0; i < headerCells.length; i++) {
+        var hf = fieldOf(headerCells[i]);
+        if (hf && byField[hf]) trow.appendChild(byField[hf]);
+        else if (!hf && compulsory) { trow.appendChild(compulsory); compulsory = null; }
+      }
     }
   }
 
@@ -295,6 +336,8 @@
         ensureRowCell(descendants[j], hex);
       }
     }
+    // Defensive re-align in case a header drag happened between paints
+    reorderRowsToMatchHeader();
   }
 
   function toggleColumn(hide) {
@@ -339,6 +382,11 @@
 
     $('#items_tree1').on('after_open.jstree redraw.jstree refresh.jstree load_node.jstree create_node.jstree move_node.jstree', function () {
       setTimeout(paintAllRows, 0);
+    });
+
+    // When user drops a header cell, reorder every row to match
+    $('.supplying_list_heads').on('sortupdate.hh_swatch sortstop.hh_swatch', function () {
+      setTimeout(reorderRowsToMatchHeader, 0);
     });
 
     // Watch for the cog menu appearing so we can inject our item.
