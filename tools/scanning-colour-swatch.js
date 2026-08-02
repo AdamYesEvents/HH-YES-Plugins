@@ -2,7 +2,7 @@
  * HireHop Tool: Heading Colour Swatch (Scanning + Supplying)
  * Standalone — NOT loaded by loader.js. Load directly on the scanning popup
  * and/or the job page (bookmarklet, Tampermonkey, or paste-and-run) via:
- *   https://cdn.jsdelivr.net/gh/AdamYesEvents/HH-YES-Plugins@scanning-colour-swatch-v0.6.6/tools/scanning-colour-swatch.js
+ *   https://cdn.jsdelivr.net/gh/AdamYesEvents/HH-YES-Plugins@scanning-colour-swatch-v0.7.0/tools/scanning-colour-swatch.js
  *
  * Reads the job's headings via /frames/items_to_supply_list.php, collects
  * every custom-field value on each heading that looks like a hex colour
@@ -16,18 +16,14 @@
  *                                Also auto-selects the Tree view on load and
  *                                re-fetches on the Refresh button click.
  *
- *   • /job.php  (Supplying)   -> adds a real leftmost table column (🎨
- *                                header + matching <td> on every row's
- *                                cust_node). Both tables absorb the extra
- *                                width proportionally so every downstream
- *                                column boundary stays pixel-aligned. The
- *                                row cell holds the side-by-side swatch
- *                                tiles for that row's top-level room, so
- *                                nothing overlaps the tree icons. Also
- *                                hides colour custom-fields in the Edit-
- *                                heading dialog on non-root headings, so
- *                                colour is only picked on the top-level
- *                                room.
+ *   • /job.php  (Supplying)   -> appends the side-by-side swatches inline
+ *                                right after each row's name text (inside
+ *                                the name_cell div), so nothing about the
+ *                                tree layout, column widths, header, or
+ *                                borders is touched. Also hides colour
+ *                                custom-fields in the Edit-heading dialog
+ *                                on non-root headings, so colour is only
+ *                                picked on the top-level room.
  *
  * Colour composition:
  *   1 hex   -> solid                            "#E30613"
@@ -38,7 +34,7 @@
  * "/", so users can compose any 2-tone (or 3-tone) tape colour without a
  * plugin change.
  *
- * Version: 0.6.6
+ * Version: 0.7.0
  */
 
 (function () {
@@ -106,13 +102,15 @@
   // Render one swatch per custom field, side by side. Each field renders as
   // solid or striped via backgroundForHex — so an Earth preset (hex/hex) in
   // A-Colour stays as ONE striped tile, and B-Colour renders as its own
-  // second tile.
-  function sideBySideSwatchHtml(fields) {
+  // second tile. sizePx defaults to 14 (scanning column); Supplying uses 12
+  // inline.
+  function sideBySideSwatchHtml(fields, sizePx) {
     if (!fields || !fields.length) return '';
+    var sz = sizePx || 14;
     var out = '';
     for (var i = 0; i < fields.length; i++) {
       var ml = (i > 0) ? 'margin-left:2px;' : '';
-      out += '<span style="display:inline-block;width:14px;height:14px;border:1px solid #888;border-radius:2px;vertical-align:middle;' + ml + 'background:' + backgroundForHex(fields[i]) + ';"></span>';
+      out += '<span style="display:inline-block;width:' + sz + 'px;height:' + sz + 'px;border:1px solid #888;border-radius:2px;vertical-align:middle;' + ml + 'background:' + backgroundForHex(fields[i]) + ';"></span>';
     }
     return out;
   }
@@ -311,7 +309,9 @@
         anchors[i].style.position = '';
         anchors[i].style.overflow = '';
       }
-      var stale = tree.querySelectorAll('.hh-swatch, .hh-left-swatch');
+      // Cover every past visible artefact: v0.2.x abs-positioned .hh-swatch,
+      // v0.6.2/6.3 .hh-left-swatch, v0.6.6 .hh-swatch-cell in rows.
+      var stale = tree.querySelectorAll('.hh-swatch, .hh-left-swatch, .hh-swatch-cell');
       for (var j = 0; j < stale.length; j++) stale[j].remove();
     }
     // v0.6.5 overlay heading + text-indent on the name_cell
@@ -323,14 +323,12 @@
       if (qty.style.textIndent) qty.style.textIndent = '';
       if (qty.style.position === 'relative') qty.style.position = '';
     }
-    {
-    }
     // v0.3.x column cells + cog item
     var oldCols = document.querySelectorAll('.column_HH_COLOUR');
     for (var k = 0; k < oldCols.length; k++) oldCols[k].remove();
     var oldMenu = document.querySelectorAll('[data-field="HH_COLOUR"]');
     for (var m = 0; m < oldMenu.length; m++) oldMenu[m].remove();
-    // v0.6.4's <th> in the header table
+    // v0.6.4 / v0.6.6 header <th>
     var oldTh = document.querySelectorAll('.supplying_list_heads .hh-swatch-head');
     for (var t = 0; t < oldTh.length; t++) oldTh[t].remove();
   }
@@ -348,56 +346,22 @@
     delete icon.dataset.hhTinted;
   }
 
-  // Add a real <th> at index 0 of the .supplying_list_heads header. Because
-  // it has an explicit width and every row also gets a matching <td> at index
-  // 0, the browser preserves alignment: both the header and the row tables
-  // absorb the extra width proportionally in the same way, so every other
-  // column boundary stays pixel-aligned to its row counterpart.
-  function ensureSupplyingSwatchHeader() {
-    var header = document.querySelector('.supplying_list_heads');
-    if (!header || !header.rows[0]) return;
-    var row = header.rows[0];
-    var W = swatchZoneWidthPx();
-    var wpx = W + 'px';
-    var existing = row.querySelector('.hh-swatch-head');
-    if (existing) {
-      // HireHop's rebuild can slap display:none and its own width on any
-      // unknown column — force ours back every tick.
-      if (existing.style.width !== wpx)     existing.style.width    = wpx;
-      if (existing.style.minWidth !== wpx)  existing.style.minWidth = wpx;
-      if (existing.style.maxWidth !== wpx)  existing.style.maxWidth = wpx;
-      existing.style.display   = '';
-      existing.style.textAlign = 'center';
-      if (existing.textContent !== '🎨') existing.textContent = '🎨';
-      return;
-    }
-    var th = document.createElement('th');
-    // "compulsory" keeps it out of HireHop's ui-sortable ("items: th:not(.compulsory)")
-    th.className = 'hh-swatch-head compulsory ltr';
-    th.style.cssText = 'width:' + wpx + ';min-width:' + wpx + ';max-width:' + wpx + ';text-align:center;border-right:1px solid #aaa;';
-    th.title = 'Colour';
-    th.textContent = '🎨';
-    row.insertBefore(th, row.cells[0]);
-  }
-
-  // Add a matching <td> at index 0 of every row's cust_node table so the
-  // column stays aligned. Contains the side-by-side tiles for that row's
-  // top-level room colour (or is empty if no colour set).
-  function ensureSupplyingRowCell(li, fields) {
-    var table = li.querySelector(':scope > .jstree-anchor > table.cust_node');
-    if (!table || !table.rows[0]) return;
-    var row = table.rows[0];
-    var W = swatchZoneWidthPx();
-    var wpx = W + 'px';
-    var existing = row.querySelector('.hh-swatch-cell');
-    if (!existing) {
-      existing = document.createElement('td');
-      existing.className = 'hh-swatch-cell';
-      row.insertBefore(existing, row.cells[0]);
-    }
-    // Force the width every tick — HireHop's rebuild might override it
-    existing.style.cssText = 'width:' + wpx + ';min-width:' + wpx + ';max-width:' + wpx + ';padding:0;text-align:center;vertical-align:middle;border-right:1px solid #aaa;';
-    existing.innerHTML = fields && fields.length ? sideBySideSwatchHtml(fields) : '';
+  // Append the side-by-side swatches inline right after the row's name text
+  // inside the name_cell's inner div. No column, no header cell, no width
+  // fiddling — HireHop's tree layout is completely untouched.
+  function appendInlineSwatch(li, fields) {
+    var nameCell = li.querySelector(':scope > .jstree-anchor > table.cust_node .name_cell');
+    if (!nameCell) return;
+    var inner = nameCell.querySelector('div');
+    if (!inner) return;
+    var old = inner.querySelector(':scope > .hh-inline-swatch');
+    if (old) old.remove();
+    if (!fields || !fields.length) return;
+    var span = document.createElement('span');
+    span.className = 'hh-inline-swatch';
+    span.style.cssText = 'display:inline-block;margin-left:8px;vertical-align:middle;line-height:0;';
+    span.innerHTML = sideBySideSwatchHtml(fields, 12);
+    inner.appendChild(span);
   }
 
   function paintAllHeadings() {
@@ -407,7 +371,6 @@
     if (!$tree.length) return;
     var inst = $tree.jstree(true);
     if (!inst || !inst.get_children_dom) return;
-    ensureSupplyingSwatchHeader();
     var roots = inst.get_children_dom('#').toArray();
     for (var i = 0; i < roots.length; i++) {
       var rootLi = roots[i];
@@ -417,11 +380,11 @@
       clearHeadingIconTint(rootLi);
       var subHeadings = rootLi.querySelectorAll('.jstree-node.node_heading');
       for (var j = 0; j < subHeadings.length; j++) clearHeadingIconTint(subHeadings[j]);
-      // Add/update the swatch column cell on every row under this root
-      ensureSupplyingRowCell(rootLi, fields);
+      // Paint on every row under this root (heading, sub-heading, item)
+      appendInlineSwatch(rootLi, fields);
       var descendants = rootLi.querySelectorAll('.jstree-node');
       for (var k = 0; k < descendants.length; k++) {
-        ensureSupplyingRowCell(descendants[k], fields);
+        appendInlineSwatch(descendants[k], fields);
       }
     }
   }
