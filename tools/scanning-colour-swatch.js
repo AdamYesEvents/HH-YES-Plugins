@@ -2,7 +2,7 @@
  * HireHop Tool: Heading Colour Swatch (Scanning + Supplying)
  * Standalone — NOT loaded by loader.js. Load directly on the scanning popup
  * and/or the job page (bookmarklet, Tampermonkey, or paste-and-run) via:
- *   https://cdn.jsdelivr.net/gh/AdamYesEvents/HH-YES-Plugins@scanning-colour-swatch-v0.2.1/tools/scanning-colour-swatch.js
+ *   https://cdn.jsdelivr.net/gh/AdamYesEvents/HH-YES-Plugins@scanning-colour-swatch-v0.3.0/tools/scanning-colour-swatch.js
  *
  * Reads the job's headings via /frames/items_to_supply_list.php, finds the
  * first custom-field value on each heading that looks like a hex colour
@@ -13,16 +13,18 @@
  *   • /modules/scanning/...   -> new "colour" column in the tree grid (pqgrid6)
  *                                before the Item/TITLE column. Clicking the
  *                                page's Refresh button re-fetches colours.
- *   • /job.php               -> swatch pinned to the tree's left edge on every
- *                                visible node of the Supplying tab's jsTree
- *                                (#items_tree1). Renders as a proper column at
- *                                the far left, aligned across every depth.
+ *   • /job.php               -> a real table column ("column_HH_COLOUR") is
+ *                                appended to the Supplying header (with a 🎨
+ *                                symbol) AND to every row's cust_node table.
+ *                                A matching item is added to the column-cog
+ *                                menu so the user can show/hide it, and its
+ *                                position follows the header's sortable order.
  *
  * Convention (user-defined, plugin doesn't care about the field name):
  *   solid   = "#E30613"           - a single hex value
  *   2-tone  = "#FFD500/#00843D"   - two hex values joined by "/" (diagonal)
  *
- * Version: 0.2.1
+ * Version: 0.3.0
  */
 
 (function () {
@@ -181,75 +183,165 @@
   }
 
   // ---------------------------------------------------------------------------
-  // Supplying tab — jsTree (#items_tree1)
+  // Supplying tab — real table column integrated with HireHop's cog menu
+  //
+  // The Supplying tree is a jsTree whose header lives in a separate table
+  // (.supplying_list_heads) and each row's cells live in a table.cust_node
+  // inside the jstree-anchor. HireHop's column-cog menu toggles cells by their
+  // shared "column_<FIELD>" class. We add:
+  //   1. a header cell   .column_HH_COLOUR (with the 🎨 symbol)
+  //   2. matching row cell .column_HH_COLOUR on every cust_node table
+  //   3. a menu item     [data-field="HH_COLOUR"] with its own toggle handler
+  // Hiding/showing then just flips display on every .column_HH_COLOUR cell.
   // ---------------------------------------------------------------------------
 
-  function prepareSupplyingTree(tree) {
-    // Idempotent: only apply once
-    if (tree.dataset.hhPadded === '1') return;
-    tree.dataset.hhPadded = '1';
-    tree.style.position    = 'relative';
-    tree.style.paddingLeft = '22px';
+  var COL_CLASS  = 'column_HH_COLOUR';
+  var COL_FIELD  = 'HH_COLOUR';
+  var COL_LABEL  = 'Colour';
+  var COL_SYMBOL = '🎨';   // 🎨 palette
+  var COL_WIDTH  = '24px';
+  var hhHidden   = false;            // last-known toggle state, applied to fresh row cells
+
+  function cleanLegacySupplyingSwatches() {
+    // v0.1.x — v0.2.1 injected swatches into anchors and mutated tree padding.
+    // Wipe those so the new column doesn't collide with them.
+    var tree = document.getElementById('items_tree1');
+    if (tree) {
+      tree.style.paddingLeft = '';
+      tree.style.position    = '';
+      delete tree.dataset.hhPadded;
+      var container = tree.parentElement;
+      if (container) {
+        container.style.paddingLeft = '';
+        container.style.position    = '';
+      }
+      var anchors = tree.querySelectorAll('.jstree-anchor');
+      for (var i = 0; i < anchors.length; i++) {
+        anchors[i].style.position = '';
+        anchors[i].style.overflow = '';
+      }
+      var stale = tree.querySelectorAll('.hh-swatch');
+      for (var j = 0; j < stale.length; j++) {
+        // Only remove old-style swatches (not those inside our new column cells)
+        if (!stale[j].closest('.' + COL_CLASS)) stale[j].remove();
+      }
+    }
   }
 
-  function paintTreeNode(tree, li, hex) {
-    // Clean up any prior swatch on this node (LI first-child from v0.2.0, or
-    // anchor-child from v0.1.x, or the current anchor-with-negative-left form)
-    var stale = li.querySelectorAll(':scope > .hh-swatch, :scope > .jstree-anchor > .hh-swatch');
-    for (var s = 0; s < stale.length; s++) stale[s].remove();
-    if (!hex) return;
-    var anchor = li.querySelector(':scope > .jstree-anchor');
-    if (!anchor) return;
-    anchor.style.position = 'relative';
-    // Absolute-positioned swatch, pinned to the tree's left edge regardless
-    // of the anchor's own indent (nested items would otherwise sit deep in).
-    var treeRect   = tree.getBoundingClientRect();
-    var anchorRect = anchor.getBoundingClientRect();
-    var leftOffset = -(anchorRect.left - treeRect.left) + 4;
+  function swatchElement(hex) {
     var span = document.createElement('span');
     span.className = 'hh-swatch';
-    span.style.cssText = 'position:absolute;left:' + leftOffset + 'px;top:4px;width:14px;height:14px;border:1px solid #888;border-radius:2px;';
+    span.style.cssText = 'display:inline-block;width:14px;height:14px;border:1px solid #888;border-radius:2px;vertical-align:middle;';
     if (HEX_PAIR_RE.test(hex)) {
       var parts = hex.split('/');
       span.style.background = 'linear-gradient(135deg,' + parts[0] + ' 50%,' + parts[1] + ' 50%)';
     } else {
       span.style.background = hex;
     }
-    anchor.insertBefore(span, anchor.firstChild);
+    return span;
   }
 
-  function paintSupplyingTree() {
+  function ensureHeaderCell() {
+    var header = document.querySelector('.supplying_list_heads');
+    if (!header || !header.rows[0]) return false;
+    var row = header.rows[0];
+    if (row.querySelector('.' + COL_CLASS)) return true;
+    var td = document.createElement('td');
+    td.className = COL_CLASS + ' ltr ui-sortable-handle';
+    td.style.width     = COL_WIDTH;
+    td.style.textAlign = 'center';
+    td.title           = COL_LABEL;
+    td.textContent     = COL_SYMBOL;
+    if (hhHidden) td.style.display = 'none';
+    row.appendChild(td);
+    return true;
+  }
+
+  function ensureRowCell(li, hex) {
+    var table = li.querySelector(':scope > .jstree-anchor > table.cust_node');
+    if (!table) return;
+    for (var r = 0; r < table.rows.length; r++) {
+      var row = table.rows[r];
+      var existing = row.querySelector('.' + COL_CLASS);
+      if (existing) existing.remove();
+      var td = row.insertCell(row.cells.length);
+      td.className = COL_CLASS;
+      td.style.cssText = 'width:' + COL_WIDTH + ';text-align:center;padding:0;';
+      if (hhHidden) td.style.display = 'none';
+      if (hex) td.appendChild(swatchElement(hex));
+    }
+  }
+
+  function paintAllRows() {
     var $ = window.jQuery;
     if (!$) return;
     var $tree = $('#items_tree1');
     if (!$tree.length) return;
     var inst = $tree.jstree(true);
     if (!inst || !inst.get_children_dom) return;
-    var tree = $tree[0];
-    prepareSupplyingTree(tree);
+    ensureHeaderCell();
     var roots = inst.get_children_dom('#').toArray();
     for (var i = 0; i < roots.length; i++) {
       var li = roots[i];
       if (!li.classList.contains('node_heading')) continue;
-      var headingId = li.id.replace(/^[a-z]/, '');
-      var hex = colourById.get(String(headingId));
-      paintTreeNode(tree, li, hex);
+      var hex = colourById.get(String(li.id.replace(/^[a-z]/, '')));
+      ensureRowCell(li, hex);
       var descendants = li.querySelectorAll('.jstree-node');
       for (var j = 0; j < descendants.length; j++) {
-        paintTreeNode(tree, descendants[j], hex);
+        ensureRowCell(descendants[j], hex);
       }
+    }
+  }
+
+  function toggleColumn(hide) {
+    hhHidden = !!hide;
+    var cells = document.querySelectorAll('.' + COL_CLASS);
+    for (var i = 0; i < cells.length; i++) cells[i].style.display = hhHidden ? 'none' : '';
+  }
+
+  function ensureMenuItem() {
+    // Find any currently-visible column config menu (cog opens it)
+    var menus = document.querySelectorAll('.ui-menu.ui-menu-icons');
+    for (var i = 0; i < menus.length; i++) {
+      var menu = menus[i];
+      if (menu.offsetParent === null) continue;
+      if (menu.querySelector('[data-field="' + COL_FIELD + '"]')) continue;
+      // Only inject into menus that already have data-field items (i.e. column menus)
+      if (!menu.querySelector('[data-field]')) continue;
+
+      var li = document.createElement('li');
+      li.className   = 'ui-menu-item';
+      li.dataset.field = COL_FIELD;
+      li.innerHTML = '<div class="ui-menu-item-wrapper" role="menuitem">' +
+                     '<span class="ui-icon ' + (hhHidden ? 'ui-icon-blank' : 'ui-icon-check') + '"></span>' +
+                     '<span>' + COL_LABEL + '</span>' +
+                     '</div>';
+      li.addEventListener('click', function (e) {
+        e.stopPropagation();
+        var icon = li.querySelector('.ui-icon');
+        var currentlyChecked = icon.classList.contains('ui-icon-check');
+        toggleColumn(currentlyChecked);   // if checked, hide
+        icon.classList.toggle('ui-icon-check', !currentlyChecked);
+        icon.classList.toggle('ui-icon-blank', currentlyChecked);
+      });
+      menu.appendChild(li);
     }
   }
 
   function bindSupplyingEvents() {
     var $ = window.jQuery;
     if (!$ || window.__hh_supplyBound) return;
-    var $tree = $('#items_tree1');
-    if (!$tree.length) return;
     window.__hh_supplyBound = true;
-    // Repaint whenever jstree changes structure or draws new nodes
-    $tree.on('after_open.jstree redraw.jstree refresh.jstree load_node.jstree create_node.jstree move_node.jstree', function () {
-      setTimeout(paintSupplyingTree, 0);
+
+    $('#items_tree1').on('after_open.jstree redraw.jstree refresh.jstree load_node.jstree create_node.jstree move_node.jstree', function () {
+      setTimeout(paintAllRows, 0);
+    });
+
+    // Watch for the cog menu appearing so we can inject our item.
+    // Menu is rebuilt each time HireHop shows it, so hook the whole document.
+    $(document).on('mouseup click', function () {
+      setTimeout(ensureMenuItem, 0);
+      setTimeout(ensureMenuItem, 150);
     });
   }
 
@@ -259,13 +351,15 @@
       tries++;
       var $ = window.jQuery;
       if ($ && $('#items_tree1').length && $('#items_tree1').jstree(true)) {
+        cleanLegacySupplyingSwatches();
         loadColours().then(function () {
-          paintSupplyingTree();
+          paintAllRows();
           bindSupplyingEvents();
         });
         clearInterval(timer);
-        // Cheap safety net — repaint every 2s covers any event we didn't hook
-        setInterval(paintSupplyingTree, 2000);
+        // Safety net — re-ensure header + row cells periodically in case
+        // HireHop rebuilds the tree DOM (e.g. tab switch, refresh)
+        setInterval(paintAllRows, 2000);
       } else if (tries > 120) {
         clearInterval(timer);
       }
