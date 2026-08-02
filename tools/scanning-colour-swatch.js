@@ -2,7 +2,7 @@
  * HireHop Tool: Heading Colour Swatch (Scanning + Supplying)
  * Standalone — NOT loaded by loader.js. Load directly on the scanning popup
  * and/or the job page (bookmarklet, Tampermonkey, or paste-and-run) via:
- *   https://cdn.jsdelivr.net/gh/AdamYesEvents/HH-YES-Plugins@scanning-colour-swatch-v0.6.4/tools/scanning-colour-swatch.js
+ *   https://cdn.jsdelivr.net/gh/AdamYesEvents/HH-YES-Plugins@scanning-colour-swatch-v0.6.5/tools/scanning-colour-swatch.js
  *
  * Reads the job's headings via /frames/items_to_supply_list.php, collects
  * every custom-field value on each heading that looks like a hex colour
@@ -16,15 +16,15 @@
  *                                Also auto-selects the Tree view on load and
  *                                re-fetches on the Refresh button click.
  *
- *   • /job.php  (Supplying)   -> adds a leftmost heading cell to the header
- *                                (🎨) and a matching side-by-side swatch at
- *                                the far left of every row under a coloured
- *                                room. Folder icons are NOT tinted — the
- *                                swatch alone carries the colour.
- *                                Also hides colour custom-fields in the
- *                                Edit-heading dialog on non-root headings,
- *                                so colour is only picked on the top-level
- *                                room.
+ *   • /job.php  (Supplying)   -> overlays a swatch heading (🎨) inside the
+ *                                first header cell (via text-indent, no new
+ *                                table cell) so column widths and alignment
+ *                                are untouched, and a matching side-by-side
+ *                                swatch on the far left of every row under
+ *                                a coloured room. Also hides colour custom-
+ *                                fields in the Edit-heading dialog on non-
+ *                                root headings, so colour is only picked on
+ *                                the top-level room.
  *
  * Colour composition:
  *   1 hex   -> solid                            "#E30613"
@@ -35,7 +35,7 @@
  * "/", so users can compose any 2-tone (or 3-tone) tape colour without a
  * plugin change.
  *
- * Version: 0.6.4
+ * Version: 0.6.5
  */
 
 (function () {
@@ -286,8 +286,7 @@
   var HH_POS_OPEN    = '-228px -4px';
 
   function cleanLegacySupplyingArtifacts() {
-    // v0.1.x — v0.3.6 injected swatch cells, header cells, tree padding
-    // and anchor styles. Wipe them so nothing lingers.
+    // Wipe leftovers from earlier plugin versions so nothing stacks.
     var tree = document.getElementById('items_tree1');
     if (tree) {
       tree.style.paddingLeft = '';
@@ -297,6 +296,12 @@
       if (container) {
         container.style.paddingLeft = '';
         container.style.position    = '';
+        delete container.dataset.hhGutterPx;
+      }
+      var outer = container && container.parentElement;
+      if (outer && outer.classList && outer.classList.contains('entire_tree_container')) {
+        outer.style.paddingLeft = '';
+        outer.style.position    = '';
       }
       var anchors = tree.querySelectorAll('.jstree-anchor');
       for (var i = 0; i < anchors.length; i++) {
@@ -306,10 +311,14 @@
       var stale = tree.querySelectorAll('.hh-swatch, .hh-left-swatch');
       for (var j = 0; j < stale.length; j++) stale[j].remove();
     }
+    // v0.3.x column cells + cog item
     var oldCols = document.querySelectorAll('.column_HH_COLOUR');
     for (var k = 0; k < oldCols.length; k++) oldCols[k].remove();
     var oldMenu = document.querySelectorAll('[data-field="HH_COLOUR"]');
     for (var m = 0; m < oldMenu.length; m++) oldMenu[m].remove();
+    // v0.6.4's <th> in the header table
+    var oldTh = document.querySelectorAll('.supplying_list_heads .hh-swatch-head');
+    for (var t = 0; t < oldTh.length; t++) oldTh[t].remove();
   }
 
   // Reset any folder-icon tint left over from v0.4.x / v0.5.x / v0.6.x-early.
@@ -326,9 +335,9 @@
   }
 
   // Extreme-left swatch inside each row's anchor, absolute-positioned so it
-  // sits in the container's left padding zone regardless of tree indent.
-  // Renders one tile per custom field, side by side, vertically centred
-  // against the anchor.
+  // sits at ~4px inside the items_tree_container regardless of tree depth.
+  // Rides in the empty jstree-indent zone of every row, so it doesn't push
+  // any column boundaries around.
   function paintLeftSwatch(anchor, fields, container) {
     var stale = anchor.querySelector(':scope > .hh-left-swatch');
     if (stale) stale.remove();
@@ -344,39 +353,32 @@
     anchor.appendChild(span);
   }
 
-  // Add a matching heading cell at position 0 of the .supplying_list_heads
-  // table so the swatch gutter has a real header column. Width tracks the
-  // gutter so borders line up with the row cells beneath.
+  // Overlay a swatch-column heading inside the first (Quantity & Item) header
+  // cell without adding a new <th>. Adding a real cell would trigger table
+  // auto-layout to steal width from other columns and break alignment. Instead
+  // we absolute-position a small label inside the existing name_cell and
+  // text-indent its label so "Quantity & Item" doesn't overlap.
   function ensureSupplyingSwatchHeader() {
     var header = document.querySelector('.supplying_list_heads');
     if (!header || !header.rows[0]) return;
-    var row = header.rows[0];
+    var qtyCell = header.rows[0].cells[0];
+    if (!qtyCell) return;
     var W = swatchZoneWidthPx();
-    var existing = row.querySelector('.hh-swatch-head');
+    var existing = qtyCell.querySelector(':scope > .hh-swatch-heading');
     if (existing) {
-      if (existing.style.width !== W + 'px') {
-        existing.style.width    = W + 'px';
-        existing.style.minWidth = W + 'px';
-        existing.style.maxWidth = W + 'px';
-      }
+      if (existing.style.width !== (W - 8) + 'px') existing.style.width = (W - 8) + 'px';
+      if (qtyCell.style.textIndent !== W + 'px') qtyCell.style.textIndent = W + 'px';
+      qtyCell.style.position = 'relative';
       return;
     }
-    var th = document.createElement('th');
-    // "compulsory" keeps it out of HireHop's ui-sortable ("items: th:not(.compulsory)")
-    th.className = 'hh-swatch-head compulsory ltr';
-    th.style.cssText = 'width:' + W + 'px;min-width:' + W + 'px;max-width:' + W + 'px;text-align:center;border-right:1px solid #aaa;';
-    th.title = 'Colour';
-    th.textContent = '🎨';
-    row.insertBefore(th, row.cells[0] || null);
-  }
-
-  function prepareSupplyingLeftGutter(container) {
-    // Sized once per paint to fit the widest coloured heading's swatches
-    var w = swatchZoneWidthPx();
-    if (container.dataset.hhGutterPx === String(w)) return;
-    container.style.position    = 'relative';
-    container.style.paddingLeft = w + 'px';
-    container.dataset.hhGutterPx = String(w);
+    qtyCell.style.textIndent = W + 'px';
+    qtyCell.style.position   = 'relative';
+    var label = document.createElement('span');
+    label.className = 'hh-swatch-heading';
+    label.title = 'Colour';
+    label.textContent = '🎨';
+    label.style.cssText = 'position:absolute;left:4px;top:50%;transform:translateY(-50%);width:' + (W - 8) + 'px;text-align:center;text-indent:0;';
+    qtyCell.appendChild(label);
   }
 
   function paintAllHeadings() {
@@ -387,7 +389,6 @@
     var inst = $tree.jstree(true);
     if (!inst || !inst.get_children_dom) return;
     var container = $tree[0].parentElement;   // .items_tree_container
-    if (container) prepareSupplyingLeftGutter(container);
     ensureSupplyingSwatchHeader();
     var roots = inst.get_children_dom('#').toArray();
     for (var i = 0; i < roots.length; i++) {
