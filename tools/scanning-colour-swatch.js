@@ -2,7 +2,7 @@
  * HireHop Tool: Heading Colour Swatch (Scanning + Supplying)
  * Standalone — NOT loaded by loader.js. Load directly on the scanning popup
  * and/or the job page (bookmarklet, Tampermonkey, or paste-and-run) via:
- *   https://cdn.jsdelivr.net/gh/AdamYesEvents/HH-YES-Plugins@scanning-colour-swatch-v0.7.1/tools/scanning-colour-swatch.js
+ *   https://cdn.jsdelivr.net/gh/AdamYesEvents/HH-YES-Plugins@scanning-colour-swatch-v1.0.0/tools/scanning-colour-swatch.js
  *
  * Reads the job's headings via /frames/items_to_supply_list.php, collects
  * every custom-field value on each heading that looks like a hex colour
@@ -40,7 +40,7 @@
  * "/", so users can compose any 2-tone (or 3-tone) tape colour without a
  * plugin change.
  *
- * Version: 0.7.1
+ * Version: 1.0.0
  */
 
 (function () {
