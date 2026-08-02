@@ -2,7 +2,7 @@
  * HireHop Tool: Heading Colour Swatch (Scanning + Supplying)
  * Standalone — NOT loaded by loader.js. Load directly on the scanning popup
  * and/or the job page (bookmarklet, Tampermonkey, or paste-and-run) via:
- *   https://cdn.jsdelivr.net/gh/AdamYesEvents/HH-YES-Plugins@scanning-colour-swatch-v0.3.2/tools/scanning-colour-swatch.js
+ *   https://cdn.jsdelivr.net/gh/AdamYesEvents/HH-YES-Plugins@scanning-colour-swatch-v0.3.3/tools/scanning-colour-swatch.js
  *
  * Reads the job's headings via /frames/items_to_supply_list.php, finds the
  * first custom-field value on each heading that looks like a hex colour
@@ -24,7 +24,7 @@
  *   solid   = "#E30613"           - a single hex value
  *   2-tone  = "#FFD500/#00843D"   - two hex values joined by "/" (diagonal)
  *
- * Version: 0.3.2
+ * Version: 0.3.3
  */
 
 (function () {
@@ -283,7 +283,8 @@
       if (existing) existing.remove();
       var td = document.createElement('td');
       td.className = COL_CLASS;
-      td.style.cssText = 'width:' + COL_WIDTH + ';text-align:center;padding:0;';
+      // Match HireHop's standard column visuals: right-side grey separator
+      td.style.cssText = 'width:' + COL_WIDTH + ';text-align:center;padding:0;border-right:1px solid #aaa;';
       if (hhHidden) td.style.display = 'none';
       if (hex) td.appendChild(swatchElement(hex));
       var before = (targetIndex >= 0 && row.cells[targetIndex]) ? row.cells[targetIndex] : null;
