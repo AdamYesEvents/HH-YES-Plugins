@@ -2,24 +2,28 @@
  * HireHop Tool: Heading Colour Swatch (Scanning + Supplying)
  * Standalone — NOT loaded by loader.js. Load directly on the scanning popup
  * and/or the job page (bookmarklet, Tampermonkey, or paste-and-run) via:
- *   https://cdn.jsdelivr.net/gh/AdamYesEvents/HH-YES-Plugins@scanning-colour-swatch-v0.6.1/tools/scanning-colour-swatch.js
+ *   https://cdn.jsdelivr.net/gh/AdamYesEvents/HH-YES-Plugins@scanning-colour-swatch-v0.6.2/tools/scanning-colour-swatch.js
  *
  * Reads the job's headings via /frames/items_to_supply_list.php, collects
  * every custom-field value on each heading that looks like a hex colour
  * (#RRGGBB), and composes them into a single "hex[/hex...]" descriptor:
  *
  *   • /modules/scanning/...   -> adds a narrow "colour" column in the tree
- *                                grid (pqgrid6) before the Item column. Every
- *                                row shows the swatch of its top-level room.
+ *                                grid (pqgrid6) before the Item column. Each
+ *                                row renders one swatch per hex on its
+ *                                top-level room, side by side (not mixed).
+ *                                Column width flexes to fit the widest room.
  *                                Also auto-selects the Tree view on load and
  *                                re-fetches on the Refresh button click.
  *
  *   • /job.php  (Supplying)   -> tints the folder icon of every coloured
- *                                heading (and every sub-heading under it) in
- *                                the jsTree. Also hides colour custom-fields
- *                                in the Edit-heading dialog on non-root
- *                                headings, so colour is only picked on the
- *                                top-level room.
+ *                                heading (and every sub-heading) in the jsTree,
+ *                                AND puts a side-by-side swatch at the far
+ *                                left of every row under a coloured room.
+ *                                Also hides colour custom-fields in the
+ *                                Edit-heading dialog on non-root headings,
+ *                                so colour is only picked on the top-level
+ *                                room.
  *
  * Colour composition:
  *   1 hex   -> solid                            "#E30613"
@@ -30,7 +34,7 @@
  * "/", so users can compose any 2-tone (or 3-tone) tape colour without a
  * plugin change.
  *
- * Version: 0.6.1
+ * Version: 0.6.2
  */
 
 (function () {
@@ -82,9 +86,9 @@
   }
 
   // Turn a "hex" or "hex/hex[/hex]" descriptor into a CSS background value.
-  // 1 hex -> the hex itself (solid). N hex -> a diagonal repeating stripe
-  // pattern with fixed pixel width so the stripes are legible on both the
-  // small folder icons (24px) and the row swatches (16px).
+  // Used by the folder-icon tint on the Supplying tab. 1 hex -> solid,
+  // N hex -> a diagonal repeating stripe pattern with fixed pixel width so
+  // the stripes are legible even on small icons (24px).
   var STRIPE_PX = 5;
   function backgroundForHex(hex) {
     var parts = String(hex).split('/');
@@ -94,6 +98,35 @@
       stops.push(parts[i] + ' ' + (i * STRIPE_PX) + 'px ' + ((i + 1) * STRIPE_PX) + 'px');
     }
     return 'repeating-linear-gradient(135deg, ' + stops.join(', ') + ')';
+  }
+
+  // Render every hex as its own side-by-side swatch. Cleaner to read than
+  // one striped block when you actually need to see BOTH colours.
+  function sideBySideSwatchHtml(hex) {
+    if (!hex) return '';
+    var parts = String(hex).split('/');
+    var out = '';
+    for (var i = 0; i < parts.length; i++) {
+      var ml = (i > 0) ? 'margin-left:2px;' : '';
+      out += '<span style="display:inline-block;width:14px;height:14px;border:1px solid #888;border-radius:2px;vertical-align:middle;background:' + parts[i] + ';' + ml + '"></span>';
+    }
+    return out;
+  }
+
+  // How many colours does any coloured row need? Used to size the swatch
+  // column / left-swatch gutter so all rows fit.
+  function maxColourCount() {
+    var max = 0;
+    colourById.forEach(function (v) {
+      var c = String(v).split('/').length;
+      if (c > max) max = c;
+    });
+    return max || 1;
+  }
+  function swatchZoneWidthPx() {
+    // 14px per swatch + 2px gap + 8px cell padding
+    var n = maxColourCount();
+    return 8 + n * 14 + (n - 1) * 2;
   }
 
   // ---------------------------------------------------------------------------
@@ -131,12 +164,6 @@
     return cur ? String(cur.ID) : null;
   }
 
-  function scanSwatchHtml(hex) {
-    if (!hex) return '';
-    var style = 'display:inline-block;width:16px;height:16px;border:1px solid #888;border-radius:2px;vertical-align:middle;background:' + backgroundForHex(hex) + ';';
-    return '<span class="hh-swatch" style="' + style + '"></span>';
-  }
-
   function injectScanColumn() {
     var $ = window.jQuery;
     if (!$) return;
@@ -145,15 +172,24 @@
     var opts;
     try { opts = $g.pqGrid('option'); } catch (e) { return; }
     var cm = opts.colModel || [];
-    if (cm.some(function (c) { return c.dataIndx === '__hh_colour_swatch'; })) return;
+    var W = swatchZoneWidthPx();   // flexes with the current max colour count
+    var existing = cm.find(function (c) { return c.dataIndx === '__hh_colour_swatch'; });
+    if (existing) {
+      // Column already present — resize if the data's changed max colour count
+      if (existing.width !== W) {
+        existing.width = W; existing.minWidth = W; existing.maxWidth = W;
+        try { $g.pqGrid('option', 'colModel', cm); $g.pqGrid('refresh'); } catch (e) {}
+      }
+      return;
+    }
     var titleIdx = cm.findIndex(function (c) { return c.dataIndx === 'TITLE'; });
     if (titleIdx < 0) titleIdx = 0;
     cm.splice(titleIdx, 0, {
       title:     '',
       dataIndx:  '__hh_colour_swatch',
-      width:     28,
-      minWidth:  28,
-      maxWidth:  28,
+      width:     W,
+      minWidth:  W,
+      maxWidth:  W,
       sortable:  false,
       resizable: false,
       menuIcon:  false,
@@ -162,7 +198,7 @@
         var row = ui && ui.rowData;
         if (!row) return '';
         var data = ($g.pqGrid('option', 'dataModel') || {}).data || [];
-        return scanSwatchHtml(colourById.get(level0HeadingId(row, data)));
+        return sideBySideSwatchHtml(colourById.get(level0HeadingId(row, data)));
       }
     });
     try {
@@ -267,7 +303,7 @@
         anchors[i].style.position = '';
         anchors[i].style.overflow = '';
       }
-      var stale = tree.querySelectorAll('.hh-swatch');
+      var stale = tree.querySelectorAll('.hh-swatch, .hh-left-swatch');
       for (var j = 0; j < stale.length; j++) stale[j].remove();
     }
     var oldCols = document.querySelectorAll('.column_HH_COLOUR');
@@ -288,6 +324,32 @@
     icon.dataset.hhTinted = '1';
   }
 
+  // Extreme-left swatch inside each row's anchor, absolute-positioned so it
+  // sits in the container's left padding zone regardless of tree indent.
+  function paintLeftSwatch(anchor, hex, container) {
+    var stale = anchor.querySelector(':scope > .hh-left-swatch');
+    if (stale) stale.remove();
+    if (!hex) return;
+    var cRect = container.getBoundingClientRect();
+    var aRect = anchor.getBoundingClientRect();
+    var leftOffset = -(aRect.left - cRect.left) + 4;
+    var span = document.createElement('span');
+    span.className = 'hh-left-swatch';
+    span.style.cssText = 'position:absolute;left:' + leftOffset + 'px;top:4px;';
+    span.innerHTML = sideBySideSwatchHtml(hex);
+    anchor.style.position = 'relative';
+    anchor.appendChild(span);
+  }
+
+  function prepareSupplyingLeftGutter(container) {
+    // Sized once per paint to fit the widest coloured heading's swatches
+    var w = swatchZoneWidthPx();
+    if (container.dataset.hhGutterPx === String(w)) return;
+    container.style.position    = 'relative';
+    container.style.paddingLeft = w + 'px';
+    container.dataset.hhGutterPx = String(w);
+  }
+
   function paintAllHeadings() {
     var $ = window.jQuery;
     if (!$) return;
@@ -295,16 +357,28 @@
     if (!$tree.length) return;
     var inst = $tree.jstree(true);
     if (!inst || !inst.get_children_dom) return;
+    var container = $tree[0].parentElement;   // .items_tree_container
+    if (container) prepareSupplyingLeftGutter(container);
     var roots = inst.get_children_dom('#').toArray();
     for (var i = 0; i < roots.length; i++) {
       var rootLi = roots[i];
       if (!rootLi.classList.contains('node_heading')) continue;
       var hex = colourById.get(String(rootLi.id.replace(/^[a-z]/, '')));
       if (!hex) continue;
+      // Tint the folder icon on every heading (root + sub) beneath this room
       tintHeadingIcon(rootLi, hex);
       var subHeadings = rootLi.querySelectorAll('.jstree-node.node_heading');
       for (var j = 0; j < subHeadings.length; j++) {
         tintHeadingIcon(subHeadings[j], hex);
+      }
+      // And paint the extreme-left swatch on EVERY descendant row so
+      // items in this room also show its colour on the far left.
+      var rootAnchor = rootLi.querySelector(':scope > .jstree-anchor');
+      if (rootAnchor && container) paintLeftSwatch(rootAnchor, hex, container);
+      var descendants = rootLi.querySelectorAll('.jstree-node');
+      for (var k = 0; k < descendants.length; k++) {
+        var a = descendants[k].querySelector(':scope > .jstree-anchor');
+        if (a && container) paintLeftSwatch(a, hex, container);
       }
     }
   }
