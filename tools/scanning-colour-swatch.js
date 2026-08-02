@@ -2,7 +2,7 @@
  * HireHop Tool: Heading Colour Swatch (Scanning + Supplying)
  * Standalone — NOT loaded by loader.js. Load directly on the scanning popup
  * and/or the job page (bookmarklet, Tampermonkey, or paste-and-run) via:
- *   https://cdn.jsdelivr.net/gh/AdamYesEvents/HH-YES-Plugins@scanning-colour-swatch-v0.3.0/tools/scanning-colour-swatch.js
+ *   https://cdn.jsdelivr.net/gh/AdamYesEvents/HH-YES-Plugins@scanning-colour-swatch-v0.3.1/tools/scanning-colour-swatch.js
  *
  * Reads the job's headings via /frames/items_to_supply_list.php, finds the
  * first custom-field value on each heading that looks like a hex colour
@@ -24,7 +24,7 @@
  *   solid   = "#E30613"           - a single hex value
  *   2-tone  = "#FFD500/#00843D"   - two hex values joined by "/" (diagonal)
  *
- * Version: 0.3.0
+ * Version: 0.3.1
  */
 
 (function () {
@@ -246,14 +246,18 @@
     if (!header || !header.rows[0]) return false;
     var row = header.rows[0];
     if (row.querySelector('.' + COL_CLASS)) return true;
-    var td = document.createElement('td');
-    td.className = COL_CLASS + ' ltr ui-sortable-handle';
-    td.style.width     = COL_WIDTH;
-    td.style.textAlign = 'center';
-    td.title           = COL_LABEL;
-    td.textContent     = COL_SYMBOL;
-    if (hhHidden) td.style.display = 'none';
-    row.appendChild(td);
+    // HireHop's sortable is set up with items: "th:not(.compulsory)" — must be <th>
+    var th = document.createElement('th');
+    th.className = COL_CLASS + ' ltr ui-sortable-handle';
+    th.style.width     = COL_WIDTH;
+    th.style.textAlign = 'center';
+    th.title           = COL_LABEL;
+    th.textContent     = COL_SYMBOL;
+    if (hhHidden) th.style.display = 'none';
+    row.appendChild(th);
+    // Tell the sortable widget about the new item
+    var $ = window.jQuery;
+    if ($) { try { $(header).sortable('refresh'); } catch (e) {} }
     return true;
   }
 
