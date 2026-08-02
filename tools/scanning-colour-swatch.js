@@ -2,7 +2,7 @@
  * HireHop Tool: Heading Colour Swatch (Scanning + Supplying)
  * Standalone — NOT loaded by loader.js. Load directly on the scanning popup
  * and/or the job page (bookmarklet, Tampermonkey, or paste-and-run) via:
- *   https://cdn.jsdelivr.net/gh/AdamYesEvents/HH-YES-Plugins@scanning-colour-swatch-v0.3.5/tools/scanning-colour-swatch.js
+ *   https://cdn.jsdelivr.net/gh/AdamYesEvents/HH-YES-Plugins@scanning-colour-swatch-v0.3.6/tools/scanning-colour-swatch.js
  *
  * Reads the job's headings via /frames/items_to_supply_list.php, finds the
  * first custom-field value on each heading that looks like a hex colour
@@ -24,7 +24,7 @@
  *   solid   = "#E30613"           - a single hex value
  *   2-tone  = "#FFD500/#00843D"   - two hex values joined by "/" (diagonal)
  *
- * Version: 0.3.5
+ * Version: 0.3.6
  */
 
 (function () {
@@ -279,19 +279,42 @@
     return m ? m[1] : null;
   }
 
-  // Insert row cells at the position that matches HH_COLOUR's index in the
-  // header, so they line up with the header's current sort order.
-  // Does NOT touch any other cells — HireHop's own move_column keeps the
-  // rest of the columns aligned; interfering would fight it.
+  // Item rows carry an extra qty_cell at position 0 that the header lacks
+  // (heading rows don't have it), so a naive "insert at header index N"
+  // lands one cell too early on items. Instead, pin our column to its
+  // neighbours by matching column_X classes: place it AFTER whichever
+  // column sits immediately before it in the header, or BEFORE whichever
+  // sits immediately after. This keeps alignment right regardless of how
+  // many compulsory cells prefix any given row.
+  function findInsertBefore(row, headerCells, hhIdx) {
+    for (var h = hhIdx - 1; h >= 0; h--) {
+      var f = fieldOf(headerCells[h]);
+      if (f) {
+        var prev = row.querySelector('.column_' + f);
+        if (prev) return prev.nextSibling;
+      }
+    }
+    for (var h2 = hhIdx + 1; h2 < headerCells.length; h2++) {
+      var f2 = fieldOf(headerCells[h2]);
+      if (f2) {
+        var next = row.querySelector('.column_' + f2);
+        if (next) return next;
+      }
+    }
+    return null; // append at end
+  }
+
   function ensureRowCell(li, hex) {
     var table = li.querySelector(':scope > .jstree-anchor > table.cust_node');
     if (!table) return;
     var header = document.querySelector('.supplying_list_heads');
-    var headerCells = header && header.rows[0] ? header.rows[0].cells : [];
-    var targetIndex = -1;
+    if (!header || !header.rows[0]) return;
+    var headerCells = header.rows[0].cells;
+    var hhIdx = -1;
     for (var h = 0; h < headerCells.length; h++) {
-      if (fieldOf(headerCells[h]) === COL_FIELD) { targetIndex = h; break; }
+      if (fieldOf(headerCells[h]) === COL_FIELD) { hhIdx = h; break; }
     }
+    if (hhIdx < 0) return;
     for (var r = 0; r < table.rows.length; r++) {
       var row = table.rows[r];
       var existing = row.querySelector('.' + COL_CLASS);
@@ -301,8 +324,7 @@
       td.style.cssText = 'width:' + COL_WIDTH + ';text-align:center;padding:0;border-right:1px solid #aaa;';
       if (hhHidden) td.style.display = 'none';
       if (hex) td.appendChild(swatchElement(hex));
-      var before = (targetIndex >= 0 && row.cells[targetIndex]) ? row.cells[targetIndex] : null;
-      row.insertBefore(td, before);
+      row.insertBefore(td, findInsertBefore(row, headerCells, hhIdx));
     }
   }
 
