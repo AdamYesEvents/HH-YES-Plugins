@@ -2,7 +2,7 @@
  * HireHop Tool: Heading Colour Swatch (Scanning + Supplying)
  * Standalone — NOT loaded by loader.js. Load directly on the scanning popup
  * and/or the job page (bookmarklet, Tampermonkey, or paste-and-run) via:
- *   https://cdn.jsdelivr.net/gh/AdamYesEvents/HH-YES-Plugins@scanning-colour-swatch-v0.5.0/tools/scanning-colour-swatch.js
+ *   https://cdn.jsdelivr.net/gh/AdamYesEvents/HH-YES-Plugins@scanning-colour-swatch-v0.5.1/tools/scanning-colour-swatch.js
  *
  * Reads the job's headings via /frames/items_to_supply_list.php, finds the
  * first custom-field value on each heading that looks like a hex colour
@@ -28,7 +28,7 @@
  *   solid   = "#E30613"           - a single hex value
  *   2-tone  = "#FFD500/#00843D"   - two hex values joined by "/" (diagonal)
  *
- * Version: 0.5.0
+ * Version: 0.5.1
  */
 
 (function () {
@@ -76,12 +76,15 @@
   }
 
   // ---------------------------------------------------------------------------
-  // Scanning module — tint pqgrid6 heading row folder icons
+  // Scanning module — paint pqgrid6 heading row folder icons as solid blocks
   //
   // Each heading row (TYPE === 0) has a Font-Awesome folder icon inside the
-  // tree title cell. FA renders via a ::before pseudo, so CSS `color` alone
-  // recolours the glyph. For 2-tone we use background-clip: text with a
-  // gradient. No column injected — the grid stays HireHop's.
+  // tree title cell. We hide the FA glyph (color:transparent) and paint the
+  // icon element as a solid 14×14 coloured square (or a diagonal 2-tone).
+  // No column injected — the grid stays HireHop's.
+  //
+  // Also auto-selects the "Tree" view tab once on page load so the coloured
+  // headings are visible without the user having to switch view.
   // ---------------------------------------------------------------------------
 
   var cachedData = null, cachedIndex = null;
@@ -107,19 +110,23 @@
     return cur ? String(cur.ID) : null;
   }
 
-  function tintFontAwesomeIcon(icon, hex) {
+  function paintScanningIconSolid(icon, hex) {
     if (!icon) return;
+    // Hide the Font-Awesome glyph and turn the icon element into a solid
+    // coloured 14×14 block (diagonal 2-tone for hex-pair values).
+    icon.style.setProperty('color',                   'transparent', 'important');
+    icon.style.setProperty('width',                   '14px',        'important');
+    icon.style.setProperty('height',                  '14px',        'important');
+    icon.style.setProperty('border-radius',           '2px',         'important');
+    icon.style.setProperty('display',                 'inline-block','important');
+    icon.style.setProperty('vertical-align',          'middle',      'important');
+    icon.style.setProperty('-webkit-background-clip', 'initial',     'important');
+    icon.style.setProperty('background-clip',         'initial',     'important');
     if (HEX_PAIR_RE.test(hex)) {
       var parts = hex.split('/');
-      icon.style.setProperty('background',              'linear-gradient(135deg,' + parts[0] + ' 50%,' + parts[1] + ' 50%)', 'important');
-      icon.style.setProperty('-webkit-background-clip', 'text', 'important');
-      icon.style.setProperty('background-clip',         'text', 'important');
-      icon.style.setProperty('color',                   'transparent', 'important');
+      icon.style.setProperty('background', 'linear-gradient(135deg,' + parts[0] + ' 50%,' + parts[1] + ' 50%)', 'important');
     } else {
-      icon.style.setProperty('color',                   hex, 'important');
-      icon.style.setProperty('background',              'none', 'important');
-      icon.style.setProperty('-webkit-background-clip', 'initial', 'important');
-      icon.style.setProperty('background-clip',         'initial', 'important');
+      icon.style.setProperty('background', hex, 'important');
     }
     icon.dataset.hhTinted = '1';
   }
@@ -145,7 +152,7 @@
         var icon = domRows[d].querySelector(
           '.pq-tree-icon.ui-icon-folder-open, .pq-tree-icon.ui-icon-folder-collapsed, .pq-tree-icon[class*="folder"]'
         );
-        tintFontAwesomeIcon(icon, hex);
+        paintScanningIconSolid(icon, hex);
       }
     }
   }
@@ -183,6 +190,24 @@
     });
   }
 
+  // One-shot: on first page load, click the "Tree" view tab so the coloured
+  // headings are visible without the user having to switch view.
+  function selectTreeViewOnce() {
+    if (window.__hh_scanTreeSelected) return;
+    var anchors = document.querySelectorAll('.ui-tabs-anchor');
+    for (var i = 0; i < anchors.length; i++) {
+      if ((anchors[i].textContent || '').trim() !== 'Tree') continue;
+      var tab = anchors[i].closest('.ui-tabs-tab');
+      if (tab && tab.classList.contains('ui-tabs-active')) {
+        window.__hh_scanTreeSelected = true;   // already active, done
+        return;
+      }
+      anchors[i].click();
+      window.__hh_scanTreeSelected = true;
+      return;
+    }
+  }
+
   function bootstrapScanning() {
     var tries = 0;
     var timer = setInterval(function () {
@@ -190,6 +215,7 @@
       var $ = window.jQuery;
       if ($ && $('#pqgrid6').length) {
         cleanLegacyScanningColumn();
+        selectTreeViewOnce();
         loadColours().then(paintScanningHeadings);
         bindScanRefresh();
         clearInterval(timer);
