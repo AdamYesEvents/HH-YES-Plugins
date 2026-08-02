@@ -2,7 +2,7 @@
  * HireHop Tool: Heading Colour Swatch (Scanning + Supplying)
  * Standalone — NOT loaded by loader.js. Load directly on the scanning popup
  * and/or the job page (bookmarklet, Tampermonkey, or paste-and-run) via:
- *   https://cdn.jsdelivr.net/gh/AdamYesEvents/HH-YES-Plugins@scanning-colour-swatch-v0.3.3/tools/scanning-colour-swatch.js
+ *   https://cdn.jsdelivr.net/gh/AdamYesEvents/HH-YES-Plugins@scanning-colour-swatch-v0.3.4/tools/scanning-colour-swatch.js
  *
  * Reads the job's headings via /frames/items_to_supply_list.php, finds the
  * first custom-field value on each heading that looks like a hex colour
@@ -24,7 +24,7 @@
  *   solid   = "#E30613"           - a single hex value
  *   2-tone  = "#FFD500/#00843D"   - two hex values joined by "/" (diagonal)
  *
- * Version: 0.3.3
+ * Version: 0.3.4
  */
 
 (function () {
@@ -268,6 +268,8 @@
 
   // Insert row cells at the position that matches HH_COLOUR's index in the
   // header, so they line up with the header's current sort order.
+  // Does NOT touch any other cells — HireHop's own move_column keeps the
+  // rest of the columns aligned; interfering would fight it.
   function ensureRowCell(li, hex) {
     var table = li.querySelector(':scope > .jstree-anchor > table.cust_node');
     if (!table) return;
@@ -283,38 +285,11 @@
       if (existing) existing.remove();
       var td = document.createElement('td');
       td.className = COL_CLASS;
-      // Match HireHop's standard column visuals: right-side grey separator
       td.style.cssText = 'width:' + COL_WIDTH + ';text-align:center;padding:0;border-right:1px solid #aaa;';
       if (hhHidden) td.style.display = 'none';
       if (hex) td.appendChild(swatchElement(hex));
       var before = (targetIndex >= 0 && row.cells[targetIndex]) ? row.cells[targetIndex] : null;
       row.insertBefore(td, before);
-    }
-  }
-
-  // Rebuild every row's cell order to match the header. Called after a
-  // header drag lands, and defensively after paintAllRows finishes.
-  function reorderRowsToMatchHeader() {
-    var header = document.querySelector('.supplying_list_heads');
-    if (!header || !header.rows[0]) return;
-    var headerCells = header.rows[0].cells;
-    var rowTables = document.querySelectorAll('table.cust_node');
-    for (var t = 0; t < rowTables.length; t++) {
-      var trow = rowTables[t].rows[0];
-      if (!trow) continue;
-      var byField = {};
-      var compulsory = null;
-      for (var c = 0; c < trow.cells.length; c++) {
-        var cell = trow.cells[c];
-        var f = fieldOf(cell);
-        if (f) byField[f] = cell;
-        else if (!compulsory) compulsory = cell;
-      }
-      for (var i = 0; i < headerCells.length; i++) {
-        var hf = fieldOf(headerCells[i]);
-        if (hf && byField[hf]) trow.appendChild(byField[hf]);
-        else if (!hf && compulsory) { trow.appendChild(compulsory); compulsory = null; }
-      }
     }
   }
 
@@ -337,8 +312,6 @@
         ensureRowCell(descendants[j], hex);
       }
     }
-    // Defensive re-align in case a header drag happened between paints
-    reorderRowsToMatchHeader();
   }
 
   function toggleColumn(hide) {
@@ -385,14 +358,18 @@
       setTimeout(paintAllRows, 0);
     });
 
-    // When user drops a header cell, reorder every row to match
-    $('.supplying_list_heads').on('sortupdate.hh_swatch sortstop.hh_swatch', function () {
-      setTimeout(reorderRowsToMatchHeader, 0);
+    // After a header drag lands, HireHop's own move_column rebuilds every
+    // row's cells — which wipes ours out. Repaint AFTER HireHop finishes.
+    $('.supplying_list_heads').on('sortstop.hh_swatch sortupdate.hh_swatch', function () {
+      setTimeout(paintAllRows, 0);
+      setTimeout(paintAllRows, 150);
     });
 
-    // Watch for the cog menu appearing so we can inject our item.
-    // Menu is rebuilt each time HireHop shows it, so hook the whole document.
-    $(document).on('mouseup click', function () {
+    // Hook the column-cog button so we can inject our menu item into the
+    // (freshly-built) popup each time it opens. Scoped to the cog only.
+    $(document).on('click.hh_swatch', 'button.fixed_width.ui-button-icon-only', function () {
+      var icon = this.querySelector('.ui-icon-gear');
+      if (!icon) return;
       setTimeout(ensureMenuItem, 0);
       setTimeout(ensureMenuItem, 150);
     });
@@ -410,9 +387,10 @@
           bindSupplyingEvents();
         });
         clearInterval(timer);
-        // Safety net — re-ensure header + row cells periodically in case
-        // HireHop rebuilds the tree DOM (e.g. tab switch, refresh)
-        setInterval(paintAllRows, 2000);
+        // Safety net — re-ensure header + row cells every second in case
+        // HireHop rebuilds the tree DOM (job refresh button, tab switch,
+        // column reorder, jstree redraw, etc.)
+        setInterval(paintAllRows, 1000);
       } else if (tries > 120) {
         clearInterval(timer);
       }
