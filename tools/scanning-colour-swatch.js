@@ -2,7 +2,7 @@
  * HireHop Tool: Heading Colour Swatch (Scanning + Supplying)
  * Standalone — NOT loaded by loader.js. Load directly on the scanning popup
  * and/or the job page (bookmarklet, Tampermonkey, or paste-and-run) via:
- *   https://cdn.jsdelivr.net/gh/AdamYesEvents/HH-YES-Plugins@scanning-colour-swatch-v0.6.2/tools/scanning-colour-swatch.js
+ *   https://cdn.jsdelivr.net/gh/AdamYesEvents/HH-YES-Plugins@scanning-colour-swatch-v0.6.3/tools/scanning-colour-swatch.js
  *
  * Reads the job's headings via /frames/items_to_supply_list.php, collects
  * every custom-field value on each heading that looks like a hex colour
@@ -34,7 +34,7 @@
  * "/", so users can compose any 2-tone (or 3-tone) tape colour without a
  * plugin change.
  *
- * Version: 0.6.2
+ * Version: 0.6.3
  */
 
 (function () {
@@ -51,7 +51,7 @@
   var jobId  = params.get('main_id') || params.get('id') || params.get('job');
   if (!jobId) return;
 
-  var colourById = new Map();     // headingId (string) -> "hex" or "hex/hex[/hex]"
+  var colourById = new Map();     // headingId (string) -> array of hex descriptors
   var fetched    = false;
 
   function loadColours(force) {
@@ -67,19 +67,18 @@
           if (String(it.kind) !== '0') continue;         // headings only
           var cf = it.CUSTOM_FIELDS;
           if (!cf || typeof cf !== 'object') continue;
-          // Collect every hex-valued custom field on this heading, in key
-          // order (A-Colour naturally sorts before B-Colour). A legacy
-          // "hex/hex" value in a single field is split into its parts so
-          // old data still renders as multi-tone.
-          var hexValues = [];
+          // Collect each hex-valued custom field on this heading in key order
+          // (A-Colour before B-Colour). Each entry is ONE tile — a single hex
+          // renders solid, a legacy "hex/hex" pair (e.g. an Earth preset)
+          // renders as a striped tile via backgroundForHex.
+          var fields = [];
           for (var key in cf) {
             if (!Object.prototype.hasOwnProperty.call(cf, key)) continue;
             var v = cf[key] && cf[key].value;
             if (typeof v !== 'string') continue;
-            if (HEX_RE.test(v))      { hexValues.push(v); }
-            else if (HEX_PAIR_RE.test(v)) { hexValues.push.apply(hexValues, v.split('/')); }
+            if (HEX_RE.test(v) || HEX_PAIR_RE.test(v)) fields.push(v);
           }
-          if (hexValues.length) colourById.set(String(it.ID), hexValues.join('/'));
+          if (fields.length) colourById.set(String(it.ID), fields);
         }
       })
       .catch(function () { /* swallow — no swatches if the fetch fails */ });
@@ -100,33 +99,33 @@
     return 'repeating-linear-gradient(135deg, ' + stops.join(', ') + ')';
   }
 
-  // Render every hex as its own side-by-side swatch. Cleaner to read than
-  // one striped block when you actually need to see BOTH colours.
-  function sideBySideSwatchHtml(hex) {
-    if (!hex) return '';
-    var parts = String(hex).split('/');
+  // Render one swatch per custom field, side by side. Each field renders as
+  // solid or striped via backgroundForHex — so an Earth preset (hex/hex) in
+  // A-Colour stays as ONE striped tile, and B-Colour renders as its own
+  // second tile.
+  function sideBySideSwatchHtml(fields) {
+    if (!fields || !fields.length) return '';
     var out = '';
-    for (var i = 0; i < parts.length; i++) {
+    for (var i = 0; i < fields.length; i++) {
       var ml = (i > 0) ? 'margin-left:2px;' : '';
-      out += '<span style="display:inline-block;width:14px;height:14px;border:1px solid #888;border-radius:2px;vertical-align:middle;background:' + parts[i] + ';' + ml + '"></span>';
+      out += '<span style="display:inline-block;width:14px;height:14px;border:1px solid #888;border-radius:2px;vertical-align:middle;' + ml + 'background:' + backgroundForHex(fields[i]) + ';"></span>';
     }
     return out;
   }
 
-  // How many colours does any coloured row need? Used to size the swatch
-  // column / left-swatch gutter so all rows fit.
-  function maxColourCount() {
+  // How many tiles does the widest coloured row need? Used to size the
+  // scanning column and the Supplying left gutter.
+  function maxTileCount() {
     var max = 0;
-    colourById.forEach(function (v) {
-      var c = String(v).split('/').length;
-      if (c > max) max = c;
+    colourById.forEach(function (fields) {
+      if (fields.length > max) max = fields.length;
     });
     return max || 1;
   }
   function swatchZoneWidthPx() {
-    // 14px per swatch + 2px gap + 8px cell padding
-    var n = maxColourCount();
-    return 8 + n * 14 + (n - 1) * 2;
+    // 14px swatch + 1+1 border = 16px per tile, 2px between, 12px cell padding
+    var n = maxTileCount();
+    return 12 + n * 16 + (n - 1) * 2;
   }
 
   // ---------------------------------------------------------------------------
@@ -312,31 +311,36 @@
     for (var m = 0; m < oldMenu.length; m++) oldMenu[m].remove();
   }
 
-  function tintHeadingIcon(li, hex) {
+  // Tint the folder icon with the FIRST custom field's colour. If it's a
+  // legacy Earth-style hex-pair value, backgroundForHex renders it as
+  // stripes inside the folder. B-Colour (if any) is shown separately in
+  // the left swatch column, not in the icon.
+  function tintHeadingIcon(li, fields) {
     var icon = li.querySelector(':scope > .jstree-anchor > i.jstree-themeicon');
-    if (!icon) return;
+    if (!icon || !fields || !fields.length) return;
     var pos = li.classList.contains('jstree-open') ? HH_POS_OPEN : HH_POS_CLOSED;
     var maskValue = 'url("' + HH_ICON_SPRITE + '") ' + pos + ' no-repeat';
     icon.style.setProperty('background-image', 'none',    'important');
     icon.style.setProperty('mask',              maskValue, 'important');
     icon.style.setProperty('-webkit-mask',      maskValue, 'important');
-    icon.style.setProperty('background', backgroundForHex(hex), 'important');
+    icon.style.setProperty('background', backgroundForHex(fields[0]), 'important');
     icon.dataset.hhTinted = '1';
   }
 
   // Extreme-left swatch inside each row's anchor, absolute-positioned so it
   // sits in the container's left padding zone regardless of tree indent.
-  function paintLeftSwatch(anchor, hex, container) {
+  // Renders one tile per custom field, side by side.
+  function paintLeftSwatch(anchor, fields, container) {
     var stale = anchor.querySelector(':scope > .hh-left-swatch');
     if (stale) stale.remove();
-    if (!hex) return;
+    if (!fields || !fields.length) return;
     var cRect = container.getBoundingClientRect();
     var aRect = anchor.getBoundingClientRect();
     var leftOffset = -(aRect.left - cRect.left) + 4;
     var span = document.createElement('span');
     span.className = 'hh-left-swatch';
     span.style.cssText = 'position:absolute;left:' + leftOffset + 'px;top:4px;';
-    span.innerHTML = sideBySideSwatchHtml(hex);
+    span.innerHTML = sideBySideSwatchHtml(fields);
     anchor.style.position = 'relative';
     anchor.appendChild(span);
   }
@@ -363,22 +367,22 @@
     for (var i = 0; i < roots.length; i++) {
       var rootLi = roots[i];
       if (!rootLi.classList.contains('node_heading')) continue;
-      var hex = colourById.get(String(rootLi.id.replace(/^[a-z]/, '')));
-      if (!hex) continue;
+      var fields = colourById.get(String(rootLi.id.replace(/^[a-z]/, '')));
+      if (!fields) continue;
       // Tint the folder icon on every heading (root + sub) beneath this room
-      tintHeadingIcon(rootLi, hex);
+      tintHeadingIcon(rootLi, fields);
       var subHeadings = rootLi.querySelectorAll('.jstree-node.node_heading');
       for (var j = 0; j < subHeadings.length; j++) {
-        tintHeadingIcon(subHeadings[j], hex);
+        tintHeadingIcon(subHeadings[j], fields);
       }
       // And paint the extreme-left swatch on EVERY descendant row so
       // items in this room also show its colour on the far left.
       var rootAnchor = rootLi.querySelector(':scope > .jstree-anchor');
-      if (rootAnchor && container) paintLeftSwatch(rootAnchor, hex, container);
+      if (rootAnchor && container) paintLeftSwatch(rootAnchor, fields, container);
       var descendants = rootLi.querySelectorAll('.jstree-node');
       for (var k = 0; k < descendants.length; k++) {
         var a = descendants[k].querySelector(':scope > .jstree-anchor');
-        if (a && container) paintLeftSwatch(a, hex, container);
+        if (a && container) paintLeftSwatch(a, fields, container);
       }
     }
   }
