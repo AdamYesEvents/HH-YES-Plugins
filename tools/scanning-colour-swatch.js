@@ -2,29 +2,26 @@
  * HireHop Tool: Heading Colour Swatch (Scanning + Supplying)
  * Standalone — NOT loaded by loader.js. Load directly on the scanning popup
  * and/or the job page (bookmarklet, Tampermonkey, or paste-and-run) via:
- *   https://cdn.jsdelivr.net/gh/AdamYesEvents/HH-YES-Plugins@scanning-colour-swatch-v0.3.6/tools/scanning-colour-swatch.js
+ *   https://cdn.jsdelivr.net/gh/AdamYesEvents/HH-YES-Plugins@scanning-colour-swatch-v0.4.0/tools/scanning-colour-swatch.js
  *
  * Reads the job's headings via /frames/items_to_supply_list.php, finds the
  * first custom-field value on each heading that looks like a hex colour
- * (#RRGGBB) or a hex pair (#RRGGBB/#RRGGBB for 2-tone), and applies a swatch
- * to every row whose top-most (level-0) heading ancestor carries a colour.
+ * (#RRGGBB) or a hex pair (#RRGGBB/#RRGGBB for 2-tone), and:
  *
- * Two surfaces:
  *   • /modules/scanning/...   -> new "colour" column in the tree grid (pqgrid6)
  *                                before the Item/TITLE column. Clicking the
  *                                page's Refresh button re-fetches colours.
- *   • /job.php               -> a real table column ("column_HH_COLOUR") is
- *                                appended to the Supplying header (with a 🎨
- *                                symbol) AND to every row's cust_node table.
- *                                A matching item is added to the column-cog
- *                                menu so the user can show/hide it, and its
- *                                position follows the header's sortable order.
+ *
+ *   • /job.php  (Supplying)   -> tints the folder icon of every coloured
+ *                                heading (and every sub-heading under it) in
+ *                                the jsTree. No extra column, no fighting
+ *                                HireHop's row/header/cog machinery.
  *
  * Convention (user-defined, plugin doesn't care about the field name):
  *   solid   = "#E30613"           - a single hex value
  *   2-tone  = "#FFD500/#00843D"   - two hex values joined by "/" (diagonal)
  *
- * Version: 0.3.6
+ * Version: 0.4.0
  */
 
 (function () {
@@ -183,28 +180,26 @@
   }
 
   // ---------------------------------------------------------------------------
-  // Supplying tab — real table column integrated with HireHop's cog menu
+  // Supplying tab — tint the folder icons of coloured headings
   //
-  // The Supplying tree is a jsTree whose header lives in a separate table
-  // (.supplying_list_heads) and each row's cells live in a table.cust_node
-  // inside the jstree-anchor. HireHop's column-cog menu toggles cells by their
-  // shared "column_<FIELD>" class. We add:
-  //   1. a header cell   .column_HH_COLOUR (with the 🎨 symbol)
-  //   2. matching row cell .column_HH_COLOUR on every cust_node table
-  //   3. a menu item     [data-field="HH_COLOUR"] with its own toggle handler
-  // Hiding/showing then just flips display on every .column_HH_COLOUR cell.
+  // Each heading in the jsTree carries a folder icon (jstree-themeicon) drawn
+  // from the sprite at /js/jstree/themes/default/32px.png. We overwrite the
+  // icon's background-image with a CSS mask that reuses the same sprite
+  // shape, then paint any hex/hex-pair colour behind it. Sub-headings inside
+  // a coloured top-level heading inherit the same colour.
+  //
+  // No table cells, no header changes, no cog integration — HireHop's own
+  // machinery is untouched. We only re-tint on jstree events (open, close,
+  // redraw, load, create, move) and via a 1s safety net.
   // ---------------------------------------------------------------------------
 
-  var COL_CLASS  = 'column_HH_COLOUR';
-  var COL_FIELD  = 'HH_COLOUR';
-  var COL_LABEL  = 'Colour';
-  var COL_SYMBOL = '🎨';   // 🎨 palette
-  var COL_WIDTH  = '24px';
-  var hhHidden   = false;            // last-known toggle state, applied to fresh row cells
+  var HH_ICON_SPRITE = 'https://myhirehop.com/js/jstree/themes/default/32px.png';
+  var HH_POS_CLOSED  = '-260px -4px';
+  var HH_POS_OPEN    = '-228px -4px';
 
-  function cleanLegacySupplyingSwatches() {
-    // v0.1.x — v0.2.1 injected swatches into anchors and mutated tree padding.
-    // Wipe those so the new column doesn't collide with them.
+  function cleanLegacySupplyingArtifacts() {
+    // v0.1.x — v0.3.6 injected swatch cells, header cells, tree padding
+    // and anchor styles. Wipe them so nothing lingers.
     var tree = document.getElementById('items_tree1');
     if (tree) {
       tree.style.paddingLeft = '';
@@ -221,166 +216,49 @@
         anchors[i].style.overflow = '';
       }
       var stale = tree.querySelectorAll('.hh-swatch');
-      for (var j = 0; j < stale.length; j++) {
-        // Only remove old-style swatches (not those inside our new column cells)
-        if (!stale[j].closest('.' + COL_CLASS)) stale[j].remove();
-      }
+      for (var j = 0; j < stale.length; j++) stale[j].remove();
     }
+    var oldCols = document.querySelectorAll('.column_HH_COLOUR');
+    for (var k = 0; k < oldCols.length; k++) oldCols[k].remove();
+    var oldMenu = document.querySelectorAll('[data-field="HH_COLOUR"]');
+    for (var m = 0; m < oldMenu.length; m++) oldMenu[m].remove();
   }
 
-  function swatchElement(hex) {
-    var span = document.createElement('span');
-    span.className = 'hh-swatch';
-    span.style.cssText = 'display:inline-block;width:14px;height:14px;border:1px solid #888;border-radius:2px;vertical-align:middle;';
+  function tintHeadingIcon(li, hex) {
+    var icon = li.querySelector(':scope > .jstree-anchor > i.jstree-themeicon');
+    if (!icon) return;
+    var pos = li.classList.contains('jstree-open') ? HH_POS_OPEN : HH_POS_CLOSED;
+    var maskValue = 'url("' + HH_ICON_SPRITE + '") ' + pos + ' no-repeat';
+    icon.style.setProperty('background-image', 'none',    'important');
+    icon.style.setProperty('mask',              maskValue, 'important');
+    icon.style.setProperty('-webkit-mask',      maskValue, 'important');
     if (HEX_PAIR_RE.test(hex)) {
       var parts = hex.split('/');
-      span.style.background = 'linear-gradient(135deg,' + parts[0] + ' 50%,' + parts[1] + ' 50%)';
+      icon.style.setProperty('background', 'linear-gradient(135deg,' + parts[0] + ' 50%,' + parts[1] + ' 50%)', 'important');
     } else {
-      span.style.background = hex;
+      icon.style.setProperty('background-color', hex, 'important');
     }
-    return span;
+    icon.dataset.hhTinted = '1';
   }
 
-  function ensureHeaderCell() {
-    var header = document.querySelector('.supplying_list_heads');
-    if (!header || !header.rows[0]) return false;
-    var row = header.rows[0];
-    var existing = row.querySelector('.' + COL_CLASS);
-    if (existing) {
-      // HireHop's rebuild code sees an unknown column_HH_COLOUR and
-      // slaps display:none and its own width on it — force ours back
-      // every tick so the header stays visible and sized correctly.
-      existing.style.width     = COL_WIDTH;
-      existing.style.minWidth  = COL_WIDTH;
-      existing.style.maxWidth  = COL_WIDTH;
-      existing.style.textAlign = 'center';
-      existing.style.display   = hhHidden ? 'none' : '';
-      if (existing.textContent !== COL_SYMBOL) existing.textContent = COL_SYMBOL;
-      return true;
-    }
-    // HireHop's sortable is set up with items: "th:not(.compulsory)" — must be <th>
-    var th = document.createElement('th');
-    th.className = COL_CLASS + ' ltr ui-sortable-handle';
-    th.style.width     = COL_WIDTH;
-    th.style.minWidth  = COL_WIDTH;
-    th.style.maxWidth  = COL_WIDTH;
-    th.style.textAlign = 'center';
-    th.title           = COL_LABEL;
-    th.textContent     = COL_SYMBOL;
-    if (hhHidden) th.style.display = 'none';
-    row.appendChild(th);
-    var $ = window.jQuery;
-    if ($) { try { $(header).sortable('refresh'); } catch (e) {} }
-    return true;
-  }
-
-  function fieldOf(el) {
-    var m = el.className.match(/column_([A-Z_0-9]+)/);
-    return m ? m[1] : null;
-  }
-
-  // Item rows carry an extra qty_cell at position 0 that the header lacks
-  // (heading rows don't have it), so a naive "insert at header index N"
-  // lands one cell too early on items. Instead, pin our column to its
-  // neighbours by matching column_X classes: place it AFTER whichever
-  // column sits immediately before it in the header, or BEFORE whichever
-  // sits immediately after. This keeps alignment right regardless of how
-  // many compulsory cells prefix any given row.
-  function findInsertBefore(row, headerCells, hhIdx) {
-    for (var h = hhIdx - 1; h >= 0; h--) {
-      var f = fieldOf(headerCells[h]);
-      if (f) {
-        var prev = row.querySelector('.column_' + f);
-        if (prev) return prev.nextSibling;
-      }
-    }
-    for (var h2 = hhIdx + 1; h2 < headerCells.length; h2++) {
-      var f2 = fieldOf(headerCells[h2]);
-      if (f2) {
-        var next = row.querySelector('.column_' + f2);
-        if (next) return next;
-      }
-    }
-    return null; // append at end
-  }
-
-  function ensureRowCell(li, hex) {
-    var table = li.querySelector(':scope > .jstree-anchor > table.cust_node');
-    if (!table) return;
-    var header = document.querySelector('.supplying_list_heads');
-    if (!header || !header.rows[0]) return;
-    var headerCells = header.rows[0].cells;
-    var hhIdx = -1;
-    for (var h = 0; h < headerCells.length; h++) {
-      if (fieldOf(headerCells[h]) === COL_FIELD) { hhIdx = h; break; }
-    }
-    if (hhIdx < 0) return;
-    for (var r = 0; r < table.rows.length; r++) {
-      var row = table.rows[r];
-      var existing = row.querySelector('.' + COL_CLASS);
-      if (existing) existing.remove();
-      var td = document.createElement('td');
-      td.className = COL_CLASS;
-      td.style.cssText = 'width:' + COL_WIDTH + ';text-align:center;padding:0;border-right:1px solid #aaa;';
-      if (hhHidden) td.style.display = 'none';
-      if (hex) td.appendChild(swatchElement(hex));
-      row.insertBefore(td, findInsertBefore(row, headerCells, hhIdx));
-    }
-  }
-
-  function paintAllRows() {
+  function paintAllHeadings() {
     var $ = window.jQuery;
     if (!$) return;
     var $tree = $('#items_tree1');
     if (!$tree.length) return;
     var inst = $tree.jstree(true);
     if (!inst || !inst.get_children_dom) return;
-    ensureHeaderCell();
     var roots = inst.get_children_dom('#').toArray();
     for (var i = 0; i < roots.length; i++) {
-      var li = roots[i];
-      if (!li.classList.contains('node_heading')) continue;
-      var hex = colourById.get(String(li.id.replace(/^[a-z]/, '')));
-      ensureRowCell(li, hex);
-      var descendants = li.querySelectorAll('.jstree-node');
-      for (var j = 0; j < descendants.length; j++) {
-        ensureRowCell(descendants[j], hex);
+      var rootLi = roots[i];
+      if (!rootLi.classList.contains('node_heading')) continue;
+      var hex = colourById.get(String(rootLi.id.replace(/^[a-z]/, '')));
+      if (!hex) continue;
+      tintHeadingIcon(rootLi, hex);
+      var subHeadings = rootLi.querySelectorAll('.jstree-node.node_heading');
+      for (var j = 0; j < subHeadings.length; j++) {
+        tintHeadingIcon(subHeadings[j], hex);
       }
-    }
-  }
-
-  function toggleColumn(hide) {
-    hhHidden = !!hide;
-    var cells = document.querySelectorAll('.' + COL_CLASS);
-    for (var i = 0; i < cells.length; i++) cells[i].style.display = hhHidden ? 'none' : '';
-  }
-
-  function ensureMenuItem() {
-    // Find any currently-visible column config menu (cog opens it)
-    var menus = document.querySelectorAll('.ui-menu.ui-menu-icons');
-    for (var i = 0; i < menus.length; i++) {
-      var menu = menus[i];
-      if (menu.offsetParent === null) continue;
-      if (menu.querySelector('[data-field="' + COL_FIELD + '"]')) continue;
-      // Only inject into menus that already have data-field items (i.e. column menus)
-      if (!menu.querySelector('[data-field]')) continue;
-
-      var li = document.createElement('li');
-      li.className   = 'ui-menu-item';
-      li.dataset.field = COL_FIELD;
-      li.innerHTML = '<div class="ui-menu-item-wrapper" role="menuitem">' +
-                     '<span class="ui-icon ' + (hhHidden ? 'ui-icon-blank' : 'ui-icon-check') + '"></span>' +
-                     '<span>' + COL_LABEL + '</span>' +
-                     '</div>';
-      li.addEventListener('click', function (e) {
-        e.stopPropagation();
-        var icon = li.querySelector('.ui-icon');
-        var currentlyChecked = icon.classList.contains('ui-icon-check');
-        toggleColumn(currentlyChecked);   // if checked, hide
-        icon.classList.toggle('ui-icon-check', !currentlyChecked);
-        icon.classList.toggle('ui-icon-blank', currentlyChecked);
-      });
-      menu.appendChild(li);
     }
   }
 
@@ -388,26 +266,13 @@
     var $ = window.jQuery;
     if (!$ || window.__hh_supplyBound) return;
     window.__hh_supplyBound = true;
-
-    $('#items_tree1').on('after_open.jstree redraw.jstree refresh.jstree load_node.jstree create_node.jstree move_node.jstree', function () {
-      setTimeout(paintAllRows, 0);
-    });
-
-    // After a header drag lands, HireHop's own move_column rebuilds every
-    // row's cells — which wipes ours out. Repaint AFTER HireHop finishes.
-    $('.supplying_list_heads').on('sortstop.hh_swatch sortupdate.hh_swatch', function () {
-      setTimeout(paintAllRows, 0);
-      setTimeout(paintAllRows, 150);
-    });
-
-    // Hook the column-cog button so we can inject our menu item into the
-    // (freshly-built) popup each time it opens. Scoped to the cog only.
-    $(document).on('click.hh_swatch', 'button.fixed_width.ui-button-icon-only', function () {
-      var icon = this.querySelector('.ui-icon-gear');
-      if (!icon) return;
-      setTimeout(ensureMenuItem, 0);
-      setTimeout(ensureMenuItem, 150);
-    });
+    // Re-tint on any jstree state change so open/close swaps the folder
+    // shape and rebuilds don't leave the icon un-tinted.
+    $('#items_tree1').on(
+      'after_open.jstree after_close.jstree redraw.jstree refresh.jstree ' +
+      'load_node.jstree create_node.jstree move_node.jstree',
+      function () { setTimeout(paintAllHeadings, 0); }
+    );
   }
 
   function bootstrapSupplying() {
@@ -416,16 +281,15 @@
       tries++;
       var $ = window.jQuery;
       if ($ && $('#items_tree1').length && $('#items_tree1').jstree(true)) {
-        cleanLegacySupplyingSwatches();
+        cleanLegacySupplyingArtifacts();
         loadColours().then(function () {
-          paintAllRows();
+          paintAllHeadings();
           bindSupplyingEvents();
         });
         clearInterval(timer);
-        // Safety net — re-ensure header + row cells every second in case
-        // HireHop rebuilds the tree DOM (job refresh button, tab switch,
-        // column reorder, jstree redraw, etc.)
-        setInterval(paintAllRows, 1000);
+        // Safety net — re-tint every second so HireHop tree rebuilds don't
+        // leave stale (or reverted-to-default) icons for long.
+        setInterval(paintAllHeadings, 1000);
       } else if (tries > 120) {
         clearInterval(timer);
       }
