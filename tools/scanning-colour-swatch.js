@@ -2,7 +2,7 @@
  * HireHop Tool: Heading Colour Swatch (Scanning + Supplying)
  * Standalone — NOT loaded by loader.js. Load directly on the scanning popup
  * and/or the job page (bookmarklet, Tampermonkey, or paste-and-run) via:
- *   https://cdn.jsdelivr.net/gh/AdamYesEvents/HH-YES-Plugins@scanning-colour-swatch-v0.4.0/tools/scanning-colour-swatch.js
+ *   https://cdn.jsdelivr.net/gh/AdamYesEvents/HH-YES-Plugins@scanning-colour-swatch-v0.4.1/tools/scanning-colour-swatch.js
  *
  * Reads the job's headings via /frames/items_to_supply_list.php, finds the
  * first custom-field value on each heading that looks like a hex colour
@@ -21,7 +21,7 @@
  *   solid   = "#E30613"           - a single hex value
  *   2-tone  = "#FFD500/#00843D"   - two hex values joined by "/" (diagonal)
  *
- * Version: 0.4.0
+ * Version: 0.4.1
  */
 
 (function () {
@@ -262,16 +262,25 @@
     }
   }
 
+  function refreshColoursThenPaint() {
+    loadColours(true).then(paintAllHeadings);
+  }
+
   function bindSupplyingEvents() {
     var $ = window.jQuery;
     if (!$ || window.__hh_supplyBound) return;
     window.__hh_supplyBound = true;
-    // Re-tint on any jstree state change so open/close swaps the folder
-    // shape and rebuilds don't leave the icon un-tinted.
-    $('#items_tree1').on(
-      'after_open.jstree after_close.jstree redraw.jstree refresh.jstree ' +
-      'load_node.jstree create_node.jstree move_node.jstree',
+    var $tree = $('#items_tree1');
+    // Cheap events (no map change) — just re-tint with the current map
+    $tree.on(
+      'after_open.jstree after_close.jstree redraw.jstree load_node.jstree move_node.jstree',
       function () { setTimeout(paintAllHeadings, 0); }
+    );
+    // Structural events that could add a new heading or change its custom
+    // fields — refetch the colour map first, then re-tint.
+    $tree.on(
+      'create_node.jstree rename_node.jstree refresh.jstree set_text.jstree',
+      function () { setTimeout(refreshColoursThenPaint, 0); }
     );
   }
 
@@ -290,6 +299,9 @@
         // Safety net — re-tint every second so HireHop tree rebuilds don't
         // leave stale (or reverted-to-default) icons for long.
         setInterval(paintAllHeadings, 1000);
+        // And every 30s refetch the colour map so headings the user just
+        // created / recoloured pick up their tint without a page reload.
+        setInterval(refreshColoursThenPaint, 30000);
       } else if (tries > 120) {
         clearInterval(timer);
       }
