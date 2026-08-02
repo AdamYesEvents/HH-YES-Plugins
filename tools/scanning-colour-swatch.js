@@ -2,7 +2,7 @@
  * HireHop Tool: Heading Colour Swatch (Scanning + Supplying)
  * Standalone — NOT loaded by loader.js. Load directly on the scanning popup
  * and/or the job page (bookmarklet, Tampermonkey, or paste-and-run) via:
- *   https://cdn.jsdelivr.net/gh/AdamYesEvents/HH-YES-Plugins@scanning-colour-swatch-v0.4.1/tools/scanning-colour-swatch.js
+ *   https://cdn.jsdelivr.net/gh/AdamYesEvents/HH-YES-Plugins@scanning-colour-swatch-v0.4.2/tools/scanning-colour-swatch.js
  *
  * Reads the job's headings via /frames/items_to_supply_list.php, finds the
  * first custom-field value on each heading that looks like a hex colour
@@ -15,13 +15,18 @@
  *   • /job.php  (Supplying)   -> tints the folder icon of every coloured
  *                                heading (and every sub-heading under it) in
  *                                the jsTree. No extra column, no fighting
- *                                HireHop's row/header/cog machinery.
+ *                                HireHop's row/header/cog machinery. Also
+ *                                hides the colour custom-field (any field
+ *                                whose select options carry hex values) in
+ *                                the Edit-heading dialog for any non-root
+ *                                heading, so users only pick colour on the
+ *                                top-level room.
  *
  * Convention (user-defined, plugin doesn't care about the field name):
  *   solid   = "#E30613"           - a single hex value
  *   2-tone  = "#FFD500/#00843D"   - two hex values joined by "/" (diagonal)
  *
- * Version: 0.4.1
+ * Version: 0.4.2
  */
 
 (function () {
@@ -266,6 +271,41 @@
     loadColours(true).then(paintAllHeadings);
   }
 
+  // Hide the colour custom-field on non-root headings so the user only sets
+  // colour on top-level rooms. Colour field = any .custom_field_container
+  // whose <select> has at least one hex-valued option.
+  function applyColourFieldVisibility() {
+    var $ = window.jQuery;
+    if (!$) return;
+    var dialog = null;
+    var dialogs = document.querySelectorAll('.ui-dialog');
+    for (var i = 0; i < dialogs.length; i++) {
+      var d = dialogs[i];
+      if (d.offsetParent === null) continue;   // not visible
+      var t = d.querySelector('.ui-dialog-title');
+      if (t && t.innerText.trim() === 'Edit heading') { dialog = d; break; }
+    }
+    if (!dialog) return;
+    var inst = $('#items_tree1').jstree(true);
+    if (!inst) return;
+    var selected = inst.get_selected(true)[0];
+    if (!selected) return;
+    var isRootLevel = selected.parent === '#';
+    var containers = dialog.querySelectorAll('.custom_field_container');
+    for (var c = 0; c < containers.length; c++) {
+      var container = containers[c];
+      var select = container.querySelector('select.custom_field');
+      if (!select) continue;
+      var hasHexOption = false;
+      for (var o = 0; o < select.options.length; o++) {
+        if (HEX_RE.test(select.options[o].value) || HEX_PAIR_RE.test(select.options[o].value)) {
+          hasHexOption = true; break;
+        }
+      }
+      if (hasHexOption) container.style.display = isRootLevel ? '' : 'none';
+    }
+  }
+
   function bindSupplyingEvents() {
     var $ = window.jQuery;
     if (!$ || window.__hh_supplyBound) return;
@@ -282,6 +322,11 @@
       'create_node.jstree rename_node.jstree refresh.jstree set_text.jstree',
       function () { setTimeout(refreshColoursThenPaint, 0); }
     );
+    // Whenever a jQuery-UI dialog opens (delegated at the document level),
+    // sync the colour custom-field visibility if it's the Edit-heading one.
+    $(document).on('dialogopen.hh_swatch', function () {
+      setTimeout(applyColourFieldVisibility, 0);
+    });
   }
 
   function bootstrapSupplying() {
@@ -297,8 +342,12 @@
         });
         clearInterval(timer);
         // Safety net — re-tint every second so HireHop tree rebuilds don't
-        // leave stale (or reverted-to-default) icons for long.
-        setInterval(paintAllHeadings, 1000);
+        // leave stale (or reverted-to-default) icons for long. Also enforces
+        // colour-field visibility in case the dialogopen event was missed.
+        setInterval(function () {
+          paintAllHeadings();
+          applyColourFieldVisibility();
+        }, 1000);
         // And every 30s refetch the colour map so headings the user just
         // created / recoloured pick up their tint without a page reload.
         setInterval(refreshColoursThenPaint, 30000);
