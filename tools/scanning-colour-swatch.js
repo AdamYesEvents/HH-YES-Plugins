@@ -2,7 +2,7 @@
  * HireHop Tool: Heading Colour Swatch (Scanning + Supplying)
  * Standalone — NOT loaded by loader.js. Load directly on the scanning popup
  * and/or the job page (bookmarklet, Tampermonkey, or paste-and-run) via:
- *   https://cdn.jsdelivr.net/gh/AdamYesEvents/HH-YES-Plugins@scanning-colour-swatch-v0.6.0/tools/scanning-colour-swatch.js
+ *   https://cdn.jsdelivr.net/gh/AdamYesEvents/HH-YES-Plugins@scanning-colour-swatch-v0.6.1/tools/scanning-colour-swatch.js
  *
  * Reads the job's headings via /frames/items_to_supply_list.php, collects
  * every custom-field value on each heading that looks like a hex colour
@@ -30,7 +30,7 @@
  * "/", so users can compose any 2-tone (or 3-tone) tape colour without a
  * plugin change.
  *
- * Version: 0.6.0
+ * Version: 0.6.1
  */
 
 (function () {
@@ -82,18 +82,18 @@
   }
 
   // Turn a "hex" or "hex/hex[/hex]" descriptor into a CSS background value.
-  // 1 hex -> the hex itself (solid). N hex -> a 2N-stripe diagonal repeat.
+  // 1 hex -> the hex itself (solid). N hex -> a diagonal repeating stripe
+  // pattern with fixed pixel width so the stripes are legible on both the
+  // small folder icons (24px) and the row swatches (16px).
+  var STRIPE_PX = 5;
   function backgroundForHex(hex) {
     var parts = String(hex).split('/');
     if (parts.length <= 1) return parts[0];
-    var stripes = parts.length * 2;
-    var seg = 100 / stripes;
     var stops = [];
-    for (var i = 0; i < stripes; i++) {
-      var c = parts[i % parts.length];
-      stops.push(c + ' ' + (i * seg) + '% ' + ((i + 1) * seg) + '%');
+    for (var i = 0; i < parts.length; i++) {
+      stops.push(parts[i] + ' ' + (i * STRIPE_PX) + 'px ' + ((i + 1) * STRIPE_PX) + 'px');
     }
-    return 'linear-gradient(135deg, ' + stops.join(', ') + ')';
+    return 'repeating-linear-gradient(135deg, ' + stops.join(', ') + ')';
   }
 
   // ---------------------------------------------------------------------------
