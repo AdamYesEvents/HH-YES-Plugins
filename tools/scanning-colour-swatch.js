@@ -2,33 +2,35 @@
  * HireHop Tool: Heading Colour Swatch (Scanning + Supplying)
  * Standalone — NOT loaded by loader.js. Load directly on the scanning popup
  * and/or the job page (bookmarklet, Tampermonkey, or paste-and-run) via:
- *   https://cdn.jsdelivr.net/gh/AdamYesEvents/HH-YES-Plugins@scanning-colour-swatch-v0.5.1/tools/scanning-colour-swatch.js
+ *   https://cdn.jsdelivr.net/gh/AdamYesEvents/HH-YES-Plugins@scanning-colour-swatch-v0.6.0/tools/scanning-colour-swatch.js
  *
- * Reads the job's headings via /frames/items_to_supply_list.php, finds the
- * first custom-field value on each heading that looks like a hex colour
- * (#RRGGBB) or a hex pair (#RRGGBB/#RRGGBB for 2-tone), and:
+ * Reads the job's headings via /frames/items_to_supply_list.php, collects
+ * every custom-field value on each heading that looks like a hex colour
+ * (#RRGGBB), and composes them into a single "hex[/hex...]" descriptor:
  *
- *   • /modules/scanning/...   -> tints the Font-Awesome folder icon on every
- *                                heading row (TYPE 0) of the tree grid
- *                                (pqgrid6). Sub-headings inherit the top-
- *                                level colour. Clicking the page's Refresh
- *                                button re-fetches colours and re-tints.
+ *   • /modules/scanning/...   -> adds a narrow "colour" column in the tree
+ *                                grid (pqgrid6) before the Item column. Every
+ *                                row shows the swatch of its top-level room.
+ *                                Also auto-selects the Tree view on load and
+ *                                re-fetches on the Refresh button click.
  *
  *   • /job.php  (Supplying)   -> tints the folder icon of every coloured
  *                                heading (and every sub-heading under it) in
- *                                the jsTree. No extra column, no fighting
- *                                HireHop's row/header/cog machinery. Also
- *                                hides the colour custom-field (any field
- *                                whose select options carry hex values) in
- *                                the Edit-heading dialog for any non-root
- *                                heading, so users only pick colour on the
+ *                                the jsTree. Also hides colour custom-fields
+ *                                in the Edit-heading dialog on non-root
+ *                                headings, so colour is only picked on the
  *                                top-level room.
  *
- * Convention (user-defined, plugin doesn't care about the field name):
- *   solid   = "#E30613"           - a single hex value
- *   2-tone  = "#FFD500/#00843D"   - two hex values joined by "/" (diagonal)
+ * Colour composition:
+ *   1 hex   -> solid                            "#E30613"
+ *   2 hex   -> 4 diagonal stripes (2 of each)   "#FFD500/#00843D" (e.g. earth)
+ *   N hex   -> 2N diagonal stripes (2 of each)
+ * If a heading has both an A-Colour and B-Colour custom field set, the
+ * plugin gathers them in the key order returned by the API and joins with
+ * "/", so users can compose any 2-tone (or 3-tone) tape colour without a
+ * plugin change.
  *
- * Version: 0.5.1
+ * Version: 0.6.0
  */
 
 (function () {
@@ -45,7 +47,7 @@
   var jobId  = params.get('main_id') || params.get('id') || params.get('job');
   if (!jobId) return;
 
-  var colourById = new Map();     // headingId (string) -> hex or hex-pair
+  var colourById = new Map();     // headingId (string) -> "hex" or "hex/hex[/hex]"
   var fetched    = false;
 
   function loadColours(force) {
@@ -61,30 +63,49 @@
           if (String(it.kind) !== '0') continue;         // headings only
           var cf = it.CUSTOM_FIELDS;
           if (!cf || typeof cf !== 'object') continue;
+          // Collect every hex-valued custom field on this heading, in key
+          // order (A-Colour naturally sorts before B-Colour). A legacy
+          // "hex/hex" value in a single field is split into its parts so
+          // old data still renders as multi-tone.
+          var hexValues = [];
           for (var key in cf) {
             if (!Object.prototype.hasOwnProperty.call(cf, key)) continue;
             var v = cf[key] && cf[key].value;
             if (typeof v !== 'string') continue;
-            if (HEX_RE.test(v) || HEX_PAIR_RE.test(v)) {
-              colourById.set(String(it.ID), v);
-              break;
-            }
+            if (HEX_RE.test(v))      { hexValues.push(v); }
+            else if (HEX_PAIR_RE.test(v)) { hexValues.push.apply(hexValues, v.split('/')); }
           }
+          if (hexValues.length) colourById.set(String(it.ID), hexValues.join('/'));
         }
       })
       .catch(function () { /* swallow — no swatches if the fetch fails */ });
   }
 
+  // Turn a "hex" or "hex/hex[/hex]" descriptor into a CSS background value.
+  // 1 hex -> the hex itself (solid). N hex -> a 2N-stripe diagonal repeat.
+  function backgroundForHex(hex) {
+    var parts = String(hex).split('/');
+    if (parts.length <= 1) return parts[0];
+    var stripes = parts.length * 2;
+    var seg = 100 / stripes;
+    var stops = [];
+    for (var i = 0; i < stripes; i++) {
+      var c = parts[i % parts.length];
+      stops.push(c + ' ' + (i * seg) + '% ' + ((i + 1) * seg) + '%');
+    }
+    return 'linear-gradient(135deg, ' + stops.join(', ') + ')';
+  }
+
   // ---------------------------------------------------------------------------
-  // Scanning module — paint pqgrid6 heading row folder icons as solid blocks
+  // Scanning module — inject a narrow swatch column into pqgrid6
   //
-  // Each heading row (TYPE === 0) has a Font-Awesome folder icon inside the
-  // tree title cell. We hide the FA glyph (color:transparent) and paint the
-  // icon element as a solid 14×14 coloured square (or a diagonal 2-tone).
-  // No column injected — the grid stays HireHop's.
+  // Each row in pqgrid6 gets the swatch of its top-level heading ancestor
+  // (walked via parentId in the row data). The column is 28px wide, sits
+  // immediately before the Item/TITLE column, and renders solid or
+  // multi-stripe backgrounds via backgroundForHex().
   //
   // Also auto-selects the "Tree" view tab once on page load so the coloured
-  // headings are visible without the user having to switch view.
+  // rows are visible without the user having to switch view.
   // ---------------------------------------------------------------------------
 
   var cachedData = null, cachedIndex = null;
@@ -110,56 +131,13 @@
     return cur ? String(cur.ID) : null;
   }
 
-  function paintScanningIconSolid(icon, hex) {
-    if (!icon) return;
-    // Hide the Font-Awesome glyph and turn the icon element into a solid
-    // coloured 14×14 block (diagonal 2-tone for hex-pair values).
-    icon.style.setProperty('color',                   'transparent', 'important');
-    icon.style.setProperty('width',                   '14px',        'important');
-    icon.style.setProperty('height',                  '14px',        'important');
-    icon.style.setProperty('border-radius',           '2px',         'important');
-    icon.style.setProperty('display',                 'inline-block','important');
-    icon.style.setProperty('vertical-align',          'middle',      'important');
-    icon.style.setProperty('-webkit-background-clip', 'initial',     'important');
-    icon.style.setProperty('background-clip',         'initial',     'important');
-    if (HEX_PAIR_RE.test(hex)) {
-      var parts = hex.split('/');
-      icon.style.setProperty('background', 'linear-gradient(135deg,' + parts[0] + ' 50%,' + parts[1] + ' 50%)', 'important');
-    } else {
-      icon.style.setProperty('background', hex, 'important');
-    }
-    icon.dataset.hhTinted = '1';
+  function scanSwatchHtml(hex) {
+    if (!hex) return '';
+    var style = 'display:inline-block;width:16px;height:16px;border:1px solid #888;border-radius:2px;vertical-align:middle;background:' + backgroundForHex(hex) + ';';
+    return '<span class="hh-swatch" style="' + style + '"></span>';
   }
 
-  function paintScanningHeadings() {
-    var $ = window.jQuery;
-    if (!$) return;
-    var $g = $('#pqgrid6');
-    if (!$g.length) return;
-    var data = ($g.pqGrid('option', 'dataModel') || {}).data || [];
-    if (!data.length) return;
-    for (var i = 0; i < data.length; i++) {
-      var row = data[i];
-      if (!row || row.TYPE !== 0) continue;    // headings only
-      var topId = level0HeadingId(row, data);
-      var hex = colourById.get(topId);
-      if (!hex) continue;
-      // Find the DOM row(s) for this data index (there may be a left + right pair)
-      var domRows = document.querySelectorAll(
-        '[id^="pq-body-row-"][id$="-' + i + '-right"], [id^="pq-body-row-"][id$="-' + i + '-left"]'
-      );
-      for (var d = 0; d < domRows.length; d++) {
-        var icon = domRows[d].querySelector(
-          '.pq-tree-icon.ui-icon-folder-open, .pq-tree-icon.ui-icon-folder-collapsed, .pq-tree-icon[class*="folder"]'
-        );
-        paintScanningIconSolid(icon, hex);
-      }
-    }
-  }
-
-  function cleanLegacyScanningColumn() {
-    // v0.1.x — v0.4.x injected a __hh_colour_swatch column into pqgrid6.
-    // Remove it and refresh the grid if present.
+  function injectScanColumn() {
     var $ = window.jQuery;
     if (!$) return;
     var $g = $('#pqgrid6');
@@ -167,13 +145,30 @@
     var opts;
     try { opts = $g.pqGrid('option'); } catch (e) { return; }
     var cm = opts.colModel || [];
-    var idx = -1;
-    for (var i = 0; i < cm.length; i++) {
-      if (cm[i].dataIndx === '__hh_colour_swatch') { idx = i; break; }
-    }
-    if (idx < 0) return;
-    cm.splice(idx, 1);
-    try { $g.pqGrid('option', 'colModel', cm); $g.pqGrid('refresh'); } catch (e) {}
+    if (cm.some(function (c) { return c.dataIndx === '__hh_colour_swatch'; })) return;
+    var titleIdx = cm.findIndex(function (c) { return c.dataIndx === 'TITLE'; });
+    if (titleIdx < 0) titleIdx = 0;
+    cm.splice(titleIdx, 0, {
+      title:     '',
+      dataIndx:  '__hh_colour_swatch',
+      width:     28,
+      minWidth:  28,
+      maxWidth:  28,
+      sortable:  false,
+      resizable: false,
+      menuIcon:  false,
+      halign:    'center',
+      render: function (ui) {
+        var row = ui && ui.rowData;
+        if (!row) return '';
+        var data = ($g.pqGrid('option', 'dataModel') || {}).data || [];
+        return scanSwatchHtml(colourById.get(level0HeadingId(row, data)));
+      }
+    });
+    try {
+      $g.pqGrid('option', 'colModel', cm);
+      $g.pqGrid('refresh');
+    } catch (e) {}
   }
 
   function bindScanRefresh() {
@@ -182,11 +177,14 @@
     window.__hh_scanRefreshBound = true;
     // The top-level scanning-module Refresh button lives inside #button_bar
     // as <button class="func ...">Refresh</button>. Reload the colour map
-    // then re-tint the folder icons.
+    // then force a grid refresh so the render fn re-runs with fresh data.
     $(document).on('click', '#button_bar button.func', function () {
       var txt = $.trim($(this).text());
       if (txt !== 'Refresh') return;
-      loadColours(true).then(paintScanningHeadings);
+      loadColours(true).then(function () {
+        var $g = $('#pqgrid6');
+        if ($g.length) { try { $g.pqGrid('refresh'); } catch (e) {} }
+      });
     });
   }
 
@@ -214,16 +212,19 @@
       tries++;
       var $ = window.jQuery;
       if ($ && $('#pqgrid6').length) {
-        cleanLegacyScanningColumn();
         selectTreeViewOnce();
-        loadColours().then(paintScanningHeadings);
+        loadColours().then(injectScanColumn);
         bindScanRefresh();
         clearInterval(timer);
-        // Safety net — pqgrid rebuilds rows on scroll, filter, refresh; re-tint
-        // every second so folders don't stay reverted to default.
-        setInterval(paintScanningHeadings, 1000);
+        // Safety net — pqgrid rebuilds on scroll/filter/refresh; make sure
+        // the column comes back if it's lost.
+        setInterval(injectScanColumn, 2000);
         // Every 30s refetch colours in case a heading was added/recoloured
-        setInterval(function () { loadColours(true).then(paintScanningHeadings); }, 30000);
+        setInterval(function () {
+          loadColours(true).then(function () {
+            try { $('#pqgrid6').pqGrid('refresh'); } catch (e) {}
+          });
+        }, 30000);
       } else if (tries > 60) {
         clearInterval(timer);
       }
@@ -283,12 +284,7 @@
     icon.style.setProperty('background-image', 'none',    'important');
     icon.style.setProperty('mask',              maskValue, 'important');
     icon.style.setProperty('-webkit-mask',      maskValue, 'important');
-    if (HEX_PAIR_RE.test(hex)) {
-      var parts = hex.split('/');
-      icon.style.setProperty('background', 'linear-gradient(135deg,' + parts[0] + ' 50%,' + parts[1] + ' 50%)', 'important');
-    } else {
-      icon.style.setProperty('background-color', hex, 'important');
-    }
+    icon.style.setProperty('background', backgroundForHex(hex), 'important');
     icon.dataset.hhTinted = '1';
   }
 
