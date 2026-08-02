@@ -2,7 +2,7 @@
  * HireHop Tool: Heading Colour Swatch (Scanning + Supplying)
  * Standalone — NOT loaded by loader.js. Load directly on the scanning popup
  * and/or the job page (bookmarklet, Tampermonkey, or paste-and-run) via:
- *   https://cdn.jsdelivr.net/gh/AdamYesEvents/HH-YES-Plugins@scanning-colour-swatch-v0.7.0/tools/scanning-colour-swatch.js
+ *   https://cdn.jsdelivr.net/gh/AdamYesEvents/HH-YES-Plugins@scanning-colour-swatch-v0.7.1/tools/scanning-colour-swatch.js
  *
  * Reads the job's headings via /frames/items_to_supply_list.php, collects
  * every custom-field value on each heading that looks like a hex colour
@@ -20,10 +20,16 @@
  *                                right after each row's name text (inside
  *                                the name_cell div), so nothing about the
  *                                tree layout, column widths, header, or
- *                                borders is touched. Also hides colour
- *                                custom-fields in the Edit-heading dialog
- *                                on non-root headings, so colour is only
- *                                picked on the top-level room.
+ *                                borders is touched. Also enforces a
+ *                                progressive-disclosure interlock on the
+ *                                Edit-heading dialog's colour fields:
+ *                                every field after the first is hidden
+ *                                until the previous one is set, and
+ *                                earlier fields lock once a later one
+ *                                has a value — forcing A → B → C order.
+ *                                Colour fields are hidden entirely on
+ *                                non-root headings (colour lives only on
+ *                                the top-level room).
  *
  * Colour composition:
  *   1 hex   -> solid                            "#E30613"
@@ -34,7 +40,7 @@
  * "/", so users can compose any 2-tone (or 3-tone) tape colour without a
  * plugin change.
  *
- * Version: 0.7.0
+ * Version: 0.7.1
  */
 
 (function () {
@@ -393,9 +399,66 @@
     loadColours(true).then(paintAllHeadings);
   }
 
-  // Hide the colour custom-field on non-root headings so the user only sets
-  // colour on top-level rooms. Colour field = any .custom_field_container
-  // whose <select> has at least one hex-valued option.
+  // A "colour" custom field = any .custom_field_container whose <select> has
+  // at least one hex-valued option.
+  function collectColourFields(dialog) {
+    var out = [];
+    var containers = dialog.querySelectorAll('.custom_field_container');
+    for (var c = 0; c < containers.length; c++) {
+      var container = containers[c];
+      var select = container.querySelector('select.custom_field');
+      if (!select) continue;
+      var hasHexOption = false;
+      for (var o = 0; o < select.options.length; o++) {
+        if (HEX_RE.test(select.options[o].value) || HEX_PAIR_RE.test(select.options[o].value)) {
+          hasHexOption = true; break;
+        }
+      }
+      if (!hasHexOption) continue;
+      out.push({
+        container: container,
+        select: select,
+        label: (container.innerText.split(':')[0] || '').trim()
+      });
+    }
+    // Sort by label so A-Colour naturally comes before B-Colour, etc.
+    out.sort(function (a, b) { return a.label.localeCompare(b.label); });
+    return out;
+  }
+
+  function colourFieldIsSet(select) {
+    var v = select && select.value;
+    return typeof v === 'string' && v !== '' && v.toLowerCase() !== 'none' &&
+           (HEX_RE.test(v) || HEX_PAIR_RE.test(v));
+  }
+
+  // Progressive-disclosure interlock on the colour selects:
+  //   * Every field after the first is hidden until the previous one is set.
+  //   * Once field N is set, ALL fields before it are disabled — user must
+  //     clear later fields (back to "none") before changing earlier ones.
+  //   This forces A -> B -> C order and stops silent overwrites.
+  function applyColourFieldInterlock(fields) {
+    for (var i = 0; i < fields.length; i++) {
+      var f = fields[i];
+      var prev = i > 0 ? fields[i - 1] : null;
+      var next = i < fields.length - 1 ? fields[i + 1] : null;
+      // Hide until predecessor is set
+      f.container.style.display = (prev && !colourFieldIsSet(prev.select)) ? 'none' : '';
+      // Disable if any successor is set
+      var anyLaterSet = false;
+      for (var j = i + 1; j < fields.length; j++) {
+        if (colourFieldIsSet(fields[j].select)) { anyLaterSet = true; break; }
+      }
+      f.select.disabled = anyLaterSet;
+      f.container.style.opacity = anyLaterSet ? '0.5' : '';
+      f.container.title = anyLaterSet
+        ? 'Clear the later colour field(s) before changing this one'
+        : '';
+    }
+  }
+
+  // Hide colour fields entirely on non-root headings (only the top-level
+  // room owns the colour). On root headings run the progressive interlock.
   function applyColourFieldVisibility() {
     var $ = window.jQuery;
     if (!$) return;
@@ -413,19 +476,18 @@
     var selected = inst.get_selected(true)[0];
     if (!selected) return;
     var isRootLevel = selected.parent === '#';
-    var containers = dialog.querySelectorAll('.custom_field_container');
-    for (var c = 0; c < containers.length; c++) {
-      var container = containers[c];
-      var select = container.querySelector('select.custom_field');
-      if (!select) continue;
-      var hasHexOption = false;
-      for (var o = 0; o < select.options.length; o++) {
-        if (HEX_RE.test(select.options[o].value) || HEX_PAIR_RE.test(select.options[o].value)) {
-          hasHexOption = true; break;
-        }
-      }
-      if (hasHexOption) container.style.display = isRootLevel ? '' : 'none';
+    var fields = collectColourFields(dialog);
+    if (!isRootLevel) {
+      // Non-root: hide every colour field
+      for (var k = 0; k < fields.length; k++) fields[k].container.style.display = 'none';
+      return;
     }
+    // Root: bind change listeners (idempotent) and apply the interlock now
+    var doApply = function () { applyColourFieldInterlock(fields); };
+    for (var m = 0; m < fields.length; m++) {
+      $(fields[m].select).off('change.hh_swatch').on('change.hh_swatch', doApply);
+    }
+    doApply();
   }
 
   function bindSupplyingEvents() {
