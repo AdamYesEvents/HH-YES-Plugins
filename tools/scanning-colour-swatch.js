@@ -2,7 +2,7 @@
  * HireHop Tool: Heading Colour Swatch (Scanning + Supplying)
  * Standalone — NOT loaded by loader.js. Load directly on the scanning popup
  * and/or the job page (bookmarklet, Tampermonkey, or paste-and-run) via:
- *   https://cdn.jsdelivr.net/gh/AdamYesEvents/HH-YES-Plugins@scanning-colour-swatch-v1.0.1/tools/scanning-colour-swatch.js
+ *   https://cdn.jsdelivr.net/gh/AdamYesEvents/HH-YES-Plugins@scanning-colour-swatch-v1.0.2/tools/scanning-colour-swatch.js
  *
  * Reads the job's headings via /frames/items_to_supply_list.php, collects
  * every custom-field value on each heading that looks like a hex colour
@@ -41,7 +41,7 @@
  * "/", so users can compose any 2-tone (or 3-tone) tape colour without a
  * plugin change.
  *
- * Version: 1.0.1
+ * Version: 1.0.2
  */
 
 (function () {
@@ -260,15 +260,12 @@
         loadColours().then(injectScanColumn);
         bindScanRefresh();
         clearInterval(timer);
-        // Safety net — pqgrid rebuilds on scroll/filter/refresh; make sure
-        // the column comes back if it's lost.
-        setInterval(injectScanColumn, 2000);
-        // Every 30s refetch colours in case a heading was added/recoloured
-        setInterval(function () {
-          loadColours(true).then(function () {
-            try { $('#pqgrid6').pqGrid('refresh'); } catch (e) {}
-          });
-        }, 30000);
+        // Slow safety net — injectScanColumn is a no-op when the column is
+        // already present, so a 5s check is enough to catch a lost column
+        // after a HireHop rebuild without any visible flashing.
+        setInterval(injectScanColumn, 5000);
+        // No periodic refetch — the Refresh button in the scanning module
+        // (hooked in bindScanRefresh) is the trigger for pulling new colours.
       } else if (tries > 60) {
         clearInterval(timer);
       }
@@ -354,20 +351,25 @@
   }
 
   // Append the side-by-side swatches inline right after the row's name text
-  // inside the name_cell's inner div. No column, no header cell, no width
-  // fiddling — HireHop's tree layout is completely untouched.
+  // inside the name_cell's inner div. IDEMPOTENT — if a swatch already
+  // exists and matches the expected content, do nothing (no remove-then-add
+  // flash). Update in place if it exists but is stale.
   function appendInlineSwatch(li, fields) {
     var nameCell = li.querySelector(':scope > .jstree-anchor > table.cust_node .name_cell');
     if (!nameCell) return;
     var inner = nameCell.querySelector('div');
     if (!inner) return;
-    var old = inner.querySelector(':scope > .hh-inline-swatch');
-    if (old) old.remove();
-    if (!fields || !fields.length) return;
+    var existing = inner.querySelector(':scope > .hh-inline-swatch');
+    var expected = (fields && fields.length) ? sideBySideSwatchHtml(fields, 12) : '';
+    if (!expected) { if (existing) existing.remove(); return; }
+    if (existing) {
+      if (existing.innerHTML !== expected) existing.innerHTML = expected;
+      return;
+    }
     var span = document.createElement('span');
     span.className = 'hh-inline-swatch';
     span.style.cssText = 'display:inline-block;margin-left:8px;vertical-align:middle;line-height:0;';
-    span.innerHTML = sideBySideSwatchHtml(fields, 12);
+    span.innerHTML = expected;
     inner.appendChild(span);
   }
 
@@ -531,6 +533,16 @@
     $(document).on('dialogopen.hh_swatch', function () {
       setTimeout(applyColourFieldVisibility, 0);
     });
+    // When the Edit-heading dialog CLOSES, the user has probably just changed
+    // (or set) a colour custom field — refetch the colour map + repaint so the
+    // swatches update immediately without waiting for a periodic timer.
+    $(document).on('dialogclose.hh_swatch', function (e) {
+      var dialog = e.target && e.target.closest && e.target.closest('.ui-dialog');
+      var title  = dialog && dialog.querySelector('.ui-dialog-title');
+      if (!title || title.innerText.trim() !== 'Edit heading') return;
+      // Small delay so HireHop's own save finishes before we re-fetch
+      setTimeout(refreshColoursThenPaint, 300);
+    });
   }
 
   function bootstrapSupplying() {
@@ -545,16 +557,12 @@
           bindSupplyingEvents();
         });
         clearInterval(timer);
-        // Safety net — re-tint every second so HireHop tree rebuilds don't
-        // leave stale (or reverted-to-default) icons for long. Also enforces
-        // colour-field visibility in case the dialogopen event was missed.
-        setInterval(function () {
-          paintAllHeadings();
-          applyColourFieldVisibility();
-        }, 1000);
-        // And every 30s refetch the colour map so headings the user just
-        // created / recoloured pick up their tint without a page reload.
-        setInterval(refreshColoursThenPaint, 30000);
+        // Slow safety net — paint is idempotent so no flash, but we keep a
+        // 5s check as a fallback in case a jstree event we didn't hook
+        // (or a HireHop rebuild) leaves a row missing its swatch.
+        setInterval(paintAllHeadings, 5000);
+        // No 30s refetch — colour changes are triggered by the Edit-heading
+        // dialog close handler above.
       } else if (tries > 120) {
         clearInterval(timer);
       }
