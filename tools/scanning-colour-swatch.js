@@ -2,7 +2,7 @@
  * HireHop Tool: Heading Colour Swatch (Scanning + Supplying)
  * Standalone — NOT loaded by loader.js. Load directly on the scanning popup
  * and/or the job page (bookmarklet, Tampermonkey, or paste-and-run) via:
- *   https://cdn.jsdelivr.net/gh/AdamYesEvents/HH-YES-Plugins@scanning-colour-swatch-v1.0.3/tools/scanning-colour-swatch.js
+ *   https://cdn.jsdelivr.net/gh/AdamYesEvents/HH-YES-Plugins@scanning-colour-swatch-v1.0.4/tools/scanning-colour-swatch.js
  *
  * Reads the job's headings via /frames/items_to_supply_list.php, collects
  * every custom-field value on each heading that looks like a hex colour
@@ -41,7 +41,7 @@
  * "/", so users can compose any 2-tone (or 3-tone) tape colour without a
  * plugin change.
  *
- * Version: 1.0.3
+ * Version: 1.0.4
  */
 
 (function () {
@@ -60,15 +60,42 @@
 
   var colourById = new Map();     // headingId (string) -> array of hex descriptors
   var fetched    = false;
+  var CACHE_KEY  = 'hh_swatch_colours_v1_' + jobId;
+
+  // Instant hydration from localStorage so first paint doesn't wait for the
+  // server round-trip. Cache is refreshed by every successful fetch below.
+  function hydrateColoursFromCache() {
+    try {
+      var raw = localStorage.getItem(CACHE_KEY);
+      if (!raw) return false;
+      var obj = JSON.parse(raw);
+      if (!obj || typeof obj !== 'object') return false;
+      colourById.clear();
+      for (var id in obj) {
+        if (Object.prototype.hasOwnProperty.call(obj, id) && Array.isArray(obj[id])) {
+          colourById.set(String(id), obj[id]);
+        }
+      }
+      return colourById.size > 0;
+    } catch (e) { return false; }
+  }
+
+  function saveColoursToCache() {
+    try {
+      var out = {};
+      colourById.forEach(function (v, k) { out[k] = v; });
+      localStorage.setItem(CACHE_KEY, JSON.stringify(out));
+    } catch (e) {}
+  }
 
   function loadColours(force) {
     if (fetched && !force) return Promise.resolve();
     fetched = true;
-    if (force) colourById.clear();
     return fetch('/frames/items_to_supply_list.php?job=' + encodeURIComponent(jobId), { credentials: 'include' })
       .then(function (r) { return r.json(); })
       .then(function (j) {
         var items = (j && j.items) || [];
+        var next = new Map();
         for (var i = 0; i < items.length; i++) {
           var it = items[i];
           if (String(it.kind) !== '0') continue;         // headings only
@@ -85,8 +112,10 @@
             if (typeof v !== 'string') continue;
             if (HEX_RE.test(v) || HEX_PAIR_RE.test(v)) fields.push(v);
           }
-          if (fields.length) colourById.set(String(it.ID), fields);
+          if (fields.length) next.set(String(it.ID), fields);
         }
+        colourById = next;
+        saveColoursToCache();
       })
       .catch(function () { /* swallow — no swatches if the fetch fails */ });
   }
@@ -523,13 +552,10 @@
     if (!$ || window.__hh_supplyBound) return;
     window.__hh_supplyBound = true;
     var $tree = $('#items_tree1');
-    // Cheap events (no map change) — just re-tint with the current map
-    $tree.on(
-      'after_open.jstree after_close.jstree redraw.jstree load_node.jstree move_node.jstree',
-      function () { setTimeout(paintAllHeadings, 0); }
-    );
-    // Structural events that could add a new heading or change its custom
-    // fields — refetch the colour map first, then re-tint.
+    // No open/close/redraw/load handlers — the MutationObserver paints new
+    // nodes as they appear (from opens or HireHop rebuilds), and existing
+    // nodes never need touching. Only refetch on events that mean the
+    // colour data itself may have changed.
     $tree.on(
       'create_node.jstree rename_node.jstree refresh.jstree set_text.jstree',
       function () { setTimeout(refreshColoursThenPaint, 0); }
@@ -551,6 +577,46 @@
     });
   }
 
+  // MutationObserver on the tree that paints anchors ONLY as they get added
+  // to the DOM (from jstree opens, HireHop rebuilds, node creates). Existing
+  // painted anchors are never touched. This is what stops the flash on tree
+  // open/close: no global sweep on events, no periodic re-write.
+  function startSupplyingObserver() {
+    var tree = document.getElementById('items_tree1');
+    if (!tree || tree.__hhObserverAttached) return;
+    tree.__hhObserverAttached = true;
+    var mo = new MutationObserver(function (mutations) {
+      for (var i = 0; i < mutations.length; i++) {
+        var added = mutations[i].addedNodes;
+        for (var j = 0; j < added.length; j++) {
+          var node = added[j];
+          if (!node || node.nodeType !== 1) continue;
+          // The added node may itself be a jstree-node, or it may contain them
+          var lis = [];
+          if (node.matches && node.matches('.jstree-node')) lis.push(node);
+          if (node.querySelectorAll) {
+            var descs = node.querySelectorAll('.jstree-node');
+            for (var k = 0; k < descs.length; k++) lis.push(descs[k]);
+          }
+          for (var l = 0; l < lis.length; l++) paintOneNode(lis[l]);
+        }
+      }
+    });
+    mo.observe(tree, { childList: true, subtree: true });
+  }
+
+  function paintOneNode(li) {
+    // Walk up to the top-level heading LI to find whose colour applies
+    var top = li;
+    while (top.parentElement && top.parentElement.closest('.jstree-node')) {
+      top = top.parentElement.closest('.jstree-node');
+    }
+    if (!top.id) return;
+    var fields = colourById.get(String(top.id.replace(/^[a-z]/, '')));
+    clearHeadingIconTint(li);
+    appendInlineSwatch(li, fields);
+  }
+
   function bootstrapSupplying() {
     var tries = 0;
     var timer = setInterval(function () {
@@ -558,17 +624,15 @@
       var $ = window.jQuery;
       if ($ && $('#items_tree1').length && $('#items_tree1').jstree(true)) {
         cleanLegacySupplyingArtifacts();
-        loadColours().then(function () {
-          paintAllHeadings();
-          bindSupplyingEvents();
-        });
+        // Instant first paint from cache if we have one — no waiting on network
+        hydrateColoursFromCache();
+        paintAllHeadings();
+        // Then refresh from the server in the background and repaint
+        loadColours(true).then(paintAllHeadings);
+        bindSupplyingEvents();
+        // Observer keeps future opens/rebuilds in sync without periodic sweeps
+        startSupplyingObserver();
         clearInterval(timer);
-        // Slow safety net — paint is idempotent so no flash, but we keep a
-        // 5s check as a fallback in case a jstree event we didn't hook
-        // (or a HireHop rebuild) leaves a row missing its swatch.
-        setInterval(paintAllHeadings, 5000);
-        // No 30s refetch — colour changes are triggered by the Edit-heading
-        // dialog close handler above.
       } else if (tries > 120) {
         clearInterval(timer);
       }
