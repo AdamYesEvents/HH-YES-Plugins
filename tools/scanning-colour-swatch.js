@@ -2,7 +2,7 @@
  * HireHop Tool: Heading Colour Swatch (Scanning + Supplying)
  * Standalone — NOT loaded by loader.js. Load directly on the scanning popup
  * and/or the job page (bookmarklet, Tampermonkey, or paste-and-run) via:
- *   https://cdn.jsdelivr.net/gh/AdamYesEvents/HH-YES-Plugins@scanning-colour-swatch-v1.0.0/tools/scanning-colour-swatch.js
+ *   https://cdn.jsdelivr.net/gh/AdamYesEvents/HH-YES-Plugins@scanning-colour-swatch-v1.0.1/tools/scanning-colour-swatch.js
  *
  * Reads the job's headings via /frames/items_to_supply_list.php, collects
  * every custom-field value on each heading that looks like a hex colour
@@ -24,12 +24,13 @@
  *                                progressive-disclosure interlock on the
  *                                Edit-heading dialog's colour fields:
  *                                every field after the first is hidden
- *                                until the previous one is set, and
- *                                earlier fields lock once a later one
- *                                has a value — forcing A → B → C order.
- *                                Colour fields are hidden entirely on
- *                                non-root headings (colour lives only on
- *                                the top-level room).
+ *                                until the previous one is set, earlier
+ *                                fields lock once a later one has a value,
+ *                                and options already picked in earlier
+ *                                fields are hidden from later fields'
+ *                                dropdowns (no duplicates). Colour fields
+ *                                are hidden entirely on non-root headings
+ *                                (colour lives only on the top-level room).
  *
  * Colour composition:
  *   1 hex   -> solid                            "#E30613"
@@ -40,7 +41,7 @@
  * "/", so users can compose any 2-tone (or 3-tone) tape colour without a
  * plugin change.
  *
- * Version: 1.0.0
+ * Version: 1.0.1
  */
 
 (function () {
@@ -436,12 +437,19 @@
   //   * Every field after the first is hidden until the previous one is set.
   //   * Once field N is set, ALL fields before it are disabled — user must
   //     clear later fields (back to "none") before changing earlier ones.
-  //   This forces A -> B -> C order and stops silent overwrites.
+  //   * Values already picked in earlier fields are HIDDEN from later fields'
+  //     dropdowns — no picking Red in both A and B.
+  //   This forces A -> B -> C order and stops silent overwrites/collisions.
   function applyColourFieldInterlock(fields) {
+    // First pass: reset every option's hidden state so a cleared A restores
+    // its former choice as an option in B.
+    for (var r = 0; r < fields.length; r++) {
+      var opts = fields[r].select.options;
+      for (var q = 0; q < opts.length; q++) opts[q].hidden = false;
+    }
     for (var i = 0; i < fields.length; i++) {
       var f = fields[i];
       var prev = i > 0 ? fields[i - 1] : null;
-      var next = i < fields.length - 1 ? fields[i + 1] : null;
       // Hide until predecessor is set
       f.container.style.display = (prev && !colourFieldIsSet(prev.select)) ? 'none' : '';
       // Disable if any successor is set
@@ -454,6 +462,18 @@
       f.container.title = anyLaterSet
         ? 'Clear the later colour field(s) before changing this one'
         : '';
+      // Hide any option in THIS field whose value is already picked by
+      // an earlier field.
+      if (i > 0) {
+        var taken = {};
+        for (var k = 0; k < i; k++) {
+          if (colourFieldIsSet(fields[k].select)) taken[fields[k].select.value] = true;
+        }
+        var opts2 = f.select.options;
+        for (var o = 0; o < opts2.length; o++) {
+          if (taken[opts2[o].value]) opts2[o].hidden = true;
+        }
+      }
     }
   }
 
