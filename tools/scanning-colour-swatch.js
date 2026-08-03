@@ -2,7 +2,7 @@
  * HireHop Tool: Heading Colour Swatch (Scanning + Supplying)
  * Standalone — NOT loaded by loader.js. Load directly on the scanning popup
  * and/or the job page (bookmarklet, Tampermonkey, or paste-and-run) via:
- *   https://cdn.jsdelivr.net/gh/AdamYesEvents/HH-YES-Plugins@scanning-colour-swatch-v1.0.2/tools/scanning-colour-swatch.js
+ *   https://cdn.jsdelivr.net/gh/AdamYesEvents/HH-YES-Plugins@scanning-colour-swatch-v1.0.3/tools/scanning-colour-swatch.js
  *
  * Reads the job's headings via /frames/items_to_supply_list.php, collects
  * every custom-field value on each heading that looks like a hex colour
@@ -41,7 +41,7 @@
  * "/", so users can compose any 2-tone (or 3-tone) tape colour without a
  * plugin change.
  *
- * Version: 1.0.2
+ * Version: 1.0.3
  */
 
 (function () {
@@ -351,25 +351,31 @@
   }
 
   // Append the side-by-side swatches inline right after the row's name text
-  // inside the name_cell's inner div. IDEMPOTENT — if a swatch already
-  // exists and matches the expected content, do nothing (no remove-then-add
-  // flash). Update in place if it exists but is stale.
+  // inside the name_cell's inner div. Every swatch carries a data-hh-key
+  // built from the fields array — if the key matches, we do NOTHING (no
+  // DOM writes, no visual flash). String-comparing innerHTML doesn't work
+  // because the browser normalises attribute order/whitespace so every
+  // check would look changed.
   function appendInlineSwatch(li, fields) {
     var nameCell = li.querySelector(':scope > .jstree-anchor > table.cust_node .name_cell');
     if (!nameCell) return;
     var inner = nameCell.querySelector('div');
     if (!inner) return;
     var existing = inner.querySelector(':scope > .hh-inline-swatch');
-    var expected = (fields && fields.length) ? sideBySideSwatchHtml(fields, 12) : '';
-    if (!expected) { if (existing) existing.remove(); return; }
+    var key = (fields && fields.length) ? fields.join('|') : '';
     if (existing) {
-      if (existing.innerHTML !== expected) existing.innerHTML = expected;
+      if (existing.dataset.hhKey === key) return;   // unchanged, do nothing
+      if (!key) { existing.remove(); return; }
+      existing.dataset.hhKey = key;
+      existing.innerHTML = sideBySideSwatchHtml(fields, 12);
       return;
     }
+    if (!key) return;
     var span = document.createElement('span');
     span.className = 'hh-inline-swatch';
+    span.dataset.hhKey = key;
     span.style.cssText = 'display:inline-block;margin-left:8px;vertical-align:middle;line-height:0;';
-    span.innerHTML = expected;
+    span.innerHTML = sideBySideSwatchHtml(fields, 12);
     inner.appendChild(span);
   }
 
