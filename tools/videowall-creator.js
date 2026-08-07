@@ -21,7 +21,7 @@
  * flip the flag on and reformat buildVideowallPdf() to match the final layout
  * (do not delete the scaffolding).
  *
- * Version: 0.3.0
+ * Version: 0.4.0
  */
 
 (function () {
@@ -119,20 +119,36 @@
     if (!(W > 0) || !isMult(W, 0.5)) return { ok: false, error: "Width must be a multiple of 0.5m" };
     if (!(H > 0) || !isMult(H, 0.5)) return { ok: false, error: "Height must be a multiple of 0.5m" };
 
-    // Panel geometry - 500 x 1000mm portrait panels (0.5m x 1m).
+    // Panel geometry - 500w panels in two heights (1000h and 500h).
+    // Per column stack: N x 1000h + (1 x 500h if H has a 0.5m remainder).
+    //   1.5m column -> 1x 1000 + 1x 500
+    //   2.0m column -> 2x 1000
+    //   2.5m column -> 2x 1000 + 1x 500
     var cols = Math.round(W / 0.5);
-    var rows = Math.ceil(H - EPS);              // whole 1m panel rows; top row trimmed if H fractional
-    var partialTop = Math.abs(rows - H) > EPS;  // note in the kit list when true
-    var panels = cols * rows;
+    var fullPerCol = Math.floor(H + EPS);
+    var halfPerCol = Math.abs(H - fullPerCol - 0.5) < EPS ? 1 : 0;
+    var rows = fullPerCol + halfPerCol;
+    var fullPanels = cols * fullPerCol;
+    var halfPanels = cols * halfPerCol;
+    var panels = fullPanels + halfPanels;
 
     var items = [];
 
     var envLabel = opts.environment === "outdoor" ? "Outdoor" : "Indoor";
-    items.push({
-      category: "Panels",
-      label: "LED Panel 500x1000mm " + envLabel + " " + opts.pitch,
-      partNumber: "", qty: panels
-    });
+    if (fullPanels > 0) {
+      items.push({
+        category: "Panels",
+        label: "LED Panel 500x1000mm " + envLabel + " " + opts.pitch,
+        partNumber: "", qty: fullPanels
+      });
+    }
+    if (halfPanels > 0) {
+      items.push({
+        category: "Panels",
+        label: "LED Panel 500x500mm " + envLabel + " " + opts.pitch,
+        partNumber: "", qty: halfPanels
+      });
+    }
 
     // ---- Rigging / support --------------------------------------------------
     if (opts.support === "flown") {
@@ -177,13 +193,13 @@
       ok: true,
       items: items,
       cols: cols, rows: rows, panels: panels,
-      width: W, height: H,
-      partialTop: partialTop
+      fullPanels: fullPanels, halfPanels: halfPanels,
+      width: W, height: H
     };
   }
 
-  // Front-elevation SVG of the wall - grid of 500x1000mm portrait panels.
-  // If height is not a whole metre the top row is drawn shorter (trimmed).
+  // Front-elevation SVG of the wall - grid of 500w panels. Top row is drawn
+  // at half height when the wall's H has a 0.5m remainder (500h panels).
   function buildWallSvg(cols, rows, opts) {
     opts = opts || {};
     var maxW = opts.maxW || 420, maxH = opts.maxH || 260, pad = 24;
@@ -385,7 +401,6 @@
         });
       });
       html += '<div style="margin-top:10px;font-size:12px;color:#777;">' + res.panels + ' panels &middot; ' + res.width + ' &times; ' + res.height + ' m</div>';
-      if (res.partialTop) html += '<div style="margin-top:4px;font-size:11px;color:#b07b00;">Top row (0.5m) will be trimmed/masked.</div>';
       html += '<div style="margin-top:6px;font-size:11px;color:#b07b00;">Part numbers TBD - insertion into the job will be wired up next.</div>';
       kitBox.innerHTML = html;
 
