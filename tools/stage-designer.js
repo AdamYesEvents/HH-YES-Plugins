@@ -8,7 +8,7 @@
  * Catalogue: data/stage-designer/decks.json + legs.json.
  * Fascia, trim and carpet come later (fascia will match the chosen height).
  *
- * Version: 0.31.1
+ * Version: 0.31.2
  */
 
 (function () {
@@ -1410,9 +1410,13 @@
           var tapeM = perim + Math.max(0, strips - 1) * seamLen;
           var dsRolls = Math.max(1, Math.ceil(tapeM / TAPE_ROLL_M));
           items.push({ label: "Double Sided Tape (" + tapeM + "m: perimeter+seams)", partNumber: "TAPE-01", qty: dsRolls, category: "Carpet" });
-          (TAPE_GAFFER[carpetColour] || []).forEach(function (t) {
-            items.push({ label: t.label, partNumber: t.pn, qty: t.qty, category: "Carpet" });
-          });
+          // Fascia covers the deck edge, so the gaffer pair (edge-finishing) is
+          // redundant when fascia is present. Carpet + fascia => TAPE-01 only.
+          if (!fasciaHtml) {
+            (TAPE_GAFFER[carpetColour] || []).forEach(function (t) {
+              items.push({ label: t.label, partNumber: t.pn, qty: t.qty, category: "Carpet" });
+            });
+          }
         } else if (!carpetHtml) {
           items.push({ label: "White Gaffer Tape 25mm", partNumber: "TAPE-04", qty: 1, category: "Deck" });
         }
