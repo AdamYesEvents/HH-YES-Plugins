@@ -25,7 +25,7 @@
   // create a tag and set ref to it here.
   // ===========================================================================
   var TOOLS = {
-    "stage-designer":         { on: true, ref: "f3bce11" },
+    "stage-designer":         { on: true, ref: "1233ff8" },
     "videowall-creator":      { on: true, ref: "videowall-creator-v0.1.0" },
     "scanning-colour-swatch": { on: true, ref: "scanning-colour-swatch-v1.0.4" }
   };
