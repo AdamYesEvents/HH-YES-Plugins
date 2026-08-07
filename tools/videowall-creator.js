@@ -6,6 +6,13 @@
  * it into the job under a "Videowall WxH ..." heading. The framework mirrors
  * stage-designer.js (self-contained overlay dialog, pure logic + browser UI).
  *
+ * Q0  Pitch          2.6mm (indoor only) / 3.9mm (indoor or outdoor)
+ * Q1  Environment    Indoor / Outdoor (Outdoor disabled for 2.6mm)
+ * Q2  Support        Flown / Ground supported
+ * Q2.5 Rigging       Clamp / Sling  -  ONLY for Outdoor + Flown
+ * Q3  Width, Height  metres, 0.5m increments (panels are 500 x 1000)
+ * Q4  Processor      Behind screen / Within 70m
+ *
  * Part numbers are intentionally blank for now (TBD placeholders); the
  * data/videowall-creator/*.json catalogue and job-insertion wiring will follow
  * once the parts list is finalised.
@@ -14,7 +21,7 @@
  * flip the flag on and reformat buildVideowallPdf() to match the final layout
  * (do not delete the scaffolding).
  *
- * Version: 0.2.0
+ * Version: 0.3.0
  */
 
 (function () {
@@ -23,73 +30,187 @@
   // PURE LOGIC
   // ===========================================================================
 
-  // Compute the kit from the answered questions.
-  //   opts = { environment: "indoor"|"outdoor",
-  //            support:     "flown"|"ground",
-  //            rigging:     "clamp"|"sling"   (only when support==="flown"),
-  //            width:       number (whole metres),
-  //            height:      number (whole metres),
-  //            processor:   "behind"|"far" }
-  // Returns { ok, error?, items, cols, rows, panels }.
-  function computeKit(opts) {
-    opts = opts || {};
-    var w = +opts.width, h = +opts.height;
-    if (!(w > 0) || Math.abs(w - Math.round(w)) > 1e-6) return { ok: false, error: "Width must be a whole number of metres" };
-    if (!(h > 0) || Math.abs(h - Math.round(h)) > 1e-6) return { ok: false, error: "Height must be a whole number of metres" };
-    if (opts.support === "flown" && !opts.rigging) return { ok: false, error: "Choose Clamp or Sling for a flown wall" };
-    if (!opts.environment || !opts.support || !opts.processor) return { ok: false, error: "Answer every question" };
+  var EPS = 1e-6;
+  function isMult(v, step) { var q = v / step; return Math.abs(q - Math.round(q)) < EPS; }
 
-    var cols = Math.round(w), rows = Math.round(h), panels = cols * rows;
-    var items = [];
-
-    items.push({ category: "Panels",   label: "LED Panel 1x1m",                partNumber: "", qty: panels });
-
-    if (opts.support === "flown") {
-      if (opts.rigging === "clamp") {
-        items.push({ category: "Rigging", label: "Flying clamp (per column)",  partNumber: "", qty: cols });
-      } else {
-        items.push({ category: "Rigging", label: "Flying sling",               partNumber: "", qty: 2 });
-      }
-      items.push({ category: "Rigging",   label: "Flying bar",                 partNumber: "", qty: 1 });
-    } else {
-      items.push({ category: "Support",   label: "Ground support frame",       partNumber: "", qty: 1 });
-      items.push({ category: "Support",   label: "Base plate / ballast",       partNumber: "", qty: cols });
-    }
-
-    items.push({ category: "Processor",   label: "Video processor",            partNumber: "", qty: 1 });
-
-    if (opts.processor === "behind") {
-      items.push({ category: "Signal",    label: "Short signal cable (behind screen)", partNumber: "", qty: 1 });
-    } else {
-      items.push({ category: "Signal",    label: "Long-run signal cable (>= 70m)",     partNumber: "", qty: 1 });
-    }
-
-    if (opts.environment === "outdoor") {
-      items.push({ category: "Environment", label: "Weatherproof cover / kit", partNumber: "", qty: 1 });
-    }
-
-    return { ok: true, items: items, cols: cols, rows: rows, panels: panels };
+  // Flown rigging bars: prefer 1m, allow one 0.5m add-on. Width must be a
+  // multiple of 0.5m.
+  //   4.0m -> 4x 1m
+  //   4.5m -> 4x 1m + 1x 0.5m
+  //   5.0m -> 5x 1m
+  function flownRig(W) {
+    if (!(W > 0) || !isMult(W, 0.5)) return null;
+    var whole = Math.floor(W + EPS);
+    var half  = Math.abs(W - whole - 0.5) < EPS ? 1 : 0;
+    return { bars_1: whole, bars_05: half };
   }
 
-  // Front-elevation SVG of the wall - grid of 1x1m cells with W/H labels.
+  // 2.6mm indoor ground support - kits (2m bays) with a 0.5m spare per case.
+  // Cases needed = max(1, ceil((W - 0.5) / 2)) because each additional case
+  // adds 2m of coverage; the very first case's 0.5m spare bridges to 2.5m.
+  //   4.0m -> 2 kits (4x 1m)
+  //   4.5m -> 2 kits (4x 1m + 1x 0.5m)
+  //   5.0m -> 3 kits (5x 1m)
+  // Each kit contains 2x 1m + 1x 0.5m bars.
+  function ground26Kit(W) {
+    if (!(W > 0) || !isMult(W, 0.5)) return { ok: false, error: "Width must be a multiple of 0.5m" };
+    var whole = Math.floor(W + EPS);
+    var half  = Math.abs(W - whole - 0.5) < EPS ? 1 : 0;
+    var kits  = Math.max(1, Math.ceil((W - 0.5 - EPS) / 2));
+    return {
+      ok: true,
+      kits: kits,
+      bars_1: whole,
+      bars_05: half,
+      kitContents: { bars_1: 2 * kits, bars_05: 1 * kits }
+    };
+  }
+
+  // 3.9mm ground support - primary bays of 1.5m or 2m, plus one optional 1m
+  // filler.  Base case contains 2x 1m comb bars (fillers).  Extra 1.5m and 2m
+  // bars are spec'd separately.
+  // Achievable widths and preferred decomposition (matches the spec):
+  //   1.5 -> 1 x 1.5
+  //   2.0 -> 1 x 2
+  //   2.5 -> NOT achievable
+  //   3.0 -> 2 x 1.5
+  //   3.5 -> 1 x 1.5 + 1 x 2
+  //   4.0 -> 2 x 1.5 + 1 x 1
+  //   4.5 -> 3 x 1.5
+  //   5.0 -> 2 x 1.5 + 1 x 2
+  //   5.5 -> 3 x 1.5 + 1 x 1
+  //   6.0 -> 4 x 1.5
+  //   6.5 -> 3 x 1.5 + 1 x 2
+  //   7.0 -> 4 x 1.5 + 1 x 1
+  function ground39Kit(W) {
+    if (!(W > 0) || !isMult(W, 0.5)) return { ok: false, error: "Width must be a multiple of 0.5m" };
+    if (W < 1.5 - EPS) return { ok: false, error: "3.9mm ground support minimum is 1.5m" };
+    if (Math.abs(W - 1.5) < EPS) return { ok: true, kits: 1, bars_15: 1, bars_2: 0, bars_1: 0 };
+    if (Math.abs(W - 2.0) < EPS) return { ok: true, kits: 1, bars_15: 0, bars_2: 1, bars_1: 0 };
+    if (W < 3.0 - EPS) return { ok: false, error: W + "m not achievable in 3.9mm (try 2m or 3m)" };
+    for (var N = 2; N <= 40; N++) {
+      var base = 1.5 * N;
+      if (Math.abs(W - base) < EPS)         return { ok: true, kits: 1, bars_15: N,     bars_2: 0, bars_1: 0 };
+      if (Math.abs(W - (base + 0.5)) < EPS) return { ok: true, kits: 1, bars_15: N - 1, bars_2: 1, bars_1: 0 };
+      if (Math.abs(W - (base + 1.0)) < EPS) return { ok: true, kits: 1, bars_15: N,     bars_2: 0, bars_1: 1 };
+      if (W < base) break;
+    }
+    return { ok: false, error: W + "m not achievable with 3.9mm system" };
+  }
+
+  // Compute the full kit from the answered questions.
+  //   opts = { pitch:       "2.6mm" | "3.9mm",
+  //            environment: "indoor" | "outdoor",
+  //            support:     "flown" | "ground",
+  //            rigging:     "clamp" | "sling"       (Outdoor + Flown only),
+  //            width:       metres, multiples of 0.5,
+  //            height:      metres, multiples of 0.5,
+  //            processor:   "behind" | "far" }
+  function computeKit(opts) {
+    opts = opts || {};
+    if (!opts.pitch || !opts.environment || !opts.support || !opts.processor)
+      return { ok: false, error: "Answer every question" };
+    if (opts.pitch !== "2.6mm" && opts.pitch !== "3.9mm")
+      return { ok: false, error: "Pitch must be 2.6mm or 3.9mm" };
+    if (opts.pitch === "2.6mm" && opts.environment === "outdoor")
+      return { ok: false, error: "2.6mm is indoor only" };
+
+    var W = +opts.width, H = +opts.height;
+    if (!(W > 0) || !isMult(W, 0.5)) return { ok: false, error: "Width must be a multiple of 0.5m" };
+    if (!(H > 0) || !isMult(H, 0.5)) return { ok: false, error: "Height must be a multiple of 0.5m" };
+
+    // Panel geometry - 500 x 1000mm portrait panels (0.5m x 1m).
+    var cols = Math.round(W / 0.5);
+    var rows = Math.ceil(H - EPS);              // whole 1m panel rows; top row trimmed if H fractional
+    var partialTop = Math.abs(rows - H) > EPS;  // note in the kit list when true
+    var panels = cols * rows;
+
+    var items = [];
+
+    var envLabel = opts.environment === "outdoor" ? "Outdoor" : "Indoor";
+    items.push({
+      category: "Panels",
+      label: "LED Panel 500x1000mm " + envLabel + " " + opts.pitch,
+      partNumber: "", qty: panels
+    });
+
+    // ---- Rigging / support --------------------------------------------------
+    if (opts.support === "flown") {
+      var rig = flownRig(W);
+      if (rig) {
+        if (rig.bars_1 > 0)  items.push({ category: "Rigging", label: "Flying bar 1m",  partNumber: "", qty: rig.bars_1 });
+        if (rig.bars_05 > 0) items.push({ category: "Rigging", label: "Flying bar 0.5m", partNumber: "", qty: rig.bars_05 });
+      }
+      // Clamp/sling is an OUTDOOR question only.
+      if (opts.environment === "outdoor") {
+        if (!opts.rigging) return { ok: false, error: "Choose Clamp or Sling for an outdoor flown wall" };
+        if (opts.rigging === "clamp") {
+          items.push({ category: "Rigging", label: "Flying clamp (per column)", partNumber: "", qty: cols });
+        } else {
+          items.push({ category: "Rigging", label: "Flying sling",              partNumber: "", qty: 2 });
+        }
+      }
+    } else {
+      // Ground support - kit differs by pitch.
+      if (opts.pitch === "2.6mm") {
+        var g26 = ground26Kit(W);
+        if (!g26.ok) return { ok: false, error: g26.error };
+        items.push({ category: "Support", label: "2.6mm ground support kit (2m bay, incl. 2x 1m + 1x 0.5m bars)", partNumber: "", qty: g26.kits });
+      } else {
+        var g39 = ground39Kit(W);
+        if (!g39.ok) return { ok: false, error: g39.error };
+        items.push({ category: "Support", label: "3.9mm ground support base case (incl. 2x 1m comb bars)", partNumber: "", qty: g39.kits });
+        if (g39.bars_15 > 0) items.push({ category: "Support", label: "3.9mm Comb bar 1.5m", partNumber: "", qty: g39.bars_15 });
+        if (g39.bars_2  > 0) items.push({ category: "Support", label: "3.9mm Comb bar 2m",   partNumber: "", qty: g39.bars_2 });
+      }
+    }
+
+    // ---- Processor + signal -------------------------------------------------
+    items.push({ category: "Processor", label: "Video processor", partNumber: "", qty: 1 });
+    if (opts.processor === "behind") {
+      items.push({ category: "Signal", label: "Short signal cable (behind screen)", partNumber: "", qty: 1 });
+    } else {
+      items.push({ category: "Signal", label: "Long-run signal cable (>= 70m)",     partNumber: "", qty: 1 });
+    }
+
+    return {
+      ok: true,
+      items: items,
+      cols: cols, rows: rows, panels: panels,
+      width: W, height: H,
+      partialTop: partialTop
+    };
+  }
+
+  // Front-elevation SVG of the wall - grid of 500x1000mm portrait panels.
+  // If height is not a whole metre the top row is drawn shorter (trimmed).
   function buildWallSvg(cols, rows, opts) {
     opts = opts || {};
     var maxW = opts.maxW || 420, maxH = opts.maxH || 260, pad = 24;
-    var cellPx = Math.max(8, Math.min((maxW - pad * 2) / cols, (maxH - pad * 2) / rows));
-    var W = cellPx * cols, H = cellPx * rows;
+    var height = opts.height || rows;                       // wall height in metres
+    var trim = Math.max(0, rows - height);                  // 0 or 0.5 typically
+    // Panels are 0.5m wide x 1m high in real units; scale so the wall fits the box.
+    var wPx = (maxW - pad * 2) / (cols * 0.5);
+    var hPx = (maxH - pad * 2) / height;
+    var unit = Math.max(6, Math.min(wPx, hPx));             // px per metre
+    var panelW = 0.5 * unit, panelH = 1.0 * unit;
+    var W = panelW * cols, H = unit * height;
     var SW = W + pad * 2, SH = H + pad * 2;
     var ox = pad, oy = pad;
     var cells = "";
     for (var r = 0; r < rows; r++) {
       for (var c = 0; c < cols; c++) {
-        cells += '<rect x="' + (ox + c * cellPx + 1) + '" y="' + (oy + r * cellPx + 1) +
-          '" width="' + (cellPx - 2) + '" height="' + (cellPx - 2) +
+        // The TOP row (r==0) is trimmed when height isn't a whole metre.
+        var y = oy + (r === 0 ? 0 : (r - trim) * panelH);
+        var h = r === 0 ? (1 - trim) * panelH : panelH;
+        cells += '<rect x="' + (ox + c * panelW + 1) + '" y="' + (y + 1) +
+          '" width="' + (panelW - 2) + '" height="' + (h - 2) +
           '" fill="#1D1D3C" stroke="#26215C" stroke-width="1"/>';
       }
     }
     var frame = '<rect x="' + (ox - 0.5) + '" y="' + (oy - 0.5) + '" width="' + (W + 1) + '" height="' + (H + 1) + '" fill="none" stroke="#26215C" stroke-width="2"/>';
-    var wLbl = '<text x="' + (ox + W / 2) + '" y="' + (SH - 6) + '" font-family="Arial,Helvetica,sans-serif" font-size="11" fill="#666" text-anchor="middle">' + cols + ' m wide</text>';
-    var hLbl = '<text x="' + (SW - 8) + '" y="' + (oy + H / 2) + '" font-family="Arial,Helvetica,sans-serif" font-size="11" fill="#666" text-anchor="middle" transform="rotate(90 ' + (SW - 8) + ' ' + (oy + H / 2) + ')">' + rows + ' m high</text>';
+    var wLbl = '<text x="' + (ox + W / 2) + '" y="' + (SH - 6) + '" font-family="Arial,Helvetica,sans-serif" font-size="11" fill="#666" text-anchor="middle">' + (cols * 0.5) + ' m wide</text>';
+    var hLbl = '<text x="' + (SW - 8) + '" y="' + (oy + H / 2) + '" font-family="Arial,Helvetica,sans-serif" font-size="11" fill="#666" text-anchor="middle" transform="rotate(90 ' + (SW - 8) + ' ' + (oy + H / 2) + ')">' + height + ' m high</text>';
     return '<svg width="' + SW + '" height="' + SH + '" viewBox="0 0 ' + SW + ' ' + SH + '" xmlns="http://www.w3.org/2000/svg">' + cells + frame + wLbl + hLbl + '</svg>';
   }
 
@@ -109,7 +230,10 @@
   // NODE EXPORT (no-op in the browser)
   // ===========================================================================
   if (typeof module !== "undefined" && module.exports) {
-    module.exports = { computeKit: computeKit, buildWallSvg: buildWallSvg };
+    module.exports = {
+      computeKit: computeKit, buildWallSvg: buildWallSvg,
+      flownRig: flownRig, ground26Kit: ground26Kit, ground39Kit: ground39Kit
+    };
   }
 
   // ===========================================================================
@@ -152,7 +276,7 @@
 
     var body = el("div", null, "display:flex;gap:24px;padding:22px;");
     var colPreview  = el("div", null, "flex:1;min-width:320px;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;");
-    var colKit      = el("div", null, "width:240px;flex-shrink:0;");
+    var colKit      = el("div", null, "width:260px;flex-shrink:0;");
     var colControls = el("div", null, "width:240px;flex-shrink:0;");
     body.appendChild(colPreview); body.appendChild(colKit); body.appendChild(colControls);
     panel.appendChild(body);
@@ -168,31 +292,36 @@
       return s;
     }
 
-    // Q1
+    // Q0 Pitch
+    var pitchWrap = field("Pitch");
+    var pitchSel  = select([["2.6mm", "2.6mm (indoor only)"], ["3.9mm", "3.9mm (indoor or outdoor)"]]);
+    pitchWrap.appendChild(pitchSel); colControls.appendChild(pitchWrap);
+
+    // Q1 Environment (options depend on pitch)
     var envWrap = field("Environment");
     var envSel  = select([["indoor", "Indoor"], ["outdoor", "Outdoor"]]);
     envWrap.appendChild(envSel); colControls.appendChild(envWrap);
 
-    // Q2
+    // Q2 Support
     var supWrap = field("Support");
     var supSel  = select([["ground", "Ground supported"], ["flown", "Flown"]]);
     supWrap.appendChild(supSel); colControls.appendChild(supWrap);
 
-    // Q2.5 - only shown when Flown
+    // Q2.5 Rigging - ONLY for Outdoor + Flown
     var rigWrap = field("Rigging");
     var rigSel  = select([["clamp", "Clamp"], ["sling", "Sling"]]);
     rigWrap.appendChild(rigSel); colControls.appendChild(rigWrap);
 
-    // Q3 - width + height (m increments)
+    // Q3 W / H (0.5m increments)
     var wWrap = field("Width (m)");
-    var wIn = el("input", { type: "number", min: "1", step: "1" }, "width:100%;padding:8px;font-size:14px;");
+    var wIn = el("input", { type: "number", min: "0.5", step: "0.5" }, "width:100%;padding:8px;font-size:14px;");
     wIn.value = "4"; wWrap.appendChild(wIn); colControls.appendChild(wWrap);
 
     var hWrap = field("Height (m)");
-    var hIn = el("input", { type: "number", min: "1", step: "1" }, "width:100%;padding:8px;font-size:14px;");
+    var hIn = el("input", { type: "number", min: "1", step: "0.5" }, "width:100%;padding:8px;font-size:14px;");
     hIn.value = "3"; hWrap.appendChild(hIn); colControls.appendChild(hWrap);
 
-    // Q4
+    // Q4 Processor location
     var procWrap = field("Processor location");
     var procSel  = select([["behind", "Behind screen"], ["far", "Within 70m distance"]]);
     procWrap.appendChild(procSel); colControls.appendChild(procWrap);
@@ -205,16 +334,30 @@
 
     var state = { result: null, items: [], title: "" };
 
+    // 2.6mm is indoor-only; disable Outdoor and force back to Indoor.
+    function syncEnvOptions() {
+      var outdoorOpt = Array.prototype.slice.call(envSel.options).filter(function (o) { return o.value === "outdoor"; })[0];
+      if (pitchSel.value === "2.6mm") {
+        outdoorOpt.disabled = true;
+        if (envSel.value === "outdoor") envSel.value = "indoor";
+      } else {
+        outdoorOpt.disabled = false;
+      }
+    }
+
+    // Rigging (clamp/sling) only for Outdoor + Flown.
     function syncRiggingVisibility() {
-      rigWrap.style.display = supSel.value === "flown" ? "" : "none";
+      rigWrap.style.display = (supSel.value === "flown" && envSel.value === "outdoor") ? "" : "none";
     }
 
     function render() {
+      syncEnvOptions();
       syncRiggingVisibility();
       var res = computeKit({
+        pitch:       pitchSel.value,
         environment: envSel.value,
         support:     supSel.value,
-        rigging:     supSel.value === "flown" ? rigSel.value : null,
+        rigging:     (supSel.value === "flown" && envSel.value === "outdoor") ? rigSel.value : null,
         width:       parseFloat(wIn.value),
         height:      parseFloat(hIn.value),
         processor:   procSel.value
@@ -228,32 +371,36 @@
         return;
       }
 
-      colPreview.innerHTML = buildWallSvg(res.cols, res.rows);
+      colPreview.innerHTML = buildWallSvg(res.cols, res.rows, { height: res.height });
 
-      // Group items by category for a tidy list.
       var byCat = {};
       res.items.forEach(function (it) { (byCat[it.category] = byCat[it.category] || []).push(it); });
-      var order = ["Panels", "Rigging", "Support", "Processor", "Signal", "Environment"];
+      var order = ["Panels", "Rigging", "Support", "Processor", "Signal"];
       var html = '<div style="font-size:11px;letter-spacing:.04em;color:#888;text-transform:uppercase;margin-bottom:6px;">Generated kit</div>';
       order.forEach(function (cat) {
         var arr = byCat[cat]; if (!arr) return;
         html += '<div style="font-size:11px;letter-spacing:.04em;color:#888;text-transform:uppercase;margin:10px 0 4px;">' + cat + '</div>';
         arr.forEach(function (it) {
-          html += '<div style="display:flex;justify-content:space-between;font-size:13px;padding:3px 0;"><span style="color:#333;">' + it.label + '</span><span style="color:#111;font-weight:500;">x ' + it.qty + '</span></div>';
+          html += '<div style="display:flex;justify-content:space-between;font-size:13px;padding:3px 0;gap:8px;"><span style="color:#333;">' + it.label + '</span><span style="color:#111;font-weight:500;white-space:nowrap;">x ' + it.qty + '</span></div>';
         });
       });
-      html += '<div style="margin-top:10px;font-size:12px;color:#777;">' + res.panels + ' panels &middot; ' + res.cols + ' &times; ' + res.rows + ' m</div>';
-      html += '<div style="margin-top:6px;font-size:11px;color:#b07b00;">Part numbers TBD - insertion into the job will be wired up in the next iteration.</div>';
+      html += '<div style="margin-top:10px;font-size:12px;color:#777;">' + res.panels + ' panels &middot; ' + res.width + ' &times; ' + res.height + ' m</div>';
+      if (res.partialTop) html += '<div style="margin-top:4px;font-size:11px;color:#b07b00;">Top row (0.5m) will be trimmed/masked.</div>';
+      html += '<div style="margin-top:6px;font-size:11px;color:#b07b00;">Part numbers TBD - insertion into the job will be wired up next.</div>';
       kitBox.innerHTML = html;
 
-      // Title mirrors stage-designer's "Stage WxD @ Hmm ..." style.
       var envLabel = envSel.value === "outdoor" ? "Outdoor" : "Indoor";
-      var supLabel = supSel.value === "flown"
-        ? ("Flown - " + (rigSel.value === "clamp" ? "Clamp" : "Sling"))
-        : "Ground Supported";
+      var supLabel;
+      if (supSel.value === "flown") {
+        supLabel = envSel.value === "outdoor"
+          ? ("Flown - " + (rigSel.value === "clamp" ? "Clamp" : "Sling"))
+          : "Flown";
+      } else {
+        supLabel = "Ground Supported";
+      }
       var procLabel = procSel.value === "behind" ? "Processor behind screen" : "Processor within 70m";
       state.items = res.items;
-      state.title = "Videowall " + res.cols + "x" + res.rows + "m, " + envLabel + ", " + supLabel + ", " + procLabel;
+      state.title = "Videowall " + res.width + "x" + res.height + "m " + pitchSel.value + ", " + envLabel + ", " + supLabel + ", " + procLabel;
 
       renderFooter(true, "");
     }
@@ -297,12 +444,13 @@
       }
     }
 
-    envSel.addEventListener("change", render);
-    supSel.addEventListener("change", render);
-    rigSel.addEventListener("change", render);
-    wIn.addEventListener("input", render);
-    hIn.addEventListener("input", render);
-    procSel.addEventListener("change", render);
+    pitchSel.addEventListener("change", render);
+    envSel  .addEventListener("change", render);
+    supSel  .addEventListener("change", render);
+    rigSel  .addEventListener("change", render);
+    wIn     .addEventListener("input",  render);
+    hIn     .addEventListener("input",  render);
+    procSel .addEventListener("change", render);
 
     document.body.appendChild(backdrop);
     render();
