@@ -8,7 +8,7 @@
  * Catalogue: data/stage-designer/decks.json + legs.json.
  * Fascia, trim and carpet come later (fascia will match the chosen height).
  *
- * Version: 0.31.0
+ * Version: 0.31.1
  */
 
 (function () {
@@ -813,8 +813,13 @@
         function nextCategory() {
           if (i >= grouped.order.length) {
             // Final sweep: HireHop can fire another Autopull dialog after the
-            // full kit finishes (linked items etc.). Auto-Save it, then finish.
-            dismissAutopullThen(function () { onDone({ ok: true, headingId: mainId, parts: parts, customs: customs }); });
+            // full kit finishes (linked items etc.). Auto-Save it, then hit the
+            // Supplying refresh button so the newly-inserted rows appear, then
+            // finish.
+            dismissAutopullThen(function () {
+              clickSupplyingRefresh(inst);
+              onDone({ ok: true, headingId: mainId, parts: parts, customs: customs });
+            });
             return;
           }
           var cat = grouped.order[i++];
@@ -1034,6 +1039,30 @@
     })[0];
   }
 
+  // Click the Supplying tab's refresh button (the one next to the New/menu
+  // buttons). HireHop doesn't re-render the tree after a batch save, so parts
+  // added via our kit only appear once the user hits refresh. Idempotent - no-op
+  // if the button isn't found.
+  function clickSupplyingRefresh(inst) {
+    try {
+      var root = (inst && inst.element && inst.element[0]) || document;
+      var sels = [
+        "a[title='Refresh' i]", "button[title='Refresh' i]",
+        "[title*='refresh' i]",
+        ".ui-icon-refresh", ".ui-icon-arrowrefresh-1-w",
+        ".ui-icon-arrowrefresh-1-e", ".ui-icon-arrowrefresh-1-s"
+      ];
+      for (var i = 0; i < sels.length; i++) {
+        var el = root.querySelector(sels[i]);
+        if (el) {
+          var btn = el.closest && (el.closest("button, a, li, .ui-button, [role='button']") || el);
+          (btn || el).click();
+          return;
+        }
+      }
+    } catch (e) { /* refresh is best-effort */ }
+  }
+
   // The batch insert (deck) makes HireHop prompt a modal "Autopull" dialog (the
   // boltset). It must be dismissed BEFORE the custom rows start, or its modal
   // blocks the tree and the custom saves collide. Poll for it, press Save, wait
@@ -1110,7 +1139,7 @@
         var cols = []; ((cat.carpet && cat.carpet.carpet) || []).forEach(function (b) { if (cols.indexOf(b.colour) < 0) cols.push(b.colour); });
         var opts = [["", "None"]].concat(cols.map(function (c) { return [c, c.charAt(0).toUpperCase() + c.slice(1)]; }));
         opts.forEach(function (o) { var op = el("option"); op.value = o[0]; op.textContent = o[1]; carpetSel.appendChild(op); });
-        if (cols.indexOf("black") >= 0) carpetSel.value = "black";
+        carpetSel.value = ""; // default to None; user opts in per stage
       })();
       carpetWrap.appendChild(carpetSel); colControls.appendChild(carpetWrap);
 
