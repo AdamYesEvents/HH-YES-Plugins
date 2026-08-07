@@ -8,7 +8,7 @@
  * Catalogue: data/stage-designer/decks.json + legs.json.
  * Fascia, trim and carpet come later (fascia will match the chosen height).
  *
- * Version: 0.30.1
+ * Version: 0.31.0
  */
 
 (function () {
@@ -1285,6 +1285,7 @@
         var carpetHtml = "", carpetColour = "";
         if (carpetSel.value) {
           var cpt = carpetKit({ system: sysSel.value, width: parseFloat(wIn.value), depth: parseFloat(dIn.value), colour: carpetSel.value, carpet: cat.carpet });
+          state.carpetKit = cpt; // stash for tape-metreage calc later
           if (cpt.available && cpt.items.length) {
             cpt.items.forEach(function (it) { items.push(Object.assign({}, it, { category: "Carpet" })); });
             carpetColour = carpetSel.value;
@@ -1359,6 +1360,32 @@
         if (trimHtml) {
           var cornerCount = sides === 4 ? 4 : (sides === 3 ? 2 : (sides === 2 ? 1 : 0));
           pushAccessories("Trim", cornerCount);
+        }
+
+        // Tape consumables (dynamic, not in accessories.json):
+        //   Has carpet + colour X -> TAPE-01 (rolls calc'd from perimeter + seams,
+        //   50m per roll) + colour-matched gaffer pair under CARPET sub-heading.
+        //   No carpet -> a single TAPE-04 (white 25mm gaffer) under DECK.
+        // Colour rules: black -> 50mm black + 25mm white; white -> 50mm white +
+        // 25mm black; grey -> black+white (same as black rule per spec).
+        var TAPE_GAFFER = {
+          black: [{ pn: "TAPE-03", label: "Black Gaffer Tape 50mm", qty: 1 }, { pn: "TAPE-04", label: "White Gaffer Tape 25mm", qty: 1 }],
+          white: [{ pn: "TAPE-02", label: "White Gaffer Tape 50mm", qty: 1 }, { pn: "TAPE-05", label: "Black Gaffer Tape 25mm", qty: 1 }],
+          grey:  [{ pn: "TAPE-03", label: "Black Gaffer Tape 50mm", qty: 1 }, { pn: "TAPE-04", label: "White Gaffer Tape 25mm", qty: 1 }]
+        };
+        var TAPE_ROLL_M = 50;
+        if (carpetHtml && state.carpetKit && carpetColour) {
+          var strips = (state.carpetKit.combo || []).length;
+          var seamLen = state.carpetKit.cutLength || 0;
+          var perim = 2 * (parseFloat(wIn.value) + parseFloat(dIn.value));
+          var tapeM = perim + Math.max(0, strips - 1) * seamLen;
+          var dsRolls = Math.max(1, Math.ceil(tapeM / TAPE_ROLL_M));
+          items.push({ label: "Double Sided Tape (" + tapeM + "m: perimeter+seams)", partNumber: "TAPE-01", qty: dsRolls, category: "Carpet" });
+          (TAPE_GAFFER[carpetColour] || []).forEach(function (t) {
+            items.push({ label: t.label, partNumber: t.pn, qty: t.qty, category: "Carpet" });
+          });
+        } else if (!carpetHtml) {
+          items.push({ label: "White Gaffer Tape 25mm", partNumber: "TAPE-04", qty: 1, category: "Deck" });
         }
 
         var sw = function (col, lbl) { return '<span style="display:inline-flex;align-items:center;gap:4px;"><span style="width:10px;height:10px;border-radius:2px;background:' + col + ';"></span>' + lbl + '</span>'; };
