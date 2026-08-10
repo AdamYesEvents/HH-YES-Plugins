@@ -30,11 +30,18 @@
  * (parts still TBD); the top-level title still says "inc Processor" as a
  * reminder for the pick crew.
  *
+ * Spares logic (v0.7.0): panels are cased (1000x500 = 4/case, 500x500 = 8/case).
+ * We round the used qty up to the next case and put the leftover in the Spares
+ * sub-heading; if the wall lands exactly on a full case (no natural spare) we
+ * add a whole extra case as spares. Each spare line then gets HireHop's "100%
+ * applied" state (unit_price preserved, price forced to 0) via a follow-up POST
+ * to items_save.php after the batch save settles.
+ *
  * PDF generation is TEMPORARILY BLOCKED - see PDF_ENABLED below. When ready,
  * flip the flag on and reformat buildVideowallPdf() to match the final layout
  * (do not delete the scaffolding).
  *
- * Version: 0.6.0
+ * Version: 0.7.0
  */
 
 (function () {
@@ -111,6 +118,16 @@
     return { ok: false, error: W + "m not achievable with 3.9mm system" };
   }
 
+  // Spare panels come cased - one leftover partial case worth, OR a whole
+  // extra case if the wall lands exactly on a full case.
+  //   caseSize 4:   3 used -> 1 spare, 4 -> 4, 5 -> 3, 8 -> 4, 18 -> 2, 20 -> 4
+  //   caseSize 8:   6 used -> 2 spare, 8 -> 8, 10 -> 6
+  function computeSpares(used, caseSize) {
+    if (!(used > 0)) return 0;
+    var rem = used % caseSize;
+    return rem === 0 ? caseSize : (caseSize - rem);
+  }
+
   // Compute the full kit from the answered questions.
   //   opts = { pitch:       "2.6mm" | "3.9mm",
   //            environment: "indoor" | "outdoor",
@@ -161,9 +178,13 @@
     var panelHalfPN = isUniview ? "YW-04067" : "YW-00342";
     if (fullPanels > 0) {
       items.push({ category: "Screen", label: panelFullLabel, partNumber: panelFullPN, qty: fullPanels });
+      var spareFull = computeSpares(fullPanels, 4);
+      if (spareFull > 0) items.push({ category: "Spares", label: panelFullLabel, partNumber: panelFullPN, qty: spareFull, hundredPercent: true });
     }
     if (halfPanels > 0) {
       items.push({ category: "Screen", label: panelHalfLabel, partNumber: panelHalfPN, qty: halfPanels });
+      var spareHalf = computeSpares(halfPanels, 8);
+      if (spareHalf > 0) items.push({ category: "Spares", label: panelHalfLabel, partNumber: panelHalfPN, qty: spareHalf, hundredPercent: true });
     }
 
     // ---- Rigging / support --------------------------------------------------
@@ -281,7 +302,8 @@
   if (typeof module !== "undefined" && module.exports) {
     module.exports = {
       computeKit: computeKit, buildWallSvg: buildWallSvg,
-      flownRig: flownRig, ground26Kit: ground26Kit, ground39Kit: ground39Kit
+      flownRig: flownRig, ground26Kit: ground26Kit, ground39Kit: ground39Kit,
+      computeSpares: computeSpares
     };
   }
 
@@ -524,6 +546,99 @@
     }
   }
 
+  // ---- Post-insert: apply HireHop's "100% applied" state (price = 0) to a
+  // set of freshly-inserted stock lines. Called for the Spares sub-heading
+  // after its batch save has settled. Best-effort: logs and continues on any
+  // per-line failure so a bad row doesn't strand the rest of the kit.
+  function lineIdsUnder(inst, headingId) {
+    try {
+      var tree = inst.items_to_supply_tree.jstree(true);
+      var node = tree.get_node("a" + headingId);
+      if (!node || !node.children) return {};
+      var ids = {};
+      node.children.forEach(function (cid) {
+        var kid = tree.get_node(cid);
+        if (kid && kid.data && kid.data.kind !== 0 && kid.data.ID != null) {
+          ids[kid.data.ID] = kid;
+        }
+      });
+      return ids;
+    } catch (e) { return {}; }
+  }
+
+  function saveLineHundredPercent(inst, lineNode) {
+    var d = (lineNode && lineNode.data) || {};
+    // Reconstruct enough of the items_save.php payload to preserve the line
+    // while dropping the price to 0. Field set matches the payload Adam
+    // captured (kind=2 stock line). Anything we don't have goes to defaults
+    // that match a fresh HireHop insert.
+    var payload = {
+      id:               d.ID,
+      kind:             (d.kind != null) ? d.kind : 2,
+      job:              (inst.options && inst.options.main_id) || 0,
+      parent:           d.parent || 0,
+      list_id:          d.list_id || 0,
+      qty:              d.qty || 1,
+      unit_price:       (d.unit_price != null) ? d.unit_price : 0,
+      price:            0,
+      price_type:       (d.price_type != null) ? d.price_type : 2,
+      flag:             0,
+      priority_confirm: 0,
+      weight:           d.weight || 0,
+      vat_rate:         d.vat_rate || 0,
+      value:            0,
+      acc_nominal:      d.acc_nominal || 17,
+      acc_nominal_po:   d.acc_nominal_po || 27,
+      cost_price:       d.cost_price || 0,
+      country_origin:   "",
+      hs_code:          "",
+      memo:             "",
+      no_availability:  0,
+      ignore:           0,
+      name:             "",
+      add:              "",
+      cust_add:         "",
+      outgoing:         "",
+      returning:        "",
+      start:            "",
+      end:              "",
+      local:            new Date().toISOString().slice(0, 19).replace("T", "+")
+    };
+    var body = Object.keys(payload).map(function (k) {
+      return encodeURIComponent(k) + "=" + encodeURIComponent(payload[k]);
+    }).join("&");
+    return fetch("/php_functions/items_save.php", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: body,
+      credentials: "same-origin"
+    })
+      .then(function (r) { return r.text().then(function (t) { return { ok: r.ok, status: r.status, body: t }; }); })
+      .then(function (r) {
+        if (!r.ok) { try { console.warn("[videowall-creator] items_save.php HTTP", r.status, "for line", d.ID); } catch (e) { } }
+        return r;
+      })
+      .catch(function (err) {
+        try { console.warn("[videowall-creator] items_save.php error for line", d.ID, err && err.message); } catch (e) { }
+        return { ok: false, error: err };
+      });
+  }
+
+  var DISCOUNT_GAP_MS = 800; // gentle spacing between line edits
+  function applyHundredPercentToChildren(inst, headingId, before, done) {
+    var after = lineIdsUnder(inst, headingId);
+    var newIds = Object.keys(after).filter(function (id) { return !before[id]; });
+    if (!newIds.length) { done(); return; }
+    var i = 0;
+    (function next() {
+      if (i >= newIds.length) { done(); return; }
+      var node = after[newIds[i++]];
+      saveLineHundredPercent(inst, node).then(function () {
+        setTimeout(next, DISCOUNT_GAP_MS);
+      });
+    })();
+  }
+
   function addVideowallKit(inst, items, title, onDone) {
     var groups = groupByCategory(items);
     var parentId = selectedParentHeadingId(inst);
@@ -548,7 +663,14 @@
             parts += Object.keys(shopping).length;
             customs += customList.length;
             if (!hasContent) { nextCategory(); return; }
-            insertOneCategory(inst, subId, shopping, customList, nextCategory);
+            // For Spares, snapshot existing line IDs so we can identify the
+            // freshly-created ones and force their price to 0 afterwards.
+            var isSpares = (cat === "Spares");
+            var beforeIds = isSpares ? lineIdsUnder(inst, subId) : null;
+            insertOneCategory(inst, subId, shopping, customList, function () {
+              if (isSpares) applyHundredPercentToChildren(inst, subId, beforeIds, nextCategory);
+              else nextCategory();
+            });
           });
         }
         nextCategory();
@@ -697,7 +819,9 @@
       var html = '<div style="font-size:11px;letter-spacing:.04em;color:#888;text-transform:uppercase;margin-bottom:6px;">Generated kit</div>';
       order.forEach(function (cat) {
         var arr = byCat[cat] || [];
-        html += '<div style="font-size:11px;letter-spacing:.04em;color:#888;text-transform:uppercase;margin:10px 0 4px;">' + cat + '</div>';
+        html += '<div style="font-size:11px;letter-spacing:.04em;color:#888;text-transform:uppercase;margin:10px 0 4px;">' + cat +
+          (cat === "Spares" ? ' <span style="color:#0a7;text-transform:none;letter-spacing:0;font-weight:400;">(100% applied)</span>' : '') +
+          '</div>';
         if (!arr.length) {
           html += '<div style="font-size:12px;color:#b07b00;padding:3px 0;">Empty sub-heading - add manually per job.</div>';
           return;
