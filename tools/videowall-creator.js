@@ -24,11 +24,17 @@
  *   - Processor + signal cables - hardware-first release; Chauvet has no
  *     starter cable, Uniview has YW-04070 Ethercon, but neither wired yet
  *
+ * Job insertion wired in (v0.6.0): mirrors stage-designer's addStageKit flow.
+ * Creates a top-level Grouped heading, then sub-headings Screen / Spares /
+ * Rigging. Processor + Cable sub-headings intentionally skipped this release
+ * (parts still TBD); the top-level title still says "inc Processor" as a
+ * reminder for the pick crew.
+ *
  * PDF generation is TEMPORARILY BLOCKED - see PDF_ENABLED below. When ready,
  * flip the flag on and reformat buildVideowallPdf() to match the final layout
  * (do not delete the scaffolding).
  *
- * Version: 0.5.0
+ * Version: 0.6.0
  */
 
 (function () {
@@ -154,10 +160,10 @@
     var panelFullPN = isUniview ? "YW-04066" : "YW-00341";
     var panelHalfPN = isUniview ? "YW-04067" : "YW-00342";
     if (fullPanels > 0) {
-      items.push({ category: "Panels", label: panelFullLabel, partNumber: panelFullPN, qty: fullPanels });
+      items.push({ category: "Screen", label: panelFullLabel, partNumber: panelFullPN, qty: fullPanels });
     }
     if (halfPanels > 0) {
-      items.push({ category: "Panels", label: panelHalfLabel, partNumber: panelHalfPN, qty: halfPanels });
+      items.push({ category: "Screen", label: panelHalfLabel, partNumber: panelHalfPN, qty: halfPanels });
     }
 
     // ---- Rigging / support --------------------------------------------------
@@ -199,23 +205,22 @@
       if (isUniview) {
         var g26 = ground26Kit(W);
         if (!g26.ok) return { ok: false, error: g26.error };
-        items.push({ category: "Support", label: "Uniview UR Pro Ground Support Kit (2 uprights)", partNumber: "YW-04065", qty: g26.kits });
+        items.push({ category: "Rigging", label: "Uniview UR Pro Ground Support Kit (2 uprights)", partNumber: "YW-04065", qty: g26.kits });
       } else {
         var g39 = ground39Kit(W);
         if (!g39.ok) return { ok: false, error: g39.error };
-        items.push({ category: "Support", label: "LSU Set (2 uprights) Kit", partNumber: "YW-00169", qty: g39.kits });
-        if (g39.bars_15 > 0) items.push({ category: "Support", label: "LSU Connecting Bar 1.5m", partNumber: "LSU-CONNB-L150", qty: g39.bars_15 });
-        if (g39.bars_2  > 0) items.push({ category: "Support", label: "LSU Connecting Bar 2m",   partNumber: "LSU-CONNB-L200", qty: g39.bars_2 });
+        items.push({ category: "Rigging", label: "LSU Set (2 uprights) Kit", partNumber: "YW-00169", qty: g39.kits });
+        if (g39.bars_15 > 0) items.push({ category: "Rigging", label: "LSU Connecting Bar 1.5m", partNumber: "LSU-CONNB-L150", qty: g39.bars_15 });
+        if (g39.bars_2  > 0) items.push({ category: "Rigging", label: "LSU Connecting Bar 2m",   partNumber: "LSU-CONNB-L200", qty: g39.bars_2 });
       }
     }
 
     // ---- Processor + signal -------------------------------------------------
-    items.push({ category: "Processor", label: "Video processor", partNumber: "", qty: 1 });
-    if (opts.processor === "behind") {
-      items.push({ category: "Signal", label: "Short signal cable (behind screen)", partNumber: "", qty: 1 });
-    } else {
-      items.push({ category: "Signal", label: "Long-run signal cable (>= 70m)",     partNumber: "", qty: 1 });
-    }
+    // Deferred: no part numbers yet. Chauvet has no starter cable; Uniview has
+    // YW-04070 Ethercon; a processor code is still TBD. When ready, add items
+    // here with category "Processor" and "Cable" (also un-skip those categories
+    // in the ORDER + INSERT arrays in the browser section, and switch the
+    // "inc Processor" suffix to reflect what's actually shipping).
 
     return {
       ok: true,
@@ -284,6 +289,272 @@
   // BROWSER: dialog + registration
   // ===========================================================================
   if (typeof window === "undefined") return;
+
+  // ===========================================================================
+  // HireHop insertion machinery (adapted from stage-designer.js's addStageKit).
+  // Adds a top-level Grouped heading with sub-headings (Screen / Spares /
+  // Rigging), resolves each part number to a stock item, batch-saves resolved
+  // items under each sub-heading, and falls back to a custom "[code] label"
+  // line for anything HireHop doesn't recognise (e.g. LSU-CONNB-L150 until it
+  // gets a real YW code).
+  // ===========================================================================
+
+  var RESOLVE_MAX_TRIES        = 3;
+  var RESOLVE_RETRY_MS         = 800;
+  var HEADING_SETTLE_MS        = 3000;
+  var HEADING_MAX_RETRIES      = 2;
+  var HEADING_RETRY_BACKOFF_MS = 9000;
+  var HEADING_TIMEOUT_MS       = 20000;
+  var CUSTOM_ROW_GAP_MS        = 3000;
+  // Sub-heading order in HireHop. "Spares" is always created empty for now -
+  // a placeholder for manual entry until spare-count logic is designed.
+  // Processor + Cable intentionally omitted this release.
+  var INSERT_ORDER  = ["Screen", "Spares", "Rigging"];
+  var ALWAYS_CREATE = { Spares: true };
+
+  function resolvePart(inst, partNumber, qty) {
+    return resolvePartAttempt(inst, partNumber, qty, 0, null);
+  }
+  function resolvePartAttempt(inst, partNumber, qty, tries, lastReply) {
+    if (tries >= RESOLVE_MAX_TRIES) return Promise.resolve(lastReply || { error: -1 });
+    var params = {
+      id: "vw_" + Date.now() + "_" + Math.random().toString(36).slice(2),
+      qty: qty, part_number: partNumber,
+      job_id: inst.options.doc_type == 1 ? inst.options.main_id : 0,
+      package_id: 0, no_availability: 0,
+      price_group: parseInt(inst.options.job_data.PRICE_GROUP) || 0
+    };
+    var qs = Object.keys(params).map(function (k) { return encodeURIComponent(k) + "=" + encodeURIComponent(params[k]); }).join("&");
+    return fetch("/php_functions/items_get_part_number_details.php?" + qs)
+      .then(function (r) { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
+      .then(function (d) {
+        if (!d || typeof d.error !== "undefined") {
+          if (tries + 1 < RESOLVE_MAX_TRIES) {
+            return new Promise(function (res) { setTimeout(function () { res(resolvePartAttempt(inst, partNumber, qty, tries + 1, d)); }, RESOLVE_RETRY_MS); });
+          }
+          try { console.warn("[videowall-creator] resolve failed for", partNumber, "-> custom fallback"); } catch (e) { }
+          return d;
+        }
+        return d;
+      })
+      .catch(function (err) {
+        if (tries + 1 < RESOLVE_MAX_TRIES) {
+          return new Promise(function (res) { setTimeout(function () { res(resolvePartAttempt(inst, partNumber, qty, tries + 1, { error: -2 })); }, RESOLVE_RETRY_MS); });
+        }
+        try { console.warn("[videowall-creator] resolve error for", partNumber, err && err.message); } catch (e) { }
+        return { error: -2 };
+      });
+  }
+
+  function headingIdSet(inst) {
+    var ids = {}, tree = inst.items_to_supply_tree.jstree(true);
+    (tree.get_json("#", { flat: true }) || []).forEach(function (n) { if (n.data && n.data.kind == 0) ids[n.data.ID] = true; });
+    return ids;
+  }
+
+  function findVisibleErrorDialog() {
+    return Array.prototype.slice.call(document.querySelectorAll(".ui-dialog")).filter(function (d) {
+      if (d.offsetParent === null) return false;
+      var t = d.querySelector(".ui-dialog-title") || {};
+      return /error/i.test(t.textContent || "");
+    })[0];
+  }
+  function closeErrorDialog(d) {
+    if (!d) return;
+    var btn = Array.prototype.slice.call(d.querySelectorAll(".ui-dialog-buttonpane button")).filter(function (b) { return /close|ok/i.test(b.textContent.trim()); })[0];
+    if (btn) btn.click(); else { var x = d.querySelector(".ui-dialog-titlebar-close"); if (x) x.click(); }
+  }
+
+  function findAutopullDialog() {
+    return Array.prototype.slice.call(document.querySelectorAll(".ui-dialog")).filter(function (d) {
+      return d.offsetParent !== null && /autopull/i.test((d.querySelector(".ui-dialog-title") || {}).textContent || "");
+    })[0];
+  }
+  function dismissAutopullThen(cb) {
+    var tries = 0, dismissed = false;
+    var iv = setInterval(function () {
+      tries++;
+      var d = findAutopullDialog();
+      if (d) {
+        var btns = Array.prototype.slice.call(d.querySelectorAll(".ui-dialog-buttonpane button"));
+        var save = btns.filter(function (b) { return /save|ok|yes/i.test(b.textContent.trim()); })[0] || btns[0];
+        if (save) { save.click(); dismissed = true; }
+      }
+      if ((dismissed && !findAutopullDialog()) || tries > 30) { clearInterval(iv); setTimeout(cb, 3000); }
+    }, 200);
+  }
+
+  function clickSupplyingRefresh(inst) {
+    try {
+      var root = (inst && inst.element && inst.element[0]) || document;
+      var sels = [
+        "a[title='Refresh' i]", "button[title='Refresh' i]",
+        "[title*='refresh' i]",
+        ".ui-icon-refresh", ".ui-icon-arrowrefresh-1-w",
+        ".ui-icon-arrowrefresh-1-e", ".ui-icon-arrowrefresh-1-s"
+      ];
+      for (var i = 0; i < sels.length; i++) {
+        var el = root.querySelector(sels[i]);
+        if (el) {
+          var btn = el.closest && (el.closest("button, a, li, .ui-button, [role='button']") || el);
+          (btn || el).click();
+          return;
+        }
+      }
+    } catch (e) { /* refresh is best-effort */ }
+  }
+
+  function createHeading(inst, title, parentHeadingId, flag) {
+    return createHeadingAttempt(inst, title, parentHeadingId, flag, 0);
+  }
+  function createHeadingAttempt(inst, title, parentHeadingId, flag, attempt) {
+    var before = headingIdSet(inst);
+    var tree = inst.items_to_supply_tree.jstree(true);
+    tree.deselect_all();
+    if (parentHeadingId) {
+      tree.select_node("a" + parentHeadingId);
+      try { inst.set_item_edit_tree_headings(); } catch (e) { }
+    }
+    inst.new_item(0);
+    inst.heading_name.val(title);
+    if (typeof flag === "number" && inst.item_edit_flag) inst.item_edit_flag.val(flag);
+    inst.save_item();
+    return new Promise(function (resolve) {
+      var start = Date.now();
+      var iv = setInterval(function () {
+        var now = headingIdSet(inst);
+        var newId = Object.keys(now).filter(function (id) { return !before[id]; })[0];
+        if (newId) { clearInterval(iv); setTimeout(function () { resolve(parseInt(newId)); }, HEADING_SETTLE_MS); return; }
+        var errDlg = findVisibleErrorDialog();
+        if (errDlg && attempt < HEADING_MAX_RETRIES) {
+          clearInterval(iv);
+          closeErrorDialog(errDlg);
+          try { if (inst.item_edit_dlg && inst.item_edit_dlg.dialog("isOpen")) inst.item_edit_dlg.dialog("close"); } catch (e) { }
+          setTimeout(function () {
+            createHeadingAttempt(inst, title, parentHeadingId, flag, attempt + 1).then(resolve);
+          }, HEADING_RETRY_BACKOFF_MS);
+          return;
+        }
+        if (Date.now() - start > HEADING_TIMEOUT_MS) {
+          clearInterval(iv);
+          if (attempt < HEADING_MAX_RETRIES) {
+            try { if (inst.item_edit_dlg && inst.item_edit_dlg.dialog("isOpen")) inst.item_edit_dlg.dialog("close"); } catch (e) { }
+            setTimeout(function () {
+              createHeadingAttempt(inst, title, parentHeadingId, flag, attempt + 1).then(resolve);
+            }, HEADING_RETRY_BACKOFF_MS);
+          } else resolve(null);
+        }
+      }, 200);
+    });
+  }
+
+  function selectedParentHeadingId(inst) {
+    try {
+      var tree = inst.items_to_supply_tree.jstree(true);
+      var sel = tree.get_selected(true);
+      if (!sel || !sel.length) return null;
+      var n = sel[0];
+      while (n && n.data) {
+        if (n.data.kind === 0) return n.data.ID;
+        if (!n.parent || n.parent === "#") return null;
+        n = tree.get_node(n.parent);
+      }
+    } catch (e) { }
+    return null;
+  }
+
+  function insertCustoms(inst, headingId, customs, done) {
+    var tree = inst.items_to_supply_tree.jstree(true), i = 0;
+    (function next() {
+      if (i >= customs.length) { done(); return; }
+      var it = customs[i++];
+      try {
+        tree.deselect_all(); tree.select_node("a" + headingId);
+        inst.new_item(3);
+        inst.custom_name.val("[" + it.partNumber + "] " + it.label);
+        inst.priced_edit.find("[name='qty']").val(it.qty).trigger("change");
+        inst.save_item();
+      } catch (e) { try { console.warn("[videowall-creator] custom row failed:", it.partNumber, e && e.message); } catch (x) { } }
+      setTimeout(next, CUSTOM_ROW_GAP_MS);
+    })();
+  }
+
+  function groupByCategory(items) {
+    var groups = {};
+    items.forEach(function (it) {
+      var cat = it.category || "Other";
+      (groups[cat] = groups[cat] || []).push(it);
+    });
+    return groups;
+  }
+
+  function resolveAllByCategory(inst, groups) {
+    var shoppingByCat = {}, customsByCat = {};
+    INSERT_ORDER.forEach(function (c) { shoppingByCat[c] = {}; customsByCat[c] = []; });
+    var chain = Promise.resolve();
+    INSERT_ORDER.forEach(function (cat) {
+      (groups[cat] || []).forEach(function (it) {
+        chain = chain.then(function () {
+          return resolvePart(inst, it.partNumber, it.qty).then(function (d) {
+            if (!d || typeof d.error !== "undefined") customsByCat[cat].push(it);
+            else { var key = (d.TYPE == 1 ? "a" : "b") + d.ID; shoppingByCat[cat][key] = (shoppingByCat[cat][key] || 0) + it.qty; }
+          }, function () { customsByCat[cat].push(it); });
+        });
+      });
+    });
+    return chain.then(function () { return { shoppingByCat: shoppingByCat, customsByCat: customsByCat }; });
+  }
+
+  function insertOneCategory(inst, subHeadingId, shopping, customs, done) {
+    inst.set_item_edit_tree_headings();
+    var tree = inst.items_to_supply_tree.jstree(true);
+    tree.deselect_all(); tree.select_node("a" + subHeadingId); inst.set_parent_vals(true);
+    function doCustoms() {
+      var t = inst.items_to_supply_tree.jstree(true);
+      t.deselect_all(); t.select_node("a" + subHeadingId); inst.set_parent_vals(true);
+      insertCustoms(inst, subHeadingId, customs, done);
+    }
+    if (Object.keys(shopping).length && inst.picklist_heading.val() == subHeadingId) {
+      inst.save_items_list(shopping);
+      // Videowall kits don't trigger HireHop's Autopull dialog the way stage's
+      // Deck bolts do, but we still give it a beat before starting customs.
+      setTimeout(doCustoms, 3500);
+    } else {
+      doCustoms();
+    }
+  }
+
+  function addVideowallKit(inst, items, title, onDone) {
+    var groups = groupByCategory(items);
+    var parentId = selectedParentHeadingId(inst);
+    resolveAllByCategory(inst, groups).then(function (res) {
+      createHeading(inst, title, parentId, 5 /* Grouped */).then(function (mainId) {
+        if (!mainId) { onDone({ ok: false, error: "Could not create the videowall folder" }); return; }
+        var i = 0, parts = 0, customs = 0;
+        function nextCategory() {
+          if (i >= INSERT_ORDER.length) {
+            dismissAutopullThen(function () {
+              clickSupplyingRefresh(inst);
+              onDone({ ok: true, headingId: mainId, parts: parts, customs: customs });
+            });
+            return;
+          }
+          var cat = INSERT_ORDER[i++];
+          var shopping = res.shoppingByCat[cat] || {}, customList = res.customsByCat[cat] || [];
+          var hasContent = Object.keys(shopping).length || customList.length;
+          if (!hasContent && !ALWAYS_CREATE[cat]) { nextCategory(); return; }
+          createHeading(inst, cat, mainId).then(function (subId) {
+            if (!subId) { console.warn("[videowall-creator] sub-heading failed:", cat); nextCategory(); return; }
+            parts += Object.keys(shopping).length;
+            customs += customList.length;
+            if (!hasContent) { nextCategory(); return; }
+            insertOneCategory(inst, subId, shopping, customList, nextCategory);
+          });
+        }
+        nextCategory();
+      });
+    });
+  }
 
   var DIALOG_ID = "hh-videowall-creator-dialog";
 
@@ -420,11 +691,17 @@
 
       var byCat = {};
       res.items.forEach(function (it) { (byCat[it.category] = byCat[it.category] || []).push(it); });
-      var order = ["Panels", "Rigging", "Support", "Processor", "Signal"];
+      // Display order matches the sub-headings we'll create in HireHop: Screen,
+      // Spares (always empty for now - manual add reminder), Rigging.
+      var order = ["Screen", "Spares", "Rigging"];
       var html = '<div style="font-size:11px;letter-spacing:.04em;color:#888;text-transform:uppercase;margin-bottom:6px;">Generated kit</div>';
       order.forEach(function (cat) {
-        var arr = byCat[cat]; if (!arr) return;
+        var arr = byCat[cat] || [];
         html += '<div style="font-size:11px;letter-spacing:.04em;color:#888;text-transform:uppercase;margin:10px 0 4px;">' + cat + '</div>';
+        if (!arr.length) {
+          html += '<div style="font-size:12px;color:#b07b00;padding:3px 0;">Empty sub-heading - add manually per job.</div>';
+          return;
+        }
         arr.forEach(function (it) {
           var pn = it.partNumber
             ? '<span style="color:#666;font-size:11px;margin-right:6px;">' + it.partNumber + '</span>'
@@ -435,23 +712,26 @@
         });
       });
       html += '<div style="margin-top:10px;font-size:12px;color:#777;">' + res.panels + ' panels &middot; ' + res.width + ' &times; ' + res.height + ' m</div>';
-      html += '<div style="margin-top:6px;font-size:11px;color:#b07b00;">Preview only - job insertion + PDF still to be wired up. TBD lines = code still pending from Adam.</div>';
+      html += '<div style="margin-top:6px;font-size:11px;color:#b07b00;">Processor + Cable sub-headings deferred to a later release (parts still TBD).</div>';
       kitBox.innerHTML = html;
 
       var envLabel = envSel.value === "outdoor" ? "Outdoor" : "Indoor";
       var supLabel;
       if (supSel.value === "flown") {
         if (pitchSel.value === "3.9mm") {
-          supLabel = "Flown - " + (rigSel.value === "clamp" ? "Clamp" : "Sling");
+          supLabel = "Flown-" + (rigSel.value === "clamp" ? "Clamp" : "Sling");
         } else {
-          supLabel = "Flown - Sling";
+          supLabel = "Flown-Sling";
         }
       } else {
         supLabel = "Ground Supported";
       }
-      var procLabel = procSel.value === "behind" ? "Processor behind screen" : "Processor within 70m";
+      // Title format follows Adam's shape: "Indoor Videowall 4w x 3h 3.9mm
+      // Flown-Sling inc Processor". The "inc Processor" suffix is a promise
+      // to the pick crew - even though the processor line isn't inserted in
+      // v0.6.0, one is always needed.
       state.items = res.items;
-      state.title = "Videowall " + res.width + "x" + res.height + "m " + pitchSel.value + ", " + envLabel + ", " + supLabel + ", " + procLabel;
+      state.title = envLabel + " Videowall " + res.width + "w x " + res.height + "h " + pitchSel.value + " " + supLabel + " inc Processor";
 
       renderFooter(true, "");
     }
@@ -479,16 +759,25 @@
     }
 
     function doAdd() {
-      // Part numbers are TBD - job insertion is not wired up yet.
-      // When we're ready, mirror stage-designer's addStageKit() flow (resolve
-      // part numbers -> create heading -> save_items_list -> handle autopull),
-      // and then call buildVideowallPdf() once PDF_ENABLED is flipped back on.
       foot.innerHTML = "";
-      var msg = el("div", null, "flex:1;font-size:13px;color:#333;");
-      msg.textContent = "Would add " + state.items.length + " item(s) under '" + state.title + "'. Part numbers TBD - insertion coming next.";
-      var ok = el("button", null, "padding:8px 16px;font-size:14px;background:#2563eb;color:#fff;border:none;border-radius:4px;cursor:pointer;");
-      ok.textContent = "OK"; ok.addEventListener("click", close);
-      foot.appendChild(msg); foot.appendChild(ok);
+      var busy = el("div", null, "flex:1;font-size:13px;color:#333;display:flex;align-items:center;gap:10px;");
+      busy.innerHTML = '<span class="hh-vw-spin"></span><span>Adding to the job&hellip;</span>';
+      foot.appendChild(busy);
+
+      addVideowallKit(inst, state.items, state.title, function (r) {
+        foot.innerHTML = "";
+        var msg = el("div", null, "flex:1;font-size:13px;");
+        if (r && r.ok) {
+          msg.style.color = "#0a7";
+          msg.textContent = "Added '" + state.title + "' - " + r.parts + " resolved item(s), " + r.customs + " custom row(s).";
+        } else {
+          msg.style.color = "#b00";
+          msg.textContent = (r && r.error) ? r.error : "Insert failed - see console for details.";
+        }
+        var ok = el("button", null, "padding:8px 16px;font-size:14px;background:#2563eb;color:#fff;border:none;border-radius:4px;cursor:pointer;");
+        ok.textContent = "Close"; ok.addEventListener("click", close);
+        foot.appendChild(msg); foot.appendChild(ok);
+      });
 
       if (PDF_ENABLED) {
         buildVideowallPdf({ title: state.title, items: state.items, result: state.result }).catch(function () {});
