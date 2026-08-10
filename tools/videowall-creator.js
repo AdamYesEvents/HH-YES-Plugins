@@ -6,22 +6,29 @@
  * it into the job under a "Videowall WxH ..." heading. The framework mirrors
  * stage-designer.js (self-contained overlay dialog, pure logic + browser UI).
  *
- * Q0  Pitch          2.6mm (indoor only) / 3.9mm (indoor or outdoor)
+ * Q0  Pitch          2.6mm Uniview UR Pro (indoor only) / 3.9mm Chauvet REM
  * Q1  Environment    Indoor / Outdoor (Outdoor disabled for 2.6mm)
  * Q2  Support        Flown / Ground supported
- * Q2.5 Rigging       Clamp / Sling  -  ONLY for Outdoor + Flown
+ * Q2.5 Rigging       Clamp / Sling  -  ONLY for Chauvet 3.9mm + Flown.
+ *                    Uniview 2.6mm + Flown is sling-only, so Q2.5 is skipped.
  * Q3  Width, Height  metres, 0.5m increments (panels are 500 x 1000)
- * Q4  Processor      Behind screen / Within 70m
+ * Q4  Processor      Behind screen / Within 70m  (signal cables STILL TBD)
  *
- * Part numbers are intentionally blank for now (TBD placeholders); the
- * data/videowall-creator/*.json catalogue and job-insertion wiring will follow
- * once the parts list is finalised.
+ * Hardware part numbers wired in (v0.5.0): panels + flown rigging + ground
+ * support kit line. Still TBD:
+ *   - LSU connecting bar YW-codes (product code LSU-CONNB-L150 used as label
+ *     placeholder; Adam to supply YW codes)
+ *   - LSU weight plates YW-02892 - not auto-added yet; ballast formula on the
+ *     backlog (a 3m wall needs 3 plates even though the kits supply 4)
+ *   - LSU 30cm topper YW-04062 - height rule TBD
+ *   - Processor + signal cables - hardware-first release; Chauvet has no
+ *     starter cable, Uniview has YW-04070 Ethercon, but neither wired yet
  *
  * PDF generation is TEMPORARILY BLOCKED - see PDF_ENABLED below. When ready,
  * flip the flag on and reformat buildVideowallPdf() to match the final layout
  * (do not delete the scaffolding).
  *
- * Version: 0.4.0
+ * Version: 0.5.0
  */
 
 (function () {
@@ -134,50 +141,71 @@
 
     var items = [];
 
-    var envLabel = opts.environment === "outdoor" ? "Outdoor" : "Indoor";
+    // Panels branch by pitch (product family).
+    //   3.9mm - Chauvet REM (indoor OR outdoor):  YW-00341 1000x500, YW-00342 500x500
+    //   2.6mm - Uniview UR Pro (indoor only):     YW-04066 1000x500, YW-04067 500x500
+    var isUniview = (opts.pitch === "2.6mm");
+    var panelFullLabel = isUniview
+      ? "Uniview UR Pro 2.6mm panel 1000x500"
+      : "Chauvet REM 3.9mm panel 1000x500";
+    var panelHalfLabel = isUniview
+      ? "Uniview UR Pro 2.6mm panel 500x500"
+      : "Chauvet REM 3.9mm panel 500x500";
+    var panelFullPN = isUniview ? "YW-04066" : "YW-00341";
+    var panelHalfPN = isUniview ? "YW-04067" : "YW-00342";
     if (fullPanels > 0) {
-      items.push({
-        category: "Panels",
-        label: "LED Panel 500x1000mm " + envLabel + " " + opts.pitch,
-        partNumber: "", qty: fullPanels
-      });
+      items.push({ category: "Panels", label: panelFullLabel, partNumber: panelFullPN, qty: fullPanels });
     }
     if (halfPanels > 0) {
-      items.push({
-        category: "Panels",
-        label: "LED Panel 500x500mm " + envLabel + " " + opts.pitch,
-        partNumber: "", qty: halfPanels
-      });
+      items.push({ category: "Panels", label: panelHalfLabel, partNumber: panelHalfPN, qty: halfPanels });
     }
 
     // ---- Rigging / support --------------------------------------------------
     if (opts.support === "flown") {
       var rig = flownRig(W);
-      if (rig) {
-        if (rig.bars_1 > 0)  items.push({ category: "Rigging", label: "Flying bar 1m",  partNumber: "", qty: rig.bars_1 });
-        if (rig.bars_05 > 0) items.push({ category: "Rigging", label: "Flying bar 0.5m", partNumber: "", qty: rig.bars_05 });
+      // Rigging bars: Chauvet has clamp OR sling; Uniview is sling-only.
+      // Chauvet REM Header Bar:   1m clamp YW-00343, 1m sling YW-00344,
+      //                           0.5m curve clamp YW-00345, 0.5m curve sling YW-00346.
+      // Uniview UR Pro Rigging Bar (sling only): 1m YW-04068, 0.5m YW-04069.
+      var useClamp = false;
+      if (isUniview) {
+        // Uniview flown - always sling.
+      } else {
+        if (!opts.rigging) return { ok: false, error: "Choose Clamp or Sling for a flown Chauvet wall" };
+        if (opts.rigging !== "clamp" && opts.rigging !== "sling")
+          return { ok: false, error: "Rigging must be clamp or sling" };
+        useClamp = (opts.rigging === "clamp");
       }
-      // Clamp/sling is an OUTDOOR question only.
-      if (opts.environment === "outdoor") {
-        if (!opts.rigging) return { ok: false, error: "Choose Clamp or Sling for an outdoor flown wall" };
-        if (opts.rigging === "clamp") {
-          items.push({ category: "Rigging", label: "Flying clamp (per column)", partNumber: "", qty: cols });
+      if (rig) {
+        if (isUniview) {
+          if (rig.bars_1 > 0)  items.push({ category: "Rigging", label: "Uniview UR Pro Rigging Bar 1m on Sling",    partNumber: "YW-04068", qty: rig.bars_1 });
+          if (rig.bars_05 > 0) items.push({ category: "Rigging", label: "Uniview UR Pro Rigging Bar 0.5m on Sling", partNumber: "YW-04069", qty: rig.bars_05 });
+        } else if (useClamp) {
+          if (rig.bars_1 > 0)  items.push({ category: "Rigging", label: "Chauvet REM 1m Header Bar on Clamp",         partNumber: "YW-00343", qty: rig.bars_1 });
+          if (rig.bars_05 > 0) items.push({ category: "Rigging", label: "Chauvet REM 0.5m Curve Header Bar on Clamp", partNumber: "YW-00345", qty: rig.bars_05 });
         } else {
-          items.push({ category: "Rigging", label: "Flying sling",              partNumber: "", qty: 2 });
+          if (rig.bars_1 > 0)  items.push({ category: "Rigging", label: "Chauvet REM 1m Header Bar on Sling",         partNumber: "YW-00344", qty: rig.bars_1 });
+          if (rig.bars_05 > 0) items.push({ category: "Rigging", label: "Chauvet REM 0.5m Curve Header Bar on Sling", partNumber: "YW-00346", qty: rig.bars_05 });
         }
       }
     } else {
       // Ground support - kit differs by pitch.
-      if (opts.pitch === "2.6mm") {
+      // Uniview 2.6mm:  YW-04065 Ground Support Kit (2 uprights).
+      // Chauvet 3.9mm:  YW-00169 LSU Set (2 uprights) + LSU Connecting Bars
+      //                 (LSU-CONNB-L150 - YW code to follow).
+      // Weight plates (YW-02892) NOT auto-added yet - ballast formula on the
+      // backlog (a 3m wall needs 3 plates even though the kits supply 4).
+      // LSU 30cm topper (YW-04062) also TBD - height threshold undecided.
+      if (isUniview) {
         var g26 = ground26Kit(W);
         if (!g26.ok) return { ok: false, error: g26.error };
-        items.push({ category: "Support", label: "2.6mm ground support kit (2m bay, incl. 2x 1m + 1x 0.5m bars)", partNumber: "", qty: g26.kits });
+        items.push({ category: "Support", label: "Uniview UR Pro Ground Support Kit (2 uprights)", partNumber: "YW-04065", qty: g26.kits });
       } else {
         var g39 = ground39Kit(W);
         if (!g39.ok) return { ok: false, error: g39.error };
-        items.push({ category: "Support", label: "3.9mm ground support base case (incl. 2x 1m comb bars)", partNumber: "", qty: g39.kits });
-        if (g39.bars_15 > 0) items.push({ category: "Support", label: "3.9mm Comb bar 1.5m", partNumber: "", qty: g39.bars_15 });
-        if (g39.bars_2  > 0) items.push({ category: "Support", label: "3.9mm Comb bar 2m",   partNumber: "", qty: g39.bars_2 });
+        items.push({ category: "Support", label: "LSU Set (2 uprights) Kit", partNumber: "YW-00169", qty: g39.kits });
+        if (g39.bars_15 > 0) items.push({ category: "Support", label: "LSU Connecting Bar 1.5m", partNumber: "LSU-CONNB-L150", qty: g39.bars_15 });
+        if (g39.bars_2  > 0) items.push({ category: "Support", label: "LSU Connecting Bar 2m",   partNumber: "LSU-CONNB-L200", qty: g39.bars_2 });
       }
     }
 
@@ -361,9 +389,10 @@
       }
     }
 
-    // Rigging (clamp/sling) only for Outdoor + Flown.
+    // Rigging (clamp/sling) only for Chauvet 3.9mm + Flown.
+    // Uniview 2.6mm flown is sling-only, so we skip the question.
     function syncRiggingVisibility() {
-      rigWrap.style.display = (supSel.value === "flown" && envSel.value === "outdoor") ? "" : "none";
+      rigWrap.style.display = (supSel.value === "flown" && pitchSel.value === "3.9mm") ? "" : "none";
     }
 
     function render() {
@@ -373,7 +402,7 @@
         pitch:       pitchSel.value,
         environment: envSel.value,
         support:     supSel.value,
-        rigging:     (supSel.value === "flown" && envSel.value === "outdoor") ? rigSel.value : null,
+        rigging:     (supSel.value === "flown" && pitchSel.value === "3.9mm") ? rigSel.value : null,
         width:       parseFloat(wIn.value),
         height:      parseFloat(hIn.value),
         processor:   procSel.value
@@ -397,19 +426,26 @@
         var arr = byCat[cat]; if (!arr) return;
         html += '<div style="font-size:11px;letter-spacing:.04em;color:#888;text-transform:uppercase;margin:10px 0 4px;">' + cat + '</div>';
         arr.forEach(function (it) {
-          html += '<div style="display:flex;justify-content:space-between;font-size:13px;padding:3px 0;gap:8px;"><span style="color:#333;">' + it.label + '</span><span style="color:#111;font-weight:500;white-space:nowrap;">x ' + it.qty + '</span></div>';
+          var pn = it.partNumber
+            ? '<span style="color:#666;font-size:11px;margin-right:6px;">' + it.partNumber + '</span>'
+            : '<span style="color:#b07b00;font-size:11px;margin-right:6px;">TBD</span>';
+          html += '<div style="display:flex;justify-content:space-between;font-size:13px;padding:3px 0;gap:8px;align-items:baseline;">' +
+            '<span style="color:#333;">' + pn + it.label + '</span>' +
+            '<span style="color:#111;font-weight:500;white-space:nowrap;">x ' + it.qty + '</span></div>';
         });
       });
       html += '<div style="margin-top:10px;font-size:12px;color:#777;">' + res.panels + ' panels &middot; ' + res.width + ' &times; ' + res.height + ' m</div>';
-      html += '<div style="margin-top:6px;font-size:11px;color:#b07b00;">Part numbers TBD - insertion into the job will be wired up next.</div>';
+      html += '<div style="margin-top:6px;font-size:11px;color:#b07b00;">Preview only - job insertion + PDF still to be wired up. TBD lines = code still pending from Adam.</div>';
       kitBox.innerHTML = html;
 
       var envLabel = envSel.value === "outdoor" ? "Outdoor" : "Indoor";
       var supLabel;
       if (supSel.value === "flown") {
-        supLabel = envSel.value === "outdoor"
-          ? ("Flown - " + (rigSel.value === "clamp" ? "Clamp" : "Sling"))
-          : "Flown";
+        if (pitchSel.value === "3.9mm") {
+          supLabel = "Flown - " + (rigSel.value === "clamp" ? "Clamp" : "Sling");
+        } else {
+          supLabel = "Flown - Sling";
+        }
       } else {
         supLabel = "Ground Supported";
       }
