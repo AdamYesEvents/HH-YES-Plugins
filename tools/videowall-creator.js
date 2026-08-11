@@ -37,11 +37,21 @@
  * applied" state (unit_price preserved, price forced to 0) via a follow-up POST
  * to items_save.php after the batch save settles.
  *
+ * v0.8.0:
+ *   - Q5 Processor added: Novastar MX30 (YW-04071) or MX40 Pro (YW-00347).
+ *     Insertion now creates a Processor sub-heading; title drops the "inc
+ *     Processor" reminder since the processor is now really in the kit.
+ *   - LSU Set (YW-00169) qty on 3.9mm ground now scales to the uprights
+ *     needed (ceil((totalBars + 1) / 2)) instead of always being 1.
+ *   - Ground 3.9mm decomposition for 4.5m fixed to 1.5m + 1m + 2m per Adam
+ *     (was 3 x 1.5m). Wider widths (5m+) still use the "max 1.5s + one 2 or
+ *     1 filler" pattern - re-decompose if Adam supplies a preferred table.
+ *
  * PDF generation is TEMPORARILY BLOCKED - see PDF_ENABLED below. When ready,
  * flip the flag on and reformat buildVideowallPdf() to match the final layout
  * (do not delete the scaffolding).
  *
- * Version: 0.7.0
+ * Version: 0.8.0
  */
 
 (function () {
@@ -102,17 +112,33 @@
   //   6.0 -> 4 x 1.5
   //   6.5 -> 3 x 1.5 + 1 x 2
   //   7.0 -> 4 x 1.5 + 1 x 1
+  // Compute LSU sets from total connecting-bar count. Each LSU Set (YW-00169)
+  // ships 2 uprights; N bars in a row need N+1 uprights. Adjacent bars share
+  // uprights so the count is exact - we just round up when we get an odd
+  // upright count.
+  function lsuSets(bars_15, bars_2, bars_1) {
+    var totalBars = (bars_15 || 0) + (bars_2 || 0) + (bars_1 || 0);
+    if (totalBars <= 0) return 0;
+    return Math.ceil((totalBars + 1) / 2);
+  }
+
   function ground39Kit(W) {
     if (!(W > 0) || !isMult(W, 0.5)) return { ok: false, error: "Width must be a multiple of 0.5m" };
     if (W < 1.5 - EPS) return { ok: false, error: "3.9mm ground support minimum is 1.5m" };
-    if (Math.abs(W - 1.5) < EPS) return { ok: true, kits: 1, bars_15: 1, bars_2: 0, bars_1: 0 };
-    if (Math.abs(W - 2.0) < EPS) return { ok: true, kits: 1, bars_15: 0, bars_2: 1, bars_1: 0 };
+    function pack(bars_15, bars_2, bars_1) {
+      return { ok: true, kits: lsuSets(bars_15, bars_2, bars_1), bars_15: bars_15, bars_2: bars_2, bars_1: bars_1 };
+    }
+    if (Math.abs(W - 1.5) < EPS) return pack(1, 0, 0);
+    if (Math.abs(W - 2.0) < EPS) return pack(0, 1, 0);
     if (W < 3.0 - EPS) return { ok: false, error: W + "m not achievable in 3.9mm (try 2m or 3m)" };
+    // Explicit per-Adam decomposition for the achievable widths he specified.
+    // 4.5m in particular differs from the "max 1.5s" pattern: it's 1.5 + 1 + 2.
+    if (Math.abs(W - 4.5) < EPS) return pack(1, 1, 1);
     for (var N = 2; N <= 40; N++) {
       var base = 1.5 * N;
-      if (Math.abs(W - base) < EPS)         return { ok: true, kits: 1, bars_15: N,     bars_2: 0, bars_1: 0 };
-      if (Math.abs(W - (base + 0.5)) < EPS) return { ok: true, kits: 1, bars_15: N - 1, bars_2: 1, bars_1: 0 };
-      if (Math.abs(W - (base + 1.0)) < EPS) return { ok: true, kits: 1, bars_15: N,     bars_2: 0, bars_1: 1 };
+      if (Math.abs(W - base) < EPS)         return pack(N,     0, 0);
+      if (Math.abs(W - (base + 0.5)) < EPS) return pack(N - 1, 1, 0);
+      if (Math.abs(W - (base + 1.0)) < EPS) return pack(N,     0, 1);
       if (W < base) break;
     }
     return { ok: false, error: W + "m not achievable with 3.9mm system" };
@@ -233,15 +259,20 @@
         items.push({ category: "Rigging", label: "LSU Set (2 uprights) Kit", partNumber: "YW-00169", qty: g39.kits });
         if (g39.bars_15 > 0) items.push({ category: "Rigging", label: "LSU Connecting Bar 1.5m", partNumber: "LSU-CONNB-L150", qty: g39.bars_15 });
         if (g39.bars_2  > 0) items.push({ category: "Rigging", label: "LSU Connecting Bar 2m",   partNumber: "LSU-CONNB-L200", qty: g39.bars_2 });
+        if (g39.bars_1  > 0) items.push({ category: "Rigging", label: "LSU Connecting Bar 1m",   partNumber: "LSU-CONNB-L100", qty: g39.bars_1 });
       }
     }
 
-    // ---- Processor + signal -------------------------------------------------
-    // Deferred: no part numbers yet. Chauvet has no starter cable; Uniview has
-    // YW-04070 Ethercon; a processor code is still TBD. When ready, add items
-    // here with category "Processor" and "Cable" (also un-skip those categories
-    // in the ORDER + INSERT arrays in the browser section, and switch the
-    // "inc Processor" suffix to reflect what's actually shipping).
+    // ---- Processor -----------------------------------------------------------
+    // Novastar MX30 (YW-04071) or MX40 Pro (YW-00347) - user picks via Q5.
+    if (opts.processorModel === "mx40pro") {
+      items.push({ category: "Processor", label: "Novastar MX40 Pro Videowall Processor", partNumber: "YW-00347", qty: 1 });
+    } else {
+      // Default and "mx30".
+      items.push({ category: "Processor", label: "Novastar MX30 Videowall Processor", partNumber: "YW-04071", qty: 1 });
+    }
+    // Signal / starter cables still deferred (hardware first). When ready,
+    // add items with category "Cable" and un-skip "Cable" in INSERT_ORDER.
 
     return {
       ok: true,
@@ -331,7 +362,7 @@
   // Sub-heading order in HireHop. "Spares" is always created empty for now -
   // a placeholder for manual entry until spare-count logic is designed.
   // Processor + Cable intentionally omitted this release.
-  var INSERT_ORDER  = ["Screen", "Spares", "Rigging"];
+  var INSERT_ORDER  = ["Screen", "Spares", "Processor", "Rigging"];
   var ALWAYS_CREATE = { Spares: true };
 
   function resolvePart(inst, partNumber, qty) {
@@ -763,6 +794,11 @@
     var procSel  = select([["behind", "Behind screen"], ["far", "Within 70m distance"]]);
     procWrap.appendChild(procSel); colControls.appendChild(procWrap);
 
+    // Q5 Processor model (Novastar)
+    var procModelWrap = field("Processor model");
+    var procModelSel  = select([["mx30", "Novastar MX30"], ["mx40pro", "Novastar MX40 Pro"]]);
+    procModelWrap.appendChild(procModelSel); colControls.appendChild(procModelWrap);
+
     var kitBox = el("div", null, "font-size:13px;");
     colKit.appendChild(kitBox);
 
@@ -792,13 +828,14 @@
       syncEnvOptions();
       syncRiggingVisibility();
       var res = computeKit({
-        pitch:       pitchSel.value,
-        environment: envSel.value,
-        support:     supSel.value,
-        rigging:     (supSel.value === "flown" && pitchSel.value === "3.9mm") ? rigSel.value : null,
-        width:       parseFloat(wIn.value),
-        height:      parseFloat(hIn.value),
-        processor:   procSel.value
+        pitch:          pitchSel.value,
+        environment:    envSel.value,
+        support:        supSel.value,
+        rigging:        (supSel.value === "flown" && pitchSel.value === "3.9mm") ? rigSel.value : null,
+        width:          parseFloat(wIn.value),
+        height:         parseFloat(hIn.value),
+        processor:      procSel.value,
+        processorModel: procModelSel.value
       });
       state.result = res;
 
@@ -815,7 +852,7 @@
       res.items.forEach(function (it) { (byCat[it.category] = byCat[it.category] || []).push(it); });
       // Display order matches the sub-headings we'll create in HireHop: Screen,
       // Spares (always empty for now - manual add reminder), Rigging.
-      var order = ["Screen", "Spares", "Rigging"];
+      var order = ["Screen", "Spares", "Processor", "Rigging"];
       var html = '<div style="font-size:11px;letter-spacing:.04em;color:#888;text-transform:uppercase;margin-bottom:6px;">Generated kit</div>';
       order.forEach(function (cat) {
         var arr = byCat[cat] || [];
@@ -836,7 +873,7 @@
         });
       });
       html += '<div style="margin-top:10px;font-size:12px;color:#777;">' + res.panels + ' panels &middot; ' + res.width + ' &times; ' + res.height + ' m</div>';
-      html += '<div style="margin-top:6px;font-size:11px;color:#b07b00;">Processor + Cable sub-headings deferred to a later release (parts still TBD).</div>';
+      html += '<div style="margin-top:6px;font-size:11px;color:#b07b00;">Cable sub-heading deferred (starter cables still TBD).</div>';
       kitBox.innerHTML = html;
 
       var envLabel = envSel.value === "outdoor" ? "Outdoor" : "Indoor";
@@ -851,11 +888,11 @@
         supLabel = "Ground Supported";
       }
       // Title format follows Adam's shape: "Indoor Videowall 4w x 3h 3.9mm
-      // Flown-Sling inc Processor". The "inc Processor" suffix is a promise
-      // to the pick crew - even though the processor line isn't inserted in
-      // v0.6.0, one is always needed.
+      // Flown-Sling MX30". Processor model appears at the end so the pick
+      // crew sees which processor is in the kit at a glance.
+      var procModelLabel = procModelSel.value === "mx40pro" ? "MX40 Pro" : "MX30";
       state.items = res.items;
-      state.title = envLabel + " Videowall " + res.width + "w x " + res.height + "h " + pitchSel.value + " " + supLabel + " inc Processor";
+      state.title = envLabel + " Videowall " + res.width + "w x " + res.height + "h " + pitchSel.value + " " + supLabel + " " + procModelLabel;
 
       renderFooter(true, "");
     }
@@ -908,13 +945,14 @@
       }
     }
 
-    pitchSel.addEventListener("change", render);
-    envSel  .addEventListener("change", render);
-    supSel  .addEventListener("change", render);
-    rigSel  .addEventListener("change", render);
-    wIn     .addEventListener("input",  render);
-    hIn     .addEventListener("input",  render);
-    procSel .addEventListener("change", render);
+    pitchSel     .addEventListener("change", render);
+    envSel       .addEventListener("change", render);
+    supSel       .addEventListener("change", render);
+    rigSel       .addEventListener("change", render);
+    wIn          .addEventListener("input",  render);
+    hIn          .addEventListener("input",  render);
+    procSel      .addEventListener("change", render);
+    procModelSel .addEventListener("change", render);
 
     document.body.appendChild(backdrop);
     render();
