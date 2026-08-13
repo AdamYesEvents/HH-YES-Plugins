@@ -8,7 +8,7 @@
  * Catalogue: data/stage-designer/decks.json + legs.json.
  * Fascia, trim and carpet come later (fascia will match the chosen height).
  *
- * Version: 0.31.12
+ * Version: 0.31.13
  */
 
 (function () {
@@ -542,7 +542,7 @@
   // ===========================================================================
   if (typeof window === "undefined") return;
 
-  var TOOL_VERSION = "0.31.12"; // shown in the panel header top-left; keep in sync with the header banner above.
+  var TOOL_VERSION = "0.31.13"; // shown in the panel header top-left; keep in sync with the header banner above.
   var REPO = "AdamYesEvents/HH-YES-Plugins";
   // Load data from this tool's own release tag (immutable + served instantly by
   // jsDelivr) rather than @main, which edge-caches and can lag / throttle purges.
@@ -751,7 +751,7 @@
     return null;
   }
 
-  var CUSTOM_ROW_GAP_MS = 2000; // gap between custom rows (HireHop's rate limit trips around 1.5s sustained)
+  var CUSTOM_ROW_GAP_MS = 3000; // gap between custom rows (HireHop's rate limit trips around 1.5s sustained; 2s was too tight — items dropped)
 
   // Insert each unresolved item as a custom (free-text) line under the heading,
   // one at a time, spaced by CUSTOM_ROW_GAP_MS. Name is "[partNumber] label" for
@@ -900,7 +900,7 @@
       inst.save_items_list(shopping);
       // Only Deck's stock triggers HireHop's Autopull modal (linked boltset).
       if (hasAutopull) dismissAutopullThen(doCustoms);
-      else setTimeout(doCustoms, 2000);
+      else setTimeout(doCustoms, 3500);
     } else {
       doCustoms();
     }
