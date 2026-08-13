@@ -8,7 +8,7 @@
  * Catalogue: data/stage-designer/decks.json + legs.json.
  * Fascia, trim and carpet come later (fascia will match the chosen height).
  *
- * Version: 0.31.10
+ * Version: 0.31.11
  */
 
 (function () {
@@ -542,7 +542,7 @@
   // ===========================================================================
   if (typeof window === "undefined") return;
 
-  var TOOL_VERSION = "0.31.10"; // shown in the panel header top-left; keep in sync with the header banner above.
+  var TOOL_VERSION = "0.31.11"; // shown in the panel header top-left; keep in sync with the header banner above.
   var REPO = "AdamYesEvents/HH-YES-Plugins";
   // Load data from this tool's own release tag (immutable + served instantly by
   // jsDelivr) rather than @main, which edge-caches and can lag / throttle purges.
@@ -751,7 +751,7 @@
     return null;
   }
 
-  var CUSTOM_ROW_GAP_MS = 3000; // gap between custom rows (HireHop's rate limit trips around 1.5s sustained)
+  var CUSTOM_ROW_GAP_MS = 2000; // gap between custom rows (HireHop's rate limit trips around 1.5s sustained)
 
   // Insert each unresolved item as a custom (free-text) line under the heading,
   // one at a time, spaced by CUSTOM_ROW_GAP_MS. Name is "[partNumber] label" for
@@ -779,11 +779,12 @@
     });
   }
 
-  function insertCustoms(inst, headingId, customs, done) {
+  function insertCustoms(inst, headingId, customs, done, onProgress) {
     var tree = inst.items_to_supply_tree.jstree(true), i = 0;
     (function next() {
       if (i >= customs.length) { done(); return; }
       var it = customs[i++];
+      if (onProgress) onProgress(it);
       try {
         tree.deselect_all(); tree.select_node("a" + headingId);
         inst.new_item(3);
@@ -813,22 +814,22 @@
     return { order: order, groups: groups };
   }
 
-  // Resolve every part in one pass (serial, gentle), then hand back { shoppingByCat, customsByCat }.
+  // All items are routed as CUSTOMS (kind=3) to sidestep HireHop's
+  // save_items_list, which infers parent from server-side session state we
+  // can't reliably set (tried tree.select_node retries, forceParentHeading on
+  // both selects, forceTreeSelection monkey-patching get_selected, waiting for
+  // tree.select_node to actually succeed post-refresh - Carpet still landed at
+  // root because save_items_list POSTs parent="" and the server treats that as
+  // "current session heading" which is stale mid-refresh). insertCustoms uses
+  // the same reliable inst.new_item(3) + save_item pattern that works for
+  // heading creation. Trade-off: items appear as "[PART-NUMBER] label" custom
+  // lines rather than linked stock. Bulk find/replace in HireHop can convert
+  // them to stock later. shoppingByCat is kept as an empty object for shape
+  // compatibility with the rest of the flow.
   function resolveAllByCategory(inst, grouped) {
     var shoppingByCat = {}, customsByCat = {};
-    grouped.order.forEach(function (c) { shoppingByCat[c] = {}; customsByCat[c] = []; });
-    var chain = Promise.resolve();
-    grouped.order.forEach(function (cat) {
-      grouped.groups[cat].forEach(function (it) {
-        chain = chain.then(function () {
-          return resolvePart(inst, it.partNumber, it.qty).then(function (d) {
-            if (!d || typeof d.error !== "undefined") customsByCat[cat].push(it);
-            else { var key = (d.TYPE == 1 ? "a" : "b") + d.ID; shoppingByCat[cat][key] = (shoppingByCat[cat][key] || 0) + it.qty; }
-          }, function () { customsByCat[cat].push(it); });
-        });
-      });
-    });
-    return chain.then(function () { return { shoppingByCat: shoppingByCat, customsByCat: customsByCat }; });
+    grouped.order.forEach(function (c) { shoppingByCat[c] = {}; customsByCat[c] = grouped.groups[c].slice(); });
+    return Promise.resolve({ shoppingByCat: shoppingByCat, customsByCat: customsByCat });
   }
 
   // Poll until tree.select_node reliably makes the given node the sole selection.
@@ -875,40 +876,17 @@
     return function () { tree.get_selected = origGetSelected; };
   }
 
-  // Insert one category's items under a sub-heading: batch save the resolved
-  // parts, wait for the autopull prompt (deck), then insert customs.
-  function insertOneCategory(inst, subHeadingId, shopping, customs, hasAutopull, done) {
-    // Wait until the tree is fully settled and the sub-heading is actually
-    // selectable BEFORE touching any HireHop state. Without this, save_items_list
-    // reads a stale tree (get_selected() = []) and the batch lands at root.
-    waitForNodeSelectable(inst, subHeadingId, function (ready) {
-      if (!ready) { console.warn("[stage-designer] tree never selectable for sub-heading"); }
-      forceParentHeading(inst, subHeadingId);
-      function doCustoms() {
-        var t = inst.items_to_supply_tree.jstree(true);
-        t.deselect_all();
-        try { t.select_node("a" + subHeadingId); } catch (e) { }
-        forceParentHeading(inst, subHeadingId);
-        insertCustoms(inst, subHeadingId, customs, done);
-      }
-      if (Object.keys(shopping).length) {
-        // Belt-and-braces: also monkey-patch get_selected during the save's XHR
-        // window in case HireHop's tree drifts again mid-save. Restore before
-        // doCustoms so the tree behaves normally afterwards.
-        var restoreGetSelected = forceTreeSelection(inst, subHeadingId);
-        inst.save_items_list(shopping);
-        // Only the Deck category triggers HireHop's Autopull modal (the boltset).
-        if (hasAutopull) dismissAutopullThen(function () { restoreGetSelected(); doCustoms(); });
-        else setTimeout(function () { restoreGetSelected(); doCustoms(); }, 3500);
-      } else {
-        doCustoms();
-      }
-    });
+  // Insert one category's items under a sub-heading. All items go through the
+  // custom-line path (see resolveAllByCategory comment) - the shopping arg is
+  // always empty and kept only for signature compatibility.
+  function insertOneCategory(inst, subHeadingId, shopping, customs, hasAutopull, done, onItemStart) {
+    forceParentHeading(inst, subHeadingId);
+    insertCustoms(inst, subHeadingId, customs, done, onItemStart);
   }
 
   // Build a tree under an optional user-selected folder:
   //   parentSel (optional) -> "Stage ..." main heading -> "Deck" / "Fascia" / ... sub-headings -> items
-  function addStageKit(inst, items, title, onDone, description, memo, parentHeadingId) {
+  function addStageKit(inst, items, title, onDone, description, memo, parentHeadingId, onProgress) {
     // ---- picklist_heading clobber guard --------------------------------------
     // HireHop internally calls inst.set_parent_vals(true) in response to tree
     // events (deselect / selection-change / batch-save reflow). That function
@@ -939,16 +917,23 @@
     setTimeout(restore, 20 * 60 * 1000);
 
     var grouped = groupByCategory(items);
+    // Total items across all categories - used for the progress bar (bar fills
+    // one segment per item saved; category creation isn't counted separately
+    // since it's fast relative to item saves at 2s each).
+    var totalItems = grouped.order.reduce(function (n, c) { return n + (grouped.groups[c] || []).length; }, 0);
+    var doneItems = 0;
+    function reportPhase(phase, cat, item) {
+      if (!onProgress) return;
+      try { onProgress({ phase: phase, category: cat, item: item, doneItems: doneItems, totalItems: totalItems }); } catch (e) { }
+    }
     resolveAllByCategory(inst, grouped).then(function (res) {
+      reportPhase("stage-folder", null, null);
       createHeading(inst, title, description, memo, parentHeadingId, 5 /* Grouped */).then(function (mainId) {
         if (!mainId) { onDone({ ok: false, error: "Could not create the stage folder" }); return; }
         var i = 0, parts = 0, customs = 0;
         function nextCategory() {
           if (i >= grouped.order.length) {
-            // Final sweep: HireHop can fire another Autopull dialog after the
-            // full kit finishes (linked items etc.). Auto-Save it, then hit the
-            // Supplying refresh button so the newly-inserted rows appear, then
-            // finish.
+            reportPhase("finalising", null, null);
             dismissAutopullThen(function () {
               clickSupplyingRefresh(inst);
               onDone({ ok: true, headingId: mainId, parts: parts, customs: customs });
@@ -958,11 +943,15 @@
           var cat = grouped.order[i++];
           var shopping = res.shoppingByCat[cat], customList = res.customsByCat[cat];
           if (!Object.keys(shopping).length && !customList.length) { nextCategory(); return; }
+          reportPhase("subheading", cat, null);
           createHeading(inst, cat, "", "", mainId).then(function (subId) {
             if (!subId) { console.warn("[stage-designer] sub-heading failed:", cat); nextCategory(); return; }
             parts += Object.keys(shopping).length;
             customs += customList.length;
-            insertOneCategory(inst, subId, shopping, customList, cat === "Deck", nextCategory);
+            insertOneCategory(inst, subId, shopping, customList, cat === "Deck", nextCategory, function (item) {
+              doneItems++;
+              reportPhase("item", cat, item);
+            });
           });
         }
         nextCategory();
@@ -1616,6 +1605,27 @@
       }
 
       var busyFoot = function (txt) { foot.innerHTML = '<div style="flex:1;display:flex;align-items:center;gap:10px;font-size:13px;color:#555;"><span class="hh-spin" style="width:16px;height:16px;border-width:2px;"></span>' + txt + '</div>'; };
+      // Progress footer: spinner + status line + horizontal bar. Called by
+      // addStageKit's onProgress callback with {phase, category, item, doneItems, totalItems}.
+      var progressFoot = function (p) {
+        var label;
+        if (p.phase === "stage-folder") label = "Creating stage folder&hellip;";
+        else if (p.phase === "subheading") label = "Creating sub-heading: " + (p.category || "") + "&hellip;";
+        else if (p.phase === "item") label = "Adding " + (p.category || "") + " (" + p.doneItems + "/" + p.totalItems + ")&hellip;";
+        else if (p.phase === "finalising") label = "Finalising&hellip;";
+        else label = "Adding to the job&hellip;";
+        var pct = p.totalItems ? Math.min(100, Math.round(100 * p.doneItems / p.totalItems)) : 0;
+        foot.innerHTML =
+          '<div style="flex:1;display:flex;flex-direction:column;gap:6px;">' +
+            '<div style="display:flex;align-items:center;gap:10px;font-size:13px;color:#555;">' +
+              '<span class="hh-spin" style="width:16px;height:16px;border-width:2px;"></span>' +
+              '<span>' + label + '</span>' +
+            '</div>' +
+            '<div style="height:6px;background:#eee;border-radius:3px;overflow:hidden;">' +
+              '<div style="width:' + pct + '%;height:100%;background:#2563eb;transition:width .2s;"></div>' +
+            '</div>' +
+          '</div>';
+      };
 
       function doAdd() {
         busyFoot("Building the PDF&hellip;");
@@ -1625,7 +1635,7 @@
         var parentHeadingId = state.parentHeadingId || null; // "insert at cursor": nest under the user-selected folder
         var snapshot = { result: state.result, width: state.width, depth: state.depth, height: state.height, sysUnit: ((cat.systems[sysSel.value] && cat.systems[sysSel.value].unit) || ""), fasciaPlacements: state.fasciaPlacements, trimPlacements: state.trimPlacements, items: state.items.slice(), title: state.title, memo: memo, treadUnits: state.treadUnits, treadHeight: state.treadHeight, treadColour: state.treadColour };
         function insert(built) {
-          busyFoot("Adding to the job&hellip;"); // autopull is handled inside addStageKit, before the custom rows
+          busyFoot("Adding to the job&hellip;");
           addStageKit(inst, state.items, state.title, function (r) {
             if (r.ok) { if (built) uploadPdf(built.pdf, built.fileName); close(); }
             else {
@@ -1636,7 +1646,7 @@
               back.textContent = "Back"; back.addEventListener("click", render);
               foot.appendChild(err); foot.appendChild(back);
             }
-          }, description, memo, parentHeadingId);
+          }, description, memo, parentHeadingId, progressFoot);
         }
         // Build the PDF. On the click's user gesture, offer a local "Save As"
         // ONLY for companies opted into the pdfSavePrompt feature in branding.json
