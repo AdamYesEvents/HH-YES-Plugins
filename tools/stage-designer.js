@@ -8,7 +8,7 @@
  * Catalogue: data/stage-designer/decks.json + legs.json.
  * Fascia, trim and carpet come later (fascia will match the chosen height).
  *
- * Version: 0.31.3
+ * Version: 0.31.4
  */
 
 (function () {
@@ -668,16 +668,22 @@
     var tree = inst.items_to_supply_tree.jstree(true);
     tree.deselect_all();
     if (parentHeadingId) {
-      tree.select_node("a" + parentHeadingId);
-      // Two-step: refresh the edit dialog's tree-derived fields, THEN force the
-      // cached parent to match the current selection. insertOneCategory calls
-      // set_parent_vals(true) to point items at a sub-heading; without repeating
-      // it here, HireHop keeps that stale parent for the NEXT sub-heading and
-      // drops it at the wrong level (root, or under the previous sub-heading).
-      try { inst.set_item_edit_tree_headings(); } catch (e) { }
-      try { inst.set_parent_vals(true); } catch (e) { }
+      // Directly stamp the parent onto the widget's internal fields BEFORE
+      // opening the edit dialog. Relying on tree.select_node + set_parent_vals()
+      // is unreliable across HireHop's post-batch-save tree refreshes: the tree
+      // gets re-rendered, select_node silently no-ops on the freshly-recreated
+      // node, and set_parent_vals(true) then reads "no selection" and defaults
+      // parent to 0 (root). Direct assignment survives all of that. Tree
+      // select_node is still called for visual feedback.
+      try { tree.select_node("a" + parentHeadingId); } catch (e) { }
+      try { inst.item_edit_heading.val(parentHeadingId); } catch (e) { }
+      try { inst.picklist_heading.val(parentHeadingId); } catch (e) { }
     }
     inst.new_item(0);
+    // new_item(0) may reset item_edit_heading — re-stamp after opening the dialog.
+    if (parentHeadingId) {
+      try { inst.item_edit_heading.val(parentHeadingId); } catch (e) { }
+    }
     inst.heading_name.val(title);
     if (description && inst.heading_desc) inst.heading_desc.val(description); // Item description
     if (memo && inst.heading_int) inst.heading_int.val(memo);                 // Item memo (internal)
