@@ -7,7 +7,7 @@
  * Install via jsDelivr:
  *   https://cdn.jsdelivr.net/gh/AdamYesEvents/HH-YES-Plugins@v0.1.52/loader-stage-designer.js
  *
- * Version: 0.1.71
+ * Version: 0.1.72
  */
 
 (function () {
@@ -19,7 +19,7 @@
   // decoupled from the loader version.
   // ===========================================================================
   var TOOLS = {
-    "stage-designer": { on: true, ref: "7913358c9f217c109f75ae76de0dfeaf461e0304" }
+    "stage-designer": { on: true, ref: "c7631c8ef95477494f55ea1dfe09bff268bb3698" }
   };
 
   // ---------------------------------------------------------------------------
