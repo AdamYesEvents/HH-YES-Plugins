@@ -8,7 +8,7 @@
  * Catalogue: data/stage-designer/decks.json + legs.json.
  * Fascia, trim and carpet come later (fascia will match the chosen height).
  *
- * Version: 0.31.7
+ * Version: 0.31.8
  */
 
 (function () {
@@ -542,7 +542,7 @@
   // ===========================================================================
   if (typeof window === "undefined") return;
 
-  var TOOL_VERSION = "0.31.7"; // shown in the panel header top-left; keep in sync with the header banner above.
+  var TOOL_VERSION = "0.31.8"; // shown in the panel header top-left; keep in sync with the header banner above.
   var REPO = "AdamYesEvents/HH-YES-Plugins";
   // Load data from this tool's own release tag (immutable + served instantly by
   // jsDelivr) rather than @main, which edge-caches and can lag / throttle purges.
@@ -860,6 +860,35 @@
   // Build a tree under an optional user-selected folder:
   //   parentSel (optional) -> "Stage ..." main heading -> "Deck" / "Fascia" / ... sub-headings -> items
   function addStageKit(inst, items, title, onDone, description, memo, parentHeadingId) {
+    // ---- picklist_heading clobber guard --------------------------------------
+    // HireHop internally calls inst.set_parent_vals(true) in response to tree
+    // events (deselect / selection-change / batch-save reflow). That function
+    // reads the current tree selection and writes it to picklist_heading and
+    // item_edit_heading. When the tree is mid-refresh (empty root) it wipes
+    // both to 0. That happens between our forceParentHeading(subCat) call and
+    // save_items_list's async XHR send, so the items land at the tree root
+    // (attached to whatever the first heading is - we saw carpet items end up
+    // under "AM - Load" on the test job). Neutralise the clobber for the whole
+    // insert; restore in every exit path (onDone AND unhandled errors).
+    var origSetParentVals = inst.set_parent_vals;
+    inst.set_parent_vals = function () { /* no-op during stage insert */ };
+    var origSetItemEditTree = inst.set_item_edit_tree_headings;
+    inst.set_item_edit_tree_headings = function () { /* no-op during stage insert */ };
+    var restored = false;
+    function restore() {
+      if (restored) return;
+      restored = true;
+      inst.set_parent_vals = origSetParentVals;
+      inst.set_item_edit_tree_headings = origSetItemEditTree;
+    }
+    var userOnDone = onDone;
+    onDone = function (r) { restore(); try { userOnDone(r); } catch (e) { } };
+    // Belt-and-braces: if anything throws unhandled, restore too.
+    window.addEventListener("error", restore, { once: true });
+    window.addEventListener("unhandledrejection", restore, { once: true });
+    // Long-tail safety: after 20 min, force restore no matter what.
+    setTimeout(restore, 20 * 60 * 1000);
+
     var grouped = groupByCategory(items);
     resolveAllByCategory(inst, grouped).then(function (res) {
       createHeading(inst, title, description, memo, parentHeadingId, 5 /* Grouped */).then(function (mainId) {
