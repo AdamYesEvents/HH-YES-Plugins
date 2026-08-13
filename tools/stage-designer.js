@@ -8,7 +8,7 @@
  * Catalogue: data/stage-designer/decks.json + legs.json.
  * Fascia, trim and carpet come later (fascia will match the chosen height).
  *
- * Version: 0.31.4
+ * Version: 0.31.5
  */
 
 (function () {
@@ -668,21 +668,41 @@
     var tree = inst.items_to_supply_tree.jstree(true);
     tree.deselect_all();
     if (parentHeadingId) {
-      // Directly stamp the parent onto the widget's internal fields BEFORE
-      // opening the edit dialog. Relying on tree.select_node + set_parent_vals()
-      // is unreliable across HireHop's post-batch-save tree refreshes: the tree
-      // gets re-rendered, select_node silently no-ops on the freshly-recreated
-      // node, and set_parent_vals(true) then reads "no selection" and defaults
-      // parent to 0 (root). Direct assignment survives all of that. Tree
-      // select_node is still called for visual feedback.
+      // Best-effort tree selection (nice visual feedback and used by the first
+      // heading), but do not rely on it - after a batch save HireHop refreshes
+      // the jstree and select_node silently no-ops on the freshly-recreated
+      // node. The parent is enforced below via a synthetic <option> on the
+      // item_edit_heading SELECT instead.
       try { tree.select_node("a" + parentHeadingId); } catch (e) { }
-      try { inst.item_edit_heading.val(parentHeadingId); } catch (e) { }
-      try { inst.picklist_heading.val(parentHeadingId); } catch (e) { }
     }
     inst.new_item(0);
-    // new_item(0) may reset item_edit_heading — re-stamp after opening the dialog.
+    // CRITICAL: item_edit_heading is a <select>, not a text input. new_item(0)
+    // rebuilds its options from the current tree selection. If that selection
+    // failed above (post-refresh no-op), the select ends up with just one
+    // "none" option and .val(parentId) silently drops the value (jQuery's val
+    // fails to select a non-existent option and val() then returns null),
+    // causing save_item to POST parent="" -> the new heading lands at the
+    // tree root. Fix: append a synthetic <option> for our parent id so val()
+    // has something to select. Do the same for picklist_heading (used by the
+    // items-list save path). Label text is irrelevant - the dialog isn't shown
+    // to the user in this flow.
     if (parentHeadingId) {
-      try { inst.item_edit_heading.val(parentHeadingId); } catch (e) { }
+      var ensureOption = function (field) {
+        if (!field || !field.length || !field[0] || field[0].tagName !== "SELECT") return;
+        var sel = field[0], want = String(parentHeadingId), i, has = false;
+        for (i = 0; i < sel.options.length; i++) {
+          if (sel.options[i].value === want) { has = true; break; }
+        }
+        if (!has) {
+          var opt = document.createElement("option");
+          opt.value = want;
+          opt.textContent = "";
+          sel.appendChild(opt);
+        }
+        sel.value = want;
+      };
+      try { ensureOption(inst.item_edit_heading); } catch (e) { }
+      try { ensureOption(inst.picklist_heading); } catch (e) { }
     }
     inst.heading_name.val(title);
     if (description && inst.heading_desc) inst.heading_desc.val(description); // Item description
