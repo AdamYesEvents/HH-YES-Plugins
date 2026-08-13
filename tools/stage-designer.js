@@ -8,7 +8,7 @@
  * Catalogue: data/stage-designer/decks.json + legs.json.
  * Fascia, trim and carpet come later (fascia will match the chosen height).
  *
- * Version: 0.31.8
+ * Version: 0.31.9
  */
 
 (function () {
@@ -542,7 +542,7 @@
   // ===========================================================================
   if (typeof window === "undefined") return;
 
-  var TOOL_VERSION = "0.31.8"; // shown in the panel header top-left; keep in sync with the header banner above.
+  var TOOL_VERSION = "0.31.9"; // shown in the panel header top-left; keep in sync with the header banner above.
   var REPO = "AdamYesEvents/HH-YES-Plugins";
   // Load data from this tool's own release tag (immutable + served instantly by
   // jsDelivr) rather than @main, which edge-caches and can lag / throttle purges.
@@ -831,13 +831,34 @@
     return chain.then(function () { return { shoppingByCat: shoppingByCat, customsByCat: customsByCat }; });
   }
 
+  // Force jstree.get_selected to return the given node id for a scoped operation.
+  // HireHop's save_items_list reads tree.get_selected() (not picklist_heading)
+  // to build the batch save's parent - and after HireHop's post-batch tree
+  // refresh, tree.select_node silently no-ops, so get_selected() returns [] and
+  // the batch lands at the tree root's first heading (we saw carpet items end
+  // up under "AM - Load"). Monkey-patch get_selected on the CURRENT tree
+  // instance to return our node in both shape variants (id-array and full-node
+  // array) so save_items_list uses our parent. Returns a restore function.
+  function forceTreeSelection(inst, subHeadingId) {
+    var tree = inst.items_to_supply_tree.jstree(true);
+    if (!tree) return function () { };
+    var nodeId = "a" + subHeadingId;
+    var origGetSelected = tree.get_selected;
+    // Synthesize a jstree-shaped node in case a full-node call is made
+    var syntheticNode = { id: nodeId, data: { ID: parseInt(subHeadingId), kind: 0 }, parent: "#", text: "", children: [] };
+    tree.get_selected = function (full) {
+      return full ? [syntheticNode] : [nodeId];
+    };
+    return function () { tree.get_selected = origGetSelected; };
+  }
+
   // Insert one category's items under a sub-heading: batch save the resolved
   // parts, wait for the autopull prompt (deck), then insert customs.
   function insertOneCategory(inst, subHeadingId, shopping, customs, hasAutopull, done) {
     var tree = inst.items_to_supply_tree.jstree(true);
     tree.deselect_all();
     // Best-effort tree selection for UI feedback; the authoritative parent
-    // assignment happens via forceParentHeading (see comment there).
+    // assignment happens via forceParentHeading + forceTreeSelection.
     try { tree.select_node("a" + subHeadingId); } catch (e) { }
     forceParentHeading(inst, subHeadingId);
     function doCustoms() {
@@ -848,10 +869,14 @@
       insertCustoms(inst, subHeadingId, customs, done);
     }
     if (Object.keys(shopping).length && String(inst.picklist_heading.val()) === String(subHeadingId)) {
+      // Keep get_selected returning our sub-heading until save_items_list's
+      // XHR has fired (safe window: hold through the settle timer, restore
+      // before doCustoms so the tree's real selection returns).
+      var restoreGetSelected = forceTreeSelection(inst, subHeadingId);
       inst.save_items_list(shopping);
       // Only the Deck category triggers HireHop's Autopull modal (the boltset).
-      if (hasAutopull) dismissAutopullThen(doCustoms);
-      else setTimeout(doCustoms, 3500);
+      if (hasAutopull) dismissAutopullThen(function () { restoreGetSelected(); doCustoms(); });
+      else setTimeout(function () { restoreGetSelected(); doCustoms(); }, 3500);
     } else {
       doCustoms();
     }
