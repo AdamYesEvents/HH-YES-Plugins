@@ -8,7 +8,7 @@
  * Catalogue: data/stage-designer/decks.json + legs.json.
  * Fascia, trim and carpet come later (fascia will match the chosen height).
  *
- * Version: 0.31.6
+ * Version: 0.31.7
  */
 
 (function () {
@@ -542,7 +542,7 @@
   // ===========================================================================
   if (typeof window === "undefined") return;
 
-  var TOOL_VERSION = "0.31.6"; // shown in the panel header top-left; keep in sync with the header banner above.
+  var TOOL_VERSION = "0.31.7"; // shown in the panel header top-left; keep in sync with the header banner above.
   var REPO = "AdamYesEvents/HH-YES-Plugins";
   // Load data from this tool's own release tag (immutable + served instantly by
   // jsDelivr) rather than @main, which edge-caches and can lag / throttle purges.
@@ -686,27 +686,10 @@
     // "none" option and .val(parentId) silently drops the value (jQuery's val
     // fails to select a non-existent option and val() then returns null),
     // causing save_item to POST parent="" -> the new heading lands at the
-    // tree root. Fix: append a synthetic <option> for our parent id so val()
-    // has something to select. Do the same for picklist_heading (used by the
-    // items-list save path). Label text is irrelevant - the dialog isn't shown
-    // to the user in this flow.
+    // tree root. forceParentHeading appends a synthetic <option> so val()
+    // has something to select. See its definition for details.
     if (parentHeadingId) {
-      var ensureOption = function (field) {
-        if (!field || !field.length || !field[0] || field[0].tagName !== "SELECT") return;
-        var sel = field[0], want = String(parentHeadingId), i, has = false;
-        for (i = 0; i < sel.options.length; i++) {
-          if (sel.options[i].value === want) { has = true; break; }
-        }
-        if (!has) {
-          var opt = document.createElement("option");
-          opt.value = want;
-          opt.textContent = "";
-          sel.appendChild(opt);
-        }
-        sel.value = want;
-      };
-      try { ensureOption(inst.item_edit_heading); } catch (e) { }
-      try { ensureOption(inst.picklist_heading); } catch (e) { }
+      try { forceParentHeading(inst, parentHeadingId); } catch (e) { }
     }
     inst.heading_name.val(title);
     if (description && inst.heading_desc) inst.heading_desc.val(description); // Item description
@@ -774,6 +757,28 @@
   // one at a time, spaced by CUSTOM_ROW_GAP_MS. Name is "[partNumber] label" for
   // easy find/replace later. If the item carries a unitPrice (e.g. the fascia
   // finish £/m), stamp it on the line so the cost shows until it becomes stock.
+  // Force HireHop's internal parent-heading fields (both <select>s) to point at
+  // parentHeadingId even when tree.select_node has silently no-oped (mid-refresh
+  // node not yet in jstree's index). Appends a synthetic <option> if needed -
+  // .val() silently drops values that don't match an existing option.
+  function forceParentHeading(inst, parentHeadingId) {
+    var want = String(parentHeadingId);
+    ["item_edit_heading", "picklist_heading"].forEach(function (key) {
+      var field = inst[key];
+      if (!field || !field.length || !field[0] || field[0].tagName !== "SELECT") return;
+      var sel = field[0], has = false;
+      for (var i = 0; i < sel.options.length; i++) {
+        if (sel.options[i].value === want) { has = true; break; }
+      }
+      if (!has) {
+        var opt = document.createElement("option");
+        opt.value = want; opt.textContent = "";
+        sel.appendChild(opt);
+      }
+      sel.value = want;
+    });
+  }
+
   function insertCustoms(inst, headingId, customs, done) {
     var tree = inst.items_to_supply_tree.jstree(true), i = 0;
     (function next() {
@@ -782,6 +787,10 @@
       try {
         tree.deselect_all(); tree.select_node("a" + headingId);
         inst.new_item(3);
+        // new_item(3) rebuilds picklist_heading from tree selection. After a
+        // batch save the tree is mid-refresh and select_node no-ops, so force
+        // the parent explicitly (see forceParentHeading).
+        forceParentHeading(inst, headingId);
         inst.custom_name.val("[" + it.partNumber + "] " + it.label);
         inst.priced_edit.find("[name='qty']").val(it.qty).trigger("change");
         if (it.unitPrice != null && inst.unit_price && inst.unit_price.length) {
@@ -825,15 +834,20 @@
   // Insert one category's items under a sub-heading: batch save the resolved
   // parts, wait for the autopull prompt (deck), then insert customs.
   function insertOneCategory(inst, subHeadingId, shopping, customs, hasAutopull, done) {
-    inst.set_item_edit_tree_headings();
     var tree = inst.items_to_supply_tree.jstree(true);
-    tree.deselect_all(); tree.select_node("a" + subHeadingId); inst.set_parent_vals(true);
+    tree.deselect_all();
+    // Best-effort tree selection for UI feedback; the authoritative parent
+    // assignment happens via forceParentHeading (see comment there).
+    try { tree.select_node("a" + subHeadingId); } catch (e) { }
+    forceParentHeading(inst, subHeadingId);
     function doCustoms() {
       var t = inst.items_to_supply_tree.jstree(true);
-      t.deselect_all(); t.select_node("a" + subHeadingId); inst.set_parent_vals(true);
+      t.deselect_all();
+      try { t.select_node("a" + subHeadingId); } catch (e) { }
+      forceParentHeading(inst, subHeadingId);
       insertCustoms(inst, subHeadingId, customs, done);
     }
-    if (Object.keys(shopping).length && inst.picklist_heading.val() == subHeadingId) {
+    if (Object.keys(shopping).length && String(inst.picklist_heading.val()) === String(subHeadingId)) {
       inst.save_items_list(shopping);
       // Only the Deck category triggers HireHop's Autopull modal (the boltset).
       if (hasAutopull) dismissAutopullThen(doCustoms);
