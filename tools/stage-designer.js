@@ -8,7 +8,7 @@
  * Catalogue: data/stage-designer/decks.json + legs.json.
  * Fascia, trim and carpet come later (fascia will match the chosen height).
  *
- * Version: 0.31.5
+ * Version: 0.31.6
  */
 
 (function () {
@@ -542,6 +542,7 @@
   // ===========================================================================
   if (typeof window === "undefined") return;
 
+  var TOOL_VERSION = "0.31.6"; // shown in the panel header top-left; keep in sync with the header banner above.
   var REPO = "AdamYesEvents/HH-YES-Plugins";
   // Load data from this tool's own release tag (immutable + served instantly by
   // jsDelivr) rather than @main, which edge-caches and can lag / throttle purges.
@@ -641,7 +642,10 @@
   var HEADING_SETTLE_MS = 3000;
   var HEADING_MAX_RETRIES = 2;
   var HEADING_RETRY_BACKOFF_MS = 9000; // long pause so a hit rate limit clears
-  var HEADING_TIMEOUT_MS = 20000;      // per-attempt wait for the new node to appear
+  var HEADING_TIMEOUT_MS = 60000;      // per-attempt wait for the new node to appear.
+                                        // HireHop's items_to_supply_list can take 30-40s
+                                        // on large jobs; short timeout would fire retries
+                                        // before the tree has finished reloading.
 
   function findVisibleErrorDialog() {
     return Array.prototype.slice.call(document.querySelectorAll(".ui-dialog")).filter(function (d) {
@@ -712,7 +716,12 @@
     return new Promise(function (resolve) {
       var start = Date.now();
       var iv = setInterval(function () {
-        var now = headingIdSet(inst);
+        // headingIdSet reads tree.get_json which throws while HireHop's tree
+        // is mid-refresh (empty root). Without try/catch here the callback
+        // errored every 200ms and the timeout check below never ran - silent
+        // infinite hang. Catch and continue polling; timeout will fire.
+        var now;
+        try { now = headingIdSet(inst); } catch (e) { now = {}; }
         var newId = Object.keys(now).filter(function (id) { return !before[id]; })[0];
         if (newId) { clearInterval(iv); setTimeout(function () { resolve(parseInt(newId)); }, HEADING_SETTLE_MS); return; }
         // Retry if HireHop shows an Error dialog (usually a transient rate-limit warning).
@@ -1143,7 +1152,7 @@
       function close() { if (backdrop.parentNode) backdrop.parentNode.removeChild(backdrop); }
 
       var head = el("div", null, "padding:18px 22px;border-bottom:1px solid #eee;");
-      head.innerHTML = '<div style="font-size:18px;font-weight:600;color:#222;">Stage Designer</div>' +
+      head.innerHTML = '<div style="font-size:18px;font-weight:600;color:#222;">Stage Designer <span style="font-size:10px;font-weight:400;color:#aaa;margin-left:6px;">v' + TOOL_VERSION + '</span></div>' +
         '<div style="font-size:13px;color:#777;margin-top:2px;">Generate a stage deck + leg kit and add it to this job.</div>';
       panel.appendChild(head);
 
