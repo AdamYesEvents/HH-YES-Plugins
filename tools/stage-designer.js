@@ -8,7 +8,7 @@
  * Catalogue: data/stage-designer/decks.json + legs.json.
  * Fascia, trim and carpet come later (fascia will match the chosen height).
  *
- * Version: 0.31.11
+ * Version: 0.31.12
  */
 
 (function () {
@@ -542,7 +542,7 @@
   // ===========================================================================
   if (typeof window === "undefined") return;
 
-  var TOOL_VERSION = "0.31.11"; // shown in the panel header top-left; keep in sync with the header banner above.
+  var TOOL_VERSION = "0.31.12"; // shown in the panel header top-left; keep in sync with the header banner above.
   var REPO = "AdamYesEvents/HH-YES-Plugins";
   // Load data from this tool's own release tag (immutable + served instantly by
   // jsDelivr) rather than @main, which edge-caches and can lag / throttle purges.
@@ -814,22 +814,22 @@
     return { order: order, groups: groups };
   }
 
-  // All items are routed as CUSTOMS (kind=3) to sidestep HireHop's
-  // save_items_list, which infers parent from server-side session state we
-  // can't reliably set (tried tree.select_node retries, forceParentHeading on
-  // both selects, forceTreeSelection monkey-patching get_selected, waiting for
-  // tree.select_node to actually succeed post-refresh - Carpet still landed at
-  // root because save_items_list POSTs parent="" and the server treats that as
-  // "current session heading" which is stale mid-refresh). insertCustoms uses
-  // the same reliable inst.new_item(3) + save_item pattern that works for
-  // heading creation. Trade-off: items appear as "[PART-NUMBER] label" custom
-  // lines rather than linked stock. Bulk find/replace in HireHop can convert
-  // them to stock later. shoppingByCat is kept as an empty object for shape
-  // compatibility with the rest of the flow.
+  // Resolve every part in one pass (serial, gentle), then hand back { shoppingByCat, customsByCat }.
   function resolveAllByCategory(inst, grouped) {
     var shoppingByCat = {}, customsByCat = {};
-    grouped.order.forEach(function (c) { shoppingByCat[c] = {}; customsByCat[c] = grouped.groups[c].slice(); });
-    return Promise.resolve({ shoppingByCat: shoppingByCat, customsByCat: customsByCat });
+    grouped.order.forEach(function (c) { shoppingByCat[c] = {}; customsByCat[c] = []; });
+    var chain = Promise.resolve();
+    grouped.order.forEach(function (cat) {
+      grouped.groups[cat].forEach(function (it) {
+        chain = chain.then(function () {
+          return resolvePart(inst, it.partNumber, it.qty).then(function (d) {
+            if (!d || typeof d.error !== "undefined") customsByCat[cat].push(it);
+            else { var key = (d.TYPE == 1 ? "a" : "b") + d.ID; shoppingByCat[cat][key] = (shoppingByCat[cat][key] || 0) + it.qty; }
+          }, function () { customsByCat[cat].push(it); });
+        });
+      });
+    });
+    return chain.then(function () { return { shoppingByCat: shoppingByCat, customsByCat: customsByCat }; });
   }
 
   // Poll until tree.select_node reliably makes the given node the sole selection.
@@ -876,27 +876,56 @@
     return function () { tree.get_selected = origGetSelected; };
   }
 
-  // Insert one category's items under a sub-heading. All items go through the
-  // custom-line path (see resolveAllByCategory comment) - the shopping arg is
-  // always empty and kept only for signature compatibility.
+  // Insert one category's items under a sub-heading. This assumes tree refresh
+  // is suppressed for the whole insert (see addStageKit), so tree.select_node
+  // and the widget's parent-derived state stays consistent from creation.
   function insertOneCategory(inst, subHeadingId, shopping, customs, hasAutopull, done, onItemStart) {
+    var tree = inst.items_to_supply_tree.jstree(true);
+    tree.deselect_all();
+    try { tree.select_node("a" + subHeadingId); } catch (e) { }
     forceParentHeading(inst, subHeadingId);
-    insertCustoms(inst, subHeadingId, customs, done, onItemStart);
+    function doCustoms() {
+      var t = inst.items_to_supply_tree.jstree(true);
+      t.deselect_all();
+      try { t.select_node("a" + subHeadingId); } catch (e) { }
+      forceParentHeading(inst, subHeadingId);
+      insertCustoms(inst, subHeadingId, customs, done, onItemStart);
+    }
+    if (Object.keys(shopping).length) {
+      // Count shopping as one progress tick per key for the bar.
+      if (onItemStart) {
+        var keys = Object.keys(shopping);
+        keys.forEach(function () { onItemStart({ label: "batch item", partNumber: "" }); });
+      }
+      inst.save_items_list(shopping);
+      // Only Deck's stock triggers HireHop's Autopull modal (linked boltset).
+      if (hasAutopull) dismissAutopullThen(doCustoms);
+      else setTimeout(doCustoms, 2000);
+    } else {
+      doCustoms();
+    }
   }
 
   // Build a tree under an optional user-selected folder:
   //   parentSel (optional) -> "Stage ..." main heading -> "Deck" / "Fascia" / ... sub-headings -> items
   function addStageKit(inst, items, title, onDone, description, memo, parentHeadingId, onProgress) {
-    // ---- picklist_heading clobber guard --------------------------------------
-    // HireHop internally calls inst.set_parent_vals(true) in response to tree
-    // events (deselect / selection-change / batch-save reflow). That function
-    // reads the current tree selection and writes it to picklist_heading and
-    // item_edit_heading. When the tree is mid-refresh (empty root) it wipes
-    // both to 0. That happens between our forceParentHeading(subCat) call and
-    // save_items_list's async XHR send, so the items land at the tree root
-    // (attached to whatever the first heading is - we saw carpet items end up
-    // under "AM - Load" on the test job). Neutralise the clobber for the whole
-    // insert; restore in every exit path (onDone AND unhandled errors).
+    // ---- Tree-refresh suppression ---------------------------------------------
+    // HireHop refreshes items_to_supply_tree after every heading/item save
+    // (calls jstree("refresh") which re-runs the data function and hits
+    // items_to_supply_list.php - a 30-40s round trip on large jobs). During
+    // that mid-refresh window the tree's node index is empty, tree.select_node
+    // silently no-ops, get_selected returns [], and save_items_list's XHR
+    // reads a stale server-side "current heading" so items end up under an
+    // unrelated top-level folder. Suppress ALL refreshes for the whole insert;
+    // fire ONE at the very end (after final autopull dismiss) via
+    // clickSupplyingRefresh. Result: tree stays stable and consistent from the
+    // moment we create the Stage folder to the last item; every save writes to
+    // the right parent because the widget's state never gets invalidated.
+    var treeJs = inst.items_to_supply_tree.jstree(true);
+    var origRefresh = treeJs.refresh;
+    treeJs.refresh = function () { /* suppressed during stage insert */ };
+    // Also neutralise HireHop's parent-vals clobber (see prior comment) which
+    // can still be called by tree events even without the reload.
     var origSetParentVals = inst.set_parent_vals;
     inst.set_parent_vals = function () { /* no-op during stage insert */ };
     var origSetItemEditTree = inst.set_item_edit_tree_headings;
@@ -905,15 +934,14 @@
     function restore() {
       if (restored) return;
       restored = true;
+      try { treeJs.refresh = origRefresh; } catch (e) { }
       inst.set_parent_vals = origSetParentVals;
       inst.set_item_edit_tree_headings = origSetItemEditTree;
     }
     var userOnDone = onDone;
     onDone = function (r) { restore(); try { userOnDone(r); } catch (e) { } };
-    // Belt-and-braces: if anything throws unhandled, restore too.
     window.addEventListener("error", restore, { once: true });
     window.addEventListener("unhandledrejection", restore, { once: true });
-    // Long-tail safety: after 20 min, force restore no matter what.
     setTimeout(restore, 20 * 60 * 1000);
 
     var grouped = groupByCategory(items);
@@ -934,7 +962,12 @@
         function nextCategory() {
           if (i >= grouped.order.length) {
             reportPhase("finalising", null, null);
+            // Final autopull sweep, THEN restore the tree.refresh we suppressed,
+            // fire one refresh so the whole insert appears in the tree, and
+            // click HireHop's Supplying refresh button so the tab redraws.
             dismissAutopullThen(function () {
+              restore();
+              try { inst.items_to_supply_tree.jstree(true).refresh(false); } catch (e) { }
               clickSupplyingRefresh(inst);
               onDone({ ok: true, headingId: mainId, parts: parts, customs: customs });
             });
