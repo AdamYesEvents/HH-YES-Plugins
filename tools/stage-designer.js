@@ -8,7 +8,7 @@
  * Catalogue: data/stage-designer/decks.json + legs.json.
  * Fascia, trim and carpet come later (fascia will match the chosen height).
  *
- * Version: 0.31.2
+ * Version: 0.31.3
  */
 
 (function () {
@@ -669,7 +669,13 @@
     tree.deselect_all();
     if (parentHeadingId) {
       tree.select_node("a" + parentHeadingId);
+      // Two-step: refresh the edit dialog's tree-derived fields, THEN force the
+      // cached parent to match the current selection. insertOneCategory calls
+      // set_parent_vals(true) to point items at a sub-heading; without repeating
+      // it here, HireHop keeps that stale parent for the NEXT sub-heading and
+      // drops it at the wrong level (root, or under the previous sub-heading).
       try { inst.set_item_edit_tree_headings(); } catch (e) { }
+      try { inst.set_parent_vals(true); } catch (e) { }
     }
     inst.new_item(0);
     inst.heading_name.val(title);
