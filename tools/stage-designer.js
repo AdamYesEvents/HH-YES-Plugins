@@ -8,7 +8,7 @@
  * Catalogue: data/stage-designer/decks.json + legs.json.
  * Fascia, trim and carpet come later (fascia will match the chosen height).
  *
- * Version: 0.31.14
+ * Version: 0.31.15
  */
 
 (function () {
@@ -542,7 +542,7 @@
   // ===========================================================================
   if (typeof window === "undefined") return;
 
-  var TOOL_VERSION = "0.31.14"; // shown in the panel header top-left; keep in sync with the header banner above.
+  var TOOL_VERSION = "0.31.15"; // shown in the panel header top-left; keep in sync with the header banner above.
   var REPO = "AdamYesEvents/HH-YES-Plugins";
   // Load data from this tool's own release tag (immutable + served instantly by
   // jsDelivr) rather than @main, which edge-caches and can lag / throttle purges.
@@ -967,12 +967,13 @@
         function nextCategory() {
           if (i >= grouped.order.length) {
             reportPhase("finalising", null, null);
-            // Final autopull sweep, THEN restore the tree.refresh we suppressed,
-            // fire one refresh so the whole insert appears in the tree, and
-            // click HireHop's Supplying refresh button so the tab redraws.
+            // Final autopull sweep, THEN restore the tree.refresh we suppressed
+            // and click HireHop's Supplying refresh button. clickSupplyingRefresh
+            // triggers the same tree.refresh internally, so we do NOT also call
+            // it directly - back-to-back refreshes doubled the tree reload
+            // (23s + 23s on large jobs) and held up the available column.
             dismissAutopullThen(function () {
               restore();
-              try { inst.items_to_supply_tree.jstree(true).refresh(false); } catch (e) { }
               clickSupplyingRefresh(inst);
               onDone({ ok: true, headingId: mainId, parts: parts, customs: customs });
             });
