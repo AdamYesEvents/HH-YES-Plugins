@@ -5,9 +5,9 @@
  * tool. Full loader (both tools) is at loader.js.
  *
  * Install via jsDelivr:
- *   https://cdn.jsdelivr.net/gh/AdamYesEvents/HH-YES-Plugins@v0.1.89/loader-stage-designer.js
+ *   https://cdn.jsdelivr.net/gh/AdamYesEvents/HH-YES-Plugins@v0.1.90/loader-stage-designer.js
  *
- * Version: 0.1.89
+ * Version: 0.1.90
  */
 
 (function () {
@@ -19,7 +19,7 @@
   // decoupled from the loader version.
   // ===========================================================================
   var TOOLS = {
-    "stage-designer": { on: true, ref: "9038c738657a5ad73e45177ecd19e0828bdf3d2c" }
+    "stage-designer": { on: true, ref: "fdeeecbc0f0555cb4881351936557c72a114da98" }
   };
 
   // ---------------------------------------------------------------------------
