@@ -7,9 +7,9 @@
  *
  * Load via jsDelivr (NOT raw.githubusercontent.com, which serves text/plain+nosniff
  * and will not execute). Pin the loader to a release tag, e.g.:
- *   https://cdn.jsdelivr.net/gh/AdamYesEvents/HH-YES-Plugins@v0.1.90/loader.js
+ *   https://cdn.jsdelivr.net/gh/AdamYesEvents/HH-YES-Plugins@v0.1.91/loader.js
  *
- * Version: 0.1.90
+ * Version: 0.1.91
  */
 
 (function () {
@@ -25,7 +25,7 @@
   // create a tag and set ref to it here.
   // ===========================================================================
   var TOOLS = {
-    "stage-designer":    { on: true, ref: "fdeeecbc0f0555cb4881351936557c72a114da98" },
+    "stage-designer":    { on: true, ref: "1c051bfd5f997759eff4f49d204a1761f919de52" },
     "videowall-creator": { on: true, ref: "videowall-creator-v0.8.0" }
   };
 
