@@ -8,7 +8,7 @@
  * Catalogue: data/stage-designer/decks.json + legs.json.
  * Fascia, trim and carpet come later (fascia will match the chosen height).
  *
- * Version: 0.31.13
+ * Version: 0.31.14
  */
 
 (function () {
@@ -542,7 +542,7 @@
   // ===========================================================================
   if (typeof window === "undefined") return;
 
-  var TOOL_VERSION = "0.31.13"; // shown in the panel header top-left; keep in sync with the header banner above.
+  var TOOL_VERSION = "0.31.14"; // shown in the panel header top-left; keep in sync with the header banner above.
   var REPO = "AdamYesEvents/HH-YES-Plugins";
   // Load data from this tool's own release tag (immutable + served instantly by
   // jsDelivr) rather than @main, which edge-caches and can lag / throttle purges.
@@ -908,7 +908,7 @@
 
   // Build a tree under an optional user-selected folder:
   //   parentSel (optional) -> "Stage ..." main heading -> "Deck" / "Fascia" / ... sub-headings -> items
-  function addStageKit(inst, items, title, onDone, description, memo, parentHeadingId, onProgress) {
+  function addStageKit(inst, items, title, onDone, description, memo, parentHeadingId, onProgress, onSetup) {
     // ---- Tree-refresh suppression ---------------------------------------------
     // HireHop refreshes items_to_supply_tree after every heading/item save
     // (calls jstree("refresh") which re-runs the data function and hits
@@ -943,6 +943,11 @@
     window.addEventListener("error", restore, { once: true });
     window.addEventListener("unhandledrejection", restore, { once: true });
     setTimeout(restore, 20 * 60 * 1000);
+    // Expose restore so the panel can call it if the user dismisses the modal
+    // mid-insert. Without this, monkey-patches (treeJs.refresh, set_parent_vals,
+    // set_item_edit_tree_headings) would leak into normal HireHop use until the
+    // 20-min failsafe fires.
+    if (typeof onSetup === "function") { try { onSetup(restore); } catch (e) { } }
 
     var grouped = groupByCategory(items);
     // Total items across all categories - used for the progress bar (bar fills
@@ -1263,7 +1268,14 @@
       var panel = el("div", null, "background:#fff;border-radius:8px;width:980px;max-width:96vw;max-height:90vh;overflow:auto;box-shadow:0 10px 40px rgba(0,0,0,.3);");
       backdrop.appendChild(panel);
       backdrop.addEventListener("click", function (e) { if (e.target === backdrop) close(); });
-      function close() { if (backdrop.parentNode) backdrop.parentNode.removeChild(backdrop); }
+      // If an insert is in flight when the panel is dismissed, the caller stashes
+      // its restore() handler here so close() can unwind our monkey-patches on
+      // HireHop's tree/refresh state instead of leaking them.
+      var activeInsertRestore = null;
+      function close() {
+        if (activeInsertRestore) { try { activeInsertRestore(); } catch (e) { } activeInsertRestore = null; }
+        if (backdrop.parentNode) backdrop.parentNode.removeChild(backdrop);
+      }
 
       var head = el("div", null, "padding:18px 22px;border-bottom:1px solid #eee;");
       head.innerHTML = '<div style="font-size:18px;font-weight:600;color:#222;">Stage Designer <span style="font-size:10px;font-weight:400;color:#aaa;margin-left:6px;">v' + TOOL_VERSION + '</span></div>' +
@@ -1670,6 +1682,7 @@
         function insert(built) {
           busyFoot("Adding to the job&hellip;");
           addStageKit(inst, state.items, state.title, function (r) {
+            activeInsertRestore = null; // addStageKit already ran restore before onDone
             if (r.ok) { if (built) uploadPdf(built.pdf, built.fileName); close(); }
             else {
               foot.innerHTML = "";
@@ -1679,7 +1692,9 @@
               back.textContent = "Back"; back.addEventListener("click", render);
               foot.appendChild(err); foot.appendChild(back);
             }
-          }, description, memo, parentHeadingId, progressFoot);
+          }, description, memo, parentHeadingId, progressFoot, function (restoreFn) {
+            activeInsertRestore = restoreFn;
+          });
         }
         // Build the PDF. On the click's user gesture, offer a local "Save As"
         // ONLY for companies opted into the pdfSavePrompt feature in branding.json
