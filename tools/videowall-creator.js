@@ -47,11 +47,36 @@
  *     (was 3 x 1.5m). Wider widths (5m+) still use the "max 1.5s + one 2 or
  *     1 filler" pattern - re-decompose if Adam supplies a preferred table.
  *
+ * v0.9.0 - PORT MAPPING:
+ *   - Q6 Refresh rate (25/50/60hz) and Q7 Bit depth (8/10/12bit) added. Bit
+ *     depth is clamped by processor: the MX30 is 8/10bit only, so 12bit is
+ *     disabled when an MX30 is selected (same pattern as 2.6mm -> Indoor).
+ *   - BANDWIDTH lookup: percentage of ONE PORT's capacity consumed by ONE
+ *     panel, per (processor, panel family, panel size, refresh, bit depth).
+ *     Supplied by Adam 2026-08-25 and confirmed per-port, not per-processor.
+ *   - mapPorts() splits the wall into data lines: serpentine chains along the
+ *     longer axis, balanced so the load spreads evenly across ports instead of
+ *     filling port 1 to the brim and starving the last.
+ *   - Preview now colour-codes each port's panels, draws the serpentine feed
+ *     path with a start marker, and reports panels + % used per port.
+ *   Worked example (Adam's): 4m x 3m Uniview @ 60hz/8bit = 24 panels x 12%
+ *   = 288% -> 3 ports, balanced to 8 panels / 96% each = one port per row.
+ *
+ * STILL TBD after v0.9.0 (targeted at v0.10.0 - cabling):
+ *   - Starter cables. One per line. REM ground + processor behind screen =
+ *     5/10/20m Ethercon by wall width (processor centred); REM flown = short
+ *     links out to a loom; Uniview = 15m per line (width-insensitive).
+ *     Blocked on: width bands, part numbers, the flown loom spec, and the
+ *     Uniview 15m part number.
+ *   - Port count per processor (MX30 / MX40), needed to know when a wall
+ *     spills onto a second processor. Not guessed - portCount is reported
+ *     as-is and no processor multiplication happens yet.
+ *
  * PDF generation is TEMPORARILY BLOCKED - see PDF_ENABLED below. When ready,
  * flip the flag on and reformat buildVideowallPdf() to match the final layout
  * (do not delete the scaffolding).
  *
- * Version: 0.8.0
+ * Version: 0.9.0
  */
 
 (function () {
@@ -154,14 +179,179 @@
     return rem === 0 ? caseSize : (caseSize - rem);
   }
 
+  // ===========================================================================
+  // PORT BANDWIDTH + PORT MAPPING (v0.9.0)
+  // ===========================================================================
+
+  // Percentage of ONE PORT's capacity consumed by ONE panel, with the processor
+  // set in that mode. Confirmed by Adam 2026-08-25: per PORT, not per processor
+  // - a port is full at 100%, so maxPanelsPerPort = floor(100 / pct).
+  //
+  //   BANDWIDTH[processor][family][size][refreshHz][bitDepth]
+  //     processor : "mx30" | "mx40pro"
+  //     family    : "uniview" (UR Pro 2.6mm) | "chauvet" (REM 3IP 3.9mm)
+  //     size      : "full" (1000x500) | "half" (500x500)
+  //
+  // Notes on the data - do NOT "tidy" these into a formula:
+  //  - The MX30 has NO 12bit column. It is 8/10bit only.
+  //  - Uniview figures are IDENTICAL on MX30 and MX40.
+  //  - Chauvet REM costs noticeably more on the MX30 (8% vs 5% at 60hz/8bit for
+  //    a 1000x500). That is real and is NOT explained by pixel bandwidth alone,
+  //    so this is authoritative lookup data, not something to compute.
+  //  - Uniview 500x500 @ 60hz/8bit is 6%. An early spreadsheet said 3%; that was
+  //    wrong (it was below the 50hz figure, and not half the 1000x500 figure).
+  //    Both the MX30 and MX40 tables agree on 6%.
+  var BANDWIDTH = {
+    mx30: {
+      uniview: {
+        full: { 25: { 8: 5, 10: 7 }, 50: { 8: 10, 10: 13 }, 60: { 8: 12, 10: 15 } },
+        half: { 25: { 8: 3, 10: 4 }, 50: { 8: 5,  10: 7  }, 60: { 8: 6,  10: 8  } }
+      },
+      chauvet: {
+        full: { 25: { 8: 4, 10: 5 }, 50: { 8: 7, 10: 9 }, 60: { 8: 8, 10: 10 } },
+        half: { 25: { 8: 2, 10: 3 }, 50: { 8: 4, 10: 5 }, 60: { 8: 4, 10: 5  } }
+      }
+    },
+    mx40pro: {
+      uniview: {
+        full: { 25: { 8: 5, 10: 7, 12: 10 }, 50: { 8: 10, 10: 13, 12: 19 }, 60: { 8: 12, 10: 15, 12: 23 } },
+        half: { 25: { 8: 3, 10: 4, 12: 5  }, 50: { 8: 5,  10: 7,  12: 10 }, 60: { 8: 6,  10: 8,  12: 12 } }
+      },
+      chauvet: {
+        full: { 25: { 8: 3, 10: 3, 12: 5 }, 50: { 8: 5, 10: 6, 12: 9 }, 60: { 8: 5, 10: 7, 12: 10 } },
+        half: { 25: { 8: 2, 10: 2, 12: 3 }, 50: { 8: 3, 10: 3, 12: 5 }, 60: { 8: 3, 10: 4, 12: 5  } }
+      }
+    }
+  };
+
+  var PORT_CAPACITY = 100;
+  var REFRESH_RATES = [25, 50, 60];
+  var BIT_DEPTHS    = [8, 10, 12];
+
+  // Bit depths this processor can actually run. The MX30 has no 12bit column.
+  function bitDepthsFor(processorModel) {
+    var proc = BANDWIDTH[processorModel];
+    if (!proc) return [8, 10];
+    var row = proc.uniview.full[60] || {};
+    return BIT_DEPTHS.filter(function (b) { return typeof row[b] === "number"; });
+  }
+
+  function bandwidthPct(processorModel, isUniview, size, refresh, bitDepth) {
+    var proc = BANDWIDTH[processorModel];
+    if (!proc) return null;
+    var fam = proc[isUniview ? "uniview" : "chauvet"];
+    var bySize = fam && fam[size];
+    var byRefresh = bySize && bySize[refresh];
+    var v = byRefresh && byRefresh[bitDepth];
+    return (typeof v === "number") ? v : null;
+  }
+
+  // The panel order a data line follows. Runs go along the LONGER axis (rows on
+  // a wide wall, columns on a tall one) and serpentine - each run reverses so
+  // the daisy-chain stays continuous instead of jumping back to the far side.
+  // Grid convention matches the rest of the tool: r = 0 is the TOP row, which is
+  // the 500h row when the wall height has a 0.5m remainder.
+  function serpentine(cols, rows, alongRows) {
+    var seq = [], r, c, i;
+    if (alongRows) {
+      for (r = 0; r < rows; r++)
+        for (i = 0; i < cols; i++)
+          seq.push({ r: r, c: (r % 2 === 0) ? i : (cols - 1 - i) });
+    } else {
+      for (c = 0; c < cols; c++)
+        for (i = 0; i < rows; i++)
+          seq.push({ r: (c % 2 === 0) ? i : (rows - 1 - i), c: c });
+    }
+    return seq;
+  }
+
+  // Split the wall into data lines (ports).
+  //   o = { cols, rows, halfTopRow, pctFull, pctHalf, alongRows (optional) }
+  // Returns { ok, ports[], portCount, totalPct, alongRows } where each port is
+  // { port, panels[{r,c,half,pct,port}], pct }.
+  function mapPorts(o) {
+    var cols = o.cols, rows = o.rows, halfTopRow = !!o.halfTopRow;
+    var pctFull = o.pctFull, pctHalf = o.pctHalf;
+    if (!(pctFull > 0)) return { ok: false, error: "No bandwidth figure for that mode" };
+    if (halfTopRow && !(pctHalf > 0)) return { ok: false, error: "No 500x500 bandwidth figure for that mode" };
+    if (!(cols > 0) || !(rows > 0)) return { ok: false, error: "Nothing to map" };
+
+    var alongRows = (o.alongRows != null) ? !!o.alongRows : (cols >= rows);
+    var seq = serpentine(cols, rows, alongRows).map(function (p) {
+      var isHalf = halfTopRow && p.r === 0;
+      return { r: p.r, c: p.c, half: isHalf, pct: isHalf ? pctHalf : pctFull };
+    });
+
+    var total = seq.reduce(function (a, p) { return a + p.pct; }, 0);
+    if (seq.some(function (p) { return p.pct > PORT_CAPACITY + EPS; }))
+      return { ok: false, error: "A single panel exceeds one port at that refresh / bit depth" };
+
+    // Walk the chain, starting a new line whenever the next panel would push the
+    // current one past `cap`. Panels stay consecutive, so every line is a real
+    // daisy-chain.
+    function fillWithCap(cap) {
+      var out = [], cur = null;
+      for (var i = 0; i < seq.length; i++) {
+        var p = seq[i];
+        if (cur && cur.pct + p.pct > cap + EPS) { out.push(cur); cur = null; }
+        if (!cur) cur = { panels: [], pct: 0 };
+        cur.panels.push(p); cur.pct += p.pct;
+      }
+      if (cur) out.push(cur);
+      return out;
+    }
+
+    // 1. How many lines this wall actually needs.
+    //
+    // NOT ceil(total / 100). A data line is a physical daisy-chain, so a port's
+    // panels have to be CONSECUTIVE in the serpentine order - you cannot
+    // cherry-pick panels from around the wall to land a port on exactly 100%.
+    // Under that contiguity constraint, greedy maximal fill minimises the number
+    // of parts, so this is the true floor, and it can be HIGHER than ceil(/100).
+    //   Real example: a 4m x 3.5m Uniview wall on an MX30 at 25hz/10bit is
+    //   8 x 4% (the 500h top row) + 24 x 7% = 200% exactly. ceil says 2 lines,
+    //   but 32 + 7k never equals 100, so every contiguous split leaves one side
+    //   over capacity and it genuinely needs 3.
+    var portCount = fillWithCap(PORT_CAPACITY).length;
+
+    // 2. With the line count fixed, push the HEAVIEST port as low as it will go.
+    // Filling each port to the brim is valid but ugly - port 1 at 100% and the
+    // last on scraps. Lowering the ceiling until it costs an extra line spreads
+    // the load and minimises the worst-case port, which is what a tech wants.
+    //   Adam's 4x3: 3 lines, ceiling drops 100% -> 96%, giving 96/96/96 - one
+    //   port per row, which is exactly how he said he'd patch it.
+    var maxPanel = seq.reduce(function (a, p) { return Math.max(a, p.pct); }, 0);
+    var cap = PORT_CAPACITY;
+    for (var c = Math.ceil(maxPanel); c <= PORT_CAPACITY; c++) {
+      if (fillWithCap(c).length <= portCount) { cap = c; break; }
+    }
+    var ports = fillWithCap(cap);
+
+    ports.forEach(function (pt, idx) {
+      pt.port = idx + 1;
+      pt.pct = +pt.pct.toFixed(2);
+      pt.panels.forEach(function (p) { p.port = idx + 1; });
+    });
+
+    return {
+      ok: true, ports: ports, portCount: ports.length,
+      totalPct: +total.toFixed(2), alongRows: alongRows
+    };
+  }
+
   // Compute the full kit from the answered questions.
-  //   opts = { pitch:       "2.6mm" | "3.9mm",
-  //            environment: "indoor" | "outdoor",
-  //            support:     "flown" | "ground",
-  //            rigging:     "clamp" | "sling"       (Outdoor + Flown only),
-  //            width:       metres, multiples of 0.5,
-  //            height:      metres, multiples of 0.5,
-  //            processor:   "behind" | "far" }
+  //   opts = { pitch:          "2.6mm" | "3.9mm",
+  //            environment:    "indoor" | "outdoor",
+  //            support:        "flown" | "ground",
+  //            rigging:        "clamp" | "sling"       (Outdoor + Flown only),
+  //            width:          metres, multiples of 0.5,
+  //            height:         metres, multiples of 0.5,
+  //            processor:      "behind" | "far",
+  //            processorModel: "mx30" | "mx40pro"      (default mx30),
+  //            refresh:        25 | 50 | 60            (default 60),
+  //            bitDepth:       8 | 10 | 12             (default 8; MX30 max 10),
+  //            alongRows:      optional bool - force run direction, otherwise
+  //                            runs follow the longer axis }
   function computeKit(opts) {
     opts = opts || {};
     if (!opts.pitch || !opts.environment || !opts.support || !opts.processor)
@@ -170,6 +360,17 @@
       return { ok: false, error: "Pitch must be 2.6mm or 3.9mm" };
     if (opts.pitch === "2.6mm" && opts.environment === "outdoor")
       return { ok: false, error: "2.6mm is indoor only" };
+
+    // Processor mode - drives the port bandwidth lookup.
+    var procModel = (opts.processorModel === "mx40pro") ? "mx40pro" : "mx30";
+    var refresh   = (opts.refresh  != null) ? +opts.refresh  : 60;
+    var bitDepth  = (opts.bitDepth != null) ? +opts.bitDepth : 8;
+    if (REFRESH_RATES.indexOf(refresh) < 0)
+      return { ok: false, error: "Refresh must be 25, 50 or 60hz" };
+    if (BIT_DEPTHS.indexOf(bitDepth) < 0)
+      return { ok: false, error: "Bit depth must be 8, 10 or 12 bit" };
+    if (bitDepthsFor(procModel).indexOf(bitDepth) < 0)
+      return { ok: false, error: "The MX30 does not support " + bitDepth + "bit - choose 8 or 10 bit, or an MX40 Pro" };
 
     var W = +opts.width, H = +opts.height;
     if (!(W > 0) || !isMult(W, 0.5)) return { ok: false, error: "Width must be a multiple of 0.5m" };
@@ -274,17 +475,47 @@
     // Signal / starter cables still deferred (hardware first). When ready,
     // add items with category "Cable" and un-skip "Cable" in INSERT_ORDER.
 
+    // ---- Port map ------------------------------------------------------------
+    // How the wall gets plugged up: how many lines come off the processor, which
+    // panels each line feeds, and how loaded each port is.
+    var pctFull = bandwidthPct(procModel, isUniview, "full", refresh, bitDepth);
+    var pctHalf = bandwidthPct(procModel, isUniview, "half", refresh, bitDepth);
+    if (pctFull == null || (halfPanels > 0 && pctHalf == null))
+      return { ok: false, error: "No bandwidth figure for " + procModel + " at " + refresh + "hz " + bitDepth + "bit" };
+
+    var portMap = mapPorts({
+      cols: cols, rows: rows, halfTopRow: halfPerCol === 1,
+      pctFull: pctFull, pctHalf: pctHalf, alongRows: opts.alongRows
+    });
+    if (!portMap.ok) return { ok: false, error: portMap.error };
+
     return {
       ok: true,
       items: items,
       cols: cols, rows: rows, panels: panels,
       fullPanels: fullPanels, halfPanels: halfPanels,
-      width: W, height: H
+      width: W, height: H,
+      // Port mapping
+      ports: portMap.ports, portCount: portMap.portCount,
+      totalPct: portMap.totalPct, alongRows: portMap.alongRows,
+      pctFull: pctFull, pctHalf: pctHalf,
+      refresh: refresh, bitDepth: bitDepth, processorModel: procModel
     };
   }
 
+  // Distinct fills per data line. Cycles past 10 ports; the per-panel port
+  // number is the real disambiguator, colour is just the quick read.
+  var PORT_COLOURS = [
+    "#2563eb", "#0a7d5a", "#b45309", "#7c3aed", "#be123c",
+    "#0369a1", "#4d7c0f", "#a21caf", "#c2410c", "#115e59"
+  ];
+  function portColour(n) { return PORT_COLOURS[(n - 1) % PORT_COLOURS.length]; }
+
   // Front-elevation SVG of the wall - grid of 500w panels. Top row is drawn
   // at half height when the wall's H has a 0.5m remainder (500h panels).
+  // When opts.ports is supplied (v0.9.0) each panel is filled with its port's
+  // colour and stamped with the port number, and the serpentine feed path is
+  // drawn over the top with a start marker on the first panel of each line.
   function buildWallSvg(cols, rows, opts) {
     opts = opts || {};
     var maxW = opts.maxW || 420, maxH = opts.maxH || 260, pad = 24;
@@ -298,21 +529,62 @@
     var W = panelW * cols, H = unit * height;
     var SW = W + pad * 2, SH = H + pad * 2;
     var ox = pad, oy = pad;
-    var cells = "";
+    var ports = opts.ports || null;
+
+    // The TOP row (r==0) is trimmed when height isn't a whole metre.
+    function cellY(r) { return oy + (r === 0 ? 0 : (r - trim) * panelH); }
+    function cellH(r) { return r === 0 ? (1 - trim) * panelH : panelH; }
+    function cx(c)    { return ox + c * panelW + panelW / 2; }
+    function cy(r)    { return cellY(r) + cellH(r) / 2; }
+
+    // r_c -> port number
+    var portOf = {};
+    if (ports) {
+      ports.forEach(function (pt) {
+        pt.panels.forEach(function (p) { portOf[p.r + "_" + p.c] = pt.port; });
+      });
+    }
+
+    var fs = Math.max(7, Math.min(13, panelW * 0.38));
+    var showNums = ports && panelW >= 15 && (panelH * (1 - trim)) >= 12;
+
+    var cells = "", nums = "";
     for (var r = 0; r < rows; r++) {
       for (var c = 0; c < cols; c++) {
-        // The TOP row (r==0) is trimmed when height isn't a whole metre.
-        var y = oy + (r === 0 ? 0 : (r - trim) * panelH);
-        var h = r === 0 ? (1 - trim) * panelH : panelH;
+        var y = cellY(r), h = cellH(r);
+        var pn = portOf[r + "_" + c];
+        var fill = pn ? portColour(pn) : "#1D1D3C";
         cells += '<rect x="' + (ox + c * panelW + 1) + '" y="' + (y + 1) +
           '" width="' + (panelW - 2) + '" height="' + (h - 2) +
-          '" fill="#1D1D3C" stroke="#26215C" stroke-width="1"/>';
+          '" fill="' + fill + '" stroke="#26215C" stroke-width="1"/>';
+        if (showNums && pn) {
+          nums += '<text x="' + cx(c) + '" y="' + cy(r) + '" font-family="Arial,Helvetica,sans-serif" font-size="' + fs.toFixed(1) +
+            '" fill="#ffffff" fill-opacity="0.75" text-anchor="middle" dominant-baseline="central">' + pn + '</text>';
+        }
       }
     }
+
+    // Serpentine feed path + start marker per line.
+    var paths = "";
+    if (ports) {
+      ports.forEach(function (pt) {
+        if (!pt.panels.length) return;
+        var pts = pt.panels.map(function (p) { return cx(p.c).toFixed(1) + "," + cy(p.r).toFixed(1); }).join(" ");
+        paths += '<polyline points="' + pts + '" fill="none" stroke="#ffffff" stroke-opacity="0.85" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/>';
+        var s = pt.panels[0], rad = Math.max(6, Math.min(11, panelW * 0.3));
+        paths += '<circle cx="' + cx(s.c).toFixed(1) + '" cy="' + cy(s.r).toFixed(1) + '" r="' + rad.toFixed(1) +
+          '" fill="#ffffff" stroke="' + portColour(pt.port) + '" stroke-width="2"/>';
+        paths += '<text x="' + cx(s.c).toFixed(1) + '" y="' + cy(s.r).toFixed(1) + '" font-family="Arial,Helvetica,sans-serif" font-size="' +
+          Math.max(7, rad * 1.05).toFixed(1) + '" font-weight="bold" fill="' + portColour(pt.port) +
+          '" text-anchor="middle" dominant-baseline="central">' + pt.port + '</text>';
+      });
+    }
+
     var frame = '<rect x="' + (ox - 0.5) + '" y="' + (oy - 0.5) + '" width="' + (W + 1) + '" height="' + (H + 1) + '" fill="none" stroke="#26215C" stroke-width="2"/>';
     var wLbl = '<text x="' + (ox + W / 2) + '" y="' + (SH - 6) + '" font-family="Arial,Helvetica,sans-serif" font-size="11" fill="#666" text-anchor="middle">' + (cols * 0.5) + ' m wide</text>';
     var hLbl = '<text x="' + (SW - 8) + '" y="' + (oy + H / 2) + '" font-family="Arial,Helvetica,sans-serif" font-size="11" fill="#666" text-anchor="middle" transform="rotate(90 ' + (SW - 8) + ' ' + (oy + H / 2) + ')">' + height + ' m high</text>';
-    return '<svg width="' + SW + '" height="' + SH + '" viewBox="0 0 ' + SW + ' ' + SH + '" xmlns="http://www.w3.org/2000/svg">' + cells + frame + wLbl + hLbl + '</svg>';
+    return '<svg width="' + SW + '" height="' + SH + '" viewBox="0 0 ' + SW + ' ' + SH + '" xmlns="http://www.w3.org/2000/svg">' +
+      cells + nums + paths + frame + wLbl + hLbl + '</svg>';
   }
 
   // ===========================================================================
@@ -334,7 +606,10 @@
     module.exports = {
       computeKit: computeKit, buildWallSvg: buildWallSvg,
       flownRig: flownRig, ground26Kit: ground26Kit, ground39Kit: ground39Kit,
-      computeSpares: computeSpares
+      computeSpares: computeSpares,
+      // v0.9.0 port mapping
+      mapPorts: mapPorts, serpentine: serpentine, bandwidthPct: bandwidthPct,
+      bitDepthsFor: bitDepthsFor, BANDWIDTH: BANDWIDTH, PORT_CAPACITY: PORT_CAPACITY
     };
   }
 
@@ -799,6 +1074,16 @@
     var procModelSel  = select([["mx30", "Novastar MX30"], ["mx40pro", "Novastar MX40 Pro"]]);
     procModelWrap.appendChild(procModelSel); colControls.appendChild(procModelWrap);
 
+    // Q6 Refresh rate - drives the per-port bandwidth lookup.
+    var refreshWrap = field("Refresh rate");
+    var refreshSel  = select([["60", "60 Hz"], ["50", "50 Hz"], ["25", "25 Hz"]]);
+    refreshWrap.appendChild(refreshSel); colControls.appendChild(refreshWrap);
+
+    // Q7 Bit depth - options depend on the processor (MX30 is 8/10bit only).
+    var bitWrap = field("Bit depth");
+    var bitSel  = select([["8", "8 bit"], ["10", "10 bit"], ["12", "12 bit"]]);
+    bitWrap.appendChild(bitSel); colControls.appendChild(bitWrap);
+
     var kitBox = el("div", null, "font-size:13px;");
     colKit.appendChild(kitBox);
 
@@ -824,9 +1109,21 @@
       rigWrap.style.display = (supSel.value === "flown" && pitchSel.value === "3.9mm") ? "" : "none";
     }
 
+    // The MX30 has no 12bit mode - disable it and fall back to 10bit.
+    function syncBitDepthOptions() {
+      var allowed = bitDepthsFor(procModelSel.value);
+      Array.prototype.slice.call(bitSel.options).forEach(function (o) {
+        o.disabled = allowed.indexOf(parseInt(o.value, 10)) < 0;
+      });
+      if (allowed.indexOf(parseInt(bitSel.value, 10)) < 0) {
+        bitSel.value = String(allowed[allowed.length - 1]);
+      }
+    }
+
     function render() {
       syncEnvOptions();
       syncRiggingVisibility();
+      syncBitDepthOptions();
       var res = computeKit({
         pitch:          pitchSel.value,
         environment:    envSel.value,
@@ -835,7 +1132,9 @@
         width:          parseFloat(wIn.value),
         height:         parseFloat(hIn.value),
         processor:      procSel.value,
-        processorModel: procModelSel.value
+        processorModel: procModelSel.value,
+        refresh:        parseInt(refreshSel.value, 10),
+        bitDepth:       parseInt(bitSel.value, 10)
       });
       state.result = res;
 
@@ -846,7 +1145,31 @@
         return;
       }
 
-      colPreview.innerHTML = buildWallSvg(res.cols, res.rows, { height: res.height });
+      // Preview: the wall, colour-coded by data line, plus a per-port load
+      // readout so you can see at a glance how hard each port is working.
+      var portHtml = '<div style="width:100%;margin-top:12px;font-size:12px;">' +
+        '<div style="font-size:11px;letter-spacing:.04em;color:#888;text-transform:uppercase;margin-bottom:6px;">' +
+        'Cabling &middot; ' + res.portCount + ' line' + (res.portCount === 1 ? '' : 's') + ' from the processor ' +
+        '<span style="text-transform:none;letter-spacing:0;">(' + (res.alongRows ? 'runs along rows' : 'runs along columns') + ')</span></div>';
+      res.ports.forEach(function (pt) {
+        var col = portColour(pt.port);
+        portHtml += '<div style="display:flex;align-items:center;gap:8px;padding:2px 0;">' +
+          '<span style="width:13px;height:13px;border-radius:3px;background:' + col + ';flex-shrink:0;"></span>' +
+          '<span style="width:48px;color:#333;">Port ' + pt.port + '</span>' +
+          '<span style="width:64px;color:#666;">' + pt.panels.length + ' panel' + (pt.panels.length === 1 ? '' : 's') + '</span>' +
+          '<span style="flex:1;height:6px;background:#eee;border-radius:3px;overflow:hidden;min-width:40px;">' +
+            '<span style="display:block;height:100%;width:' + Math.min(100, pt.pct) + '%;background:' + col + ';"></span>' +
+          '</span>' +
+          '<span style="width:36px;text-align:right;color:#111;font-weight:500;">' + pt.pct.toFixed(0) + '%</span>' +
+        '</div>';
+      });
+      portHtml += '<div style="margin-top:8px;font-size:11px;color:#777;">' +
+        res.pctFull + '% per 1000x500' + (res.halfPanels ? ', ' + res.pctHalf + '% per 500x500' : '') +
+        ' at ' + res.refresh + 'hz ' + res.bitDepth + 'bit &middot; ' + res.totalPct.toFixed(0) + '% total load</div>';
+      portHtml += '<div style="margin-top:4px;font-size:11px;color:#b07b00;">Starter cables not in the kit yet (v0.10.0).</div>';
+      portHtml += '</div>';
+
+      colPreview.innerHTML = buildWallSvg(res.cols, res.rows, { height: res.height, ports: res.ports }) + portHtml;
 
       var byCat = {};
       res.items.forEach(function (it) { (byCat[it.category] = byCat[it.category] || []).push(it); });
@@ -953,6 +1276,8 @@
     hIn          .addEventListener("input",  render);
     procSel      .addEventListener("change", render);
     procModelSel .addEventListener("change", render);
+    refreshSel   .addEventListener("change", render);
+    bitSel       .addEventListener("change", render);
 
     document.body.appendChild(backdrop);
     render();
