@@ -74,21 +74,40 @@
  *   A row too wide for one port is split into contiguous left-to-right chunks,
  *   sized as evenly as possible.
  *
- * STILL TBD after v0.9.0 (targeted at v0.10.0 - cabling):
+ * v0.10.0 - PROCESSORS + REDUNDANCY:
+ *   - Real port counts (Adam): MX30 has 10 ports, MX40 Pro has 20.
+ *   - Q8 Backup added. Running backup pairs each primary with a backup port, so
+ *     only HALF the ports are usable as primaries - an MX30 drops to 5 lines,
+ *     an MX40 Pro to 10. Two schemes, both in use:
+ *       "pairs"  - adjacent:     1&2, 3&4, 5&6 ...
+ *       "offset" - half-offset:  MX40 1&11, 2&12 ...  MX30 1&6, 2&7 ...
+ *   - Processor QUANTITY is now computed and written into the kit, instead of
+ *     always being 1. A wall that needs more lines than one box has ports for
+ *     now adds the extra processors.
+ *   - Upgrade hint: because backup halves an MX30 to 5 primaries, walls spill
+ *     onto a second box quickly. When an MX40 Pro would do it in fewer boxes,
+ *     the panel says so - upgrading is often cheaper than doubling up.
+ *   - Panels are now stamped with the PHYSICAL port being plugged (e.g. "3", or
+ *     "2:3" for processor 2 port 3), not the line index - with backup running,
+ *     line 2 lands on port 3 under the pairs scheme.
+ *
+ * STILL TBD after v0.10.0 (targeted at v0.11.0 - cabling):
  *   - Starter cables. One per line. REM ground + processor behind screen =
  *     5/10/20m Ethercon by wall width (processor centred); REM flown = short
  *     links out to a loom; Uniview = 15m per line (width-insensitive).
  *     Blocked on: width bands, part numbers, the flown loom spec, and the
  *     Uniview 15m part number.
- *   - Port count per processor (MX30 / MX40), needed to know when a wall
- *     spills onto a second processor. Not guessed - portCount is reported
- *     as-is and no processor multiplication happens yet.
+ *   - Backup cabling. Redundancy doubles the data runs, and the backup feed
+ *     conventionally lands on the far END of each chain (so data can flow back
+ *     the other way if the primary drops). That means backup cable lengths are
+ *     NOT the same as primary lengths - needs Adam's rule before it goes in
+ *     the kit. The port allocation is done; only the cables are missing.
  *
  * PDF generation is TEMPORARILY BLOCKED - see PDF_ENABLED below. When ready,
  * flip the flag on and reformat buildVideowallPdf() to match the final layout
  * (do not delete the scaffolding).
  *
- * Version: 0.9.1
+ * Version: 0.10.0
  */
 
 (function () {
@@ -240,6 +259,49 @@
   var REFRESH_RATES = [25, 50, 60];
   var BIT_DEPTHS    = [8, 10, 12];
 
+  // Physical Gigabit output ports per processor (Adam 2026-08-25).
+  var PROCESSOR_PORTS = { mx30: 10, mx40pro: 20 };
+  var PROCESSOR_NAME  = { mx30: "Novastar MX30", mx40pro: "Novastar MX40 Pro" };
+
+  // Redundancy. Running backup pairs each primary port with a backup port, so
+  // only HALF the ports are available as primaries - an MX30 drops from 10
+  // usable lines to 5, an MX40 Pro from 20 to 10. Two schemes are in use:
+  //   "none"   - no redundancy, every port is a primary
+  //   "pairs"  - adjacent: 1&2, 3&4, 5&6 ...
+  //   "offset" - half-offset: MX40 (20 ports) 1&11, 2&12 ...
+  //                           MX30 (10 ports) 1&6,  2&7  ...
+  var BACKUP_MODES = ["none", "pairs", "offset"];
+
+  // Work out which physical port (and which processor) each data line lands on.
+  function allocatePorts(processorModel, backup, lines) {
+    var total = PROCESSOR_PORTS[processorModel];
+    if (!total || !(lines > 0)) return null;
+    var half = total / 2;
+    var redundant = (backup && backup !== "none");
+    var perProcessor = redundant ? half : total;
+
+    var assignments = [];
+    for (var i = 0; i < lines; i++) {
+      var slot = i % perProcessor;
+      var primary, back = null;
+      if (!redundant)              { primary = slot + 1; }
+      else if (backup === "pairs") { primary = slot * 2 + 1; back = slot * 2 + 2; }
+      else                         { primary = slot + 1;     back = slot + 1 + half; }
+      assignments.push({
+        processor: Math.floor(i / perProcessor) + 1,
+        primary: primary,
+        backup: back
+      });
+    }
+    return {
+      assignments: assignments,
+      totalPorts: total,
+      perProcessor: perProcessor,
+      processors: Math.ceil(lines / perProcessor),
+      redundant: redundant
+    };
+  }
+
   // Bit depths this processor can actually run. The MX30 has no 12bit column.
   function bitDepthsFor(processorModel) {
     var proc = BANDWIDTH[processorModel];
@@ -358,6 +420,9 @@
       return { ok: false, error: "Bit depth must be 8, 10 or 12 bit" };
     if (bitDepthsFor(procModel).indexOf(bitDepth) < 0)
       return { ok: false, error: "The MX30 does not support " + bitDepth + "bit - choose 8 or 10 bit, or an MX40 Pro" };
+    var backup = opts.backup || "none";
+    if (BACKUP_MODES.indexOf(backup) < 0)
+      return { ok: false, error: "Backup must be none, pairs or offset" };
 
     var W = +opts.width, H = +opts.height;
     if (!(W > 0) || !isMult(W, 0.5)) return { ok: false, error: "Width must be a multiple of 0.5m" };
@@ -453,12 +518,11 @@
 
     // ---- Processor -----------------------------------------------------------
     // Novastar MX30 (YW-04071) or MX40 Pro (YW-00347) - user picks via Q5.
-    if (opts.processorModel === "mx40pro") {
-      items.push({ category: "Processor", label: "Novastar MX40 Pro Videowall Processor", partNumber: "YW-00347", qty: 1 });
-    } else {
-      // Default and "mx30".
-      items.push({ category: "Processor", label: "Novastar MX30 Videowall Processor", partNumber: "YW-04071", qty: 1 });
-    }
+    // qty is patched below once the port map says how many processors it takes.
+    var processorItem = (procModel === "mx40pro")
+      ? { category: "Processor", label: "Novastar MX40 Pro Videowall Processor", partNumber: "YW-00347", qty: 1 }
+      : { category: "Processor", label: "Novastar MX30 Videowall Processor",     partNumber: "YW-04071", qty: 1 };
+    items.push(processorItem);
     // Signal / starter cables still deferred (hardware first). When ready,
     // add items with category "Cable" and un-skip "Cable" in INSERT_ORDER.
 
@@ -476,6 +540,35 @@
     });
     if (!portMap.ok) return { ok: false, error: portMap.error };
 
+    // ---- Physical port allocation + how many processors that takes -----------
+    var alloc = allocatePorts(procModel, backup, portMap.portCount);
+    portMap.ports.forEach(function (pt, i) {
+      var a = alloc.assignments[i];
+      pt.processor   = a.processor;
+      pt.primaryPort = a.primary;
+      pt.backupPort  = a.backup;
+      // What gets stamped on the panels: the physical port you actually plug.
+      // Prefixed with the processor number only when there's more than one.
+      pt.label = (alloc.processors > 1 ? a.processor + ":" : "") + a.primary;
+    });
+    processorItem.qty = alloc.processors;
+
+    // Would a bigger processor do it in fewer boxes? Worth saying out loud -
+    // with backup running, an MX30 only offers 5 primaries, so walls spill onto
+    // a second box quickly and an MX40 Pro (10 primaries) often collapses it
+    // back to one.
+    var upgrade = null;
+    if (procModel === "mx30") {
+      var asMx40 = allocatePorts("mx40pro", backup, portMap.portCount);
+      if (asMx40 && asMx40.processors < alloc.processors) {
+        upgrade = portMap.portCount + " lines needs " + alloc.processors + " x MX30 (" +
+          alloc.perProcessor + " usable port" + (alloc.perProcessor === 1 ? "" : "s") +
+          " each" + (alloc.redundant ? " with backup" : "") + ") - " +
+          (asMx40.processors === 1 ? "a single MX40 Pro" : asMx40.processors + " x MX40 Pro") +
+          " would cover it.";
+      }
+    }
+
     return {
       ok: true,
       items: items,
@@ -486,7 +579,11 @@
       ports: portMap.ports, portCount: portMap.portCount,
       totalPct: portMap.totalPct, minPortsByBandwidth: portMap.minPortsByBandwidth,
       pctFull: pctFull, pctHalf: pctHalf,
-      refresh: refresh, bitDepth: bitDepth, processorModel: procModel
+      refresh: refresh, bitDepth: bitDepth, processorModel: procModel,
+      // Processors + redundancy
+      backup: backup, redundant: alloc.redundant,
+      processorCount: alloc.processors, portsPerProcessor: alloc.perProcessor,
+      totalPortsPerProcessor: alloc.totalPorts, upgradeSuggestion: upgrade
     };
   }
 
@@ -524,11 +621,14 @@
     function cx(c)    { return ox + c * panelW + panelW / 2; }
     function cy(r)    { return cellY(r) + cellH(r) / 2; }
 
-    // r_c -> port number
+    // r_c -> { colour index, printed label }. The label is the PHYSICAL port
+    // being plugged (e.g. "3", or "2:3" for processor 2 port 3), not the line
+    // index - with backup running, line 2 can land on port 3.
     var portOf = {};
     if (ports) {
       ports.forEach(function (pt) {
-        pt.panels.forEach(function (p) { portOf[p.r + "_" + p.c] = pt.port; });
+        var lbl = (pt.label != null) ? String(pt.label) : String(pt.port);
+        pt.panels.forEach(function (p) { portOf[p.r + "_" + p.c] = { n: pt.port, lbl: lbl }; });
       });
     }
 
@@ -540,13 +640,13 @@
       for (var c = 0; c < cols; c++) {
         var y = cellY(r), h = cellH(r);
         var pn = portOf[r + "_" + c];
-        var fill = pn ? portColour(pn) : "#1D1D3C";
+        var fill = pn ? portColour(pn.n) : "#1D1D3C";
         cells += '<rect x="' + (ox + c * panelW + 1) + '" y="' + (y + 1) +
           '" width="' + (panelW - 2) + '" height="' + (h - 2) +
           '" fill="' + fill + '" stroke="#26215C" stroke-width="1"/>';
         if (showNums && pn) {
           nums += '<text x="' + cx(c) + '" y="' + cy(r) + '" font-family="Arial,Helvetica,sans-serif" font-size="' + fs.toFixed(1) +
-            '" fill="#ffffff" fill-opacity="0.75" text-anchor="middle" dominant-baseline="central">' + pn + '</text>';
+            '" fill="#ffffff" fill-opacity="0.75" text-anchor="middle" dominant-baseline="central">' + pn.lbl + '</text>';
         }
       }
     }
@@ -558,12 +658,16 @@
         if (!pt.panels.length) return;
         var pts = pt.panels.map(function (p) { return cx(p.c).toFixed(1) + "," + cy(p.r).toFixed(1); }).join(" ");
         paths += '<polyline points="' + pts + '" fill="none" stroke="#ffffff" stroke-opacity="0.85" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/>';
-        var s = pt.panels[0], rad = Math.max(6, Math.min(11, panelW * 0.3));
-        paths += '<circle cx="' + cx(s.c).toFixed(1) + '" cy="' + cy(s.r).toFixed(1) + '" r="' + rad.toFixed(1) +
-          '" fill="#ffffff" stroke="' + portColour(pt.port) + '" stroke-width="2"/>';
+        var s = pt.panels[0], lbl = (pt.label != null) ? String(pt.label) : String(pt.port);
+        var rad = Math.max(6, Math.min(11, panelW * 0.3));
+        // Longer labels ("2:13") need a wider badge than a plain circle.
+        var rx = Math.max(rad, rad * 0.55 * lbl.length);
+        paths += '<rect x="' + (cx(s.c) - rx).toFixed(1) + '" y="' + (cy(s.r) - rad).toFixed(1) +
+          '" width="' + (rx * 2).toFixed(1) + '" height="' + (rad * 2).toFixed(1) +
+          '" rx="' + rad.toFixed(1) + '" fill="#ffffff" stroke="' + portColour(pt.port) + '" stroke-width="2"/>';
         paths += '<text x="' + cx(s.c).toFixed(1) + '" y="' + cy(s.r).toFixed(1) + '" font-family="Arial,Helvetica,sans-serif" font-size="' +
           Math.max(7, rad * 1.05).toFixed(1) + '" font-weight="bold" fill="' + portColour(pt.port) +
-          '" text-anchor="middle" dominant-baseline="central">' + pt.port + '</text>';
+          '" text-anchor="middle" dominant-baseline="central">' + lbl + '</text>';
       });
     }
 
@@ -594,9 +698,10 @@
       computeKit: computeKit, buildWallSvg: buildWallSvg,
       flownRig: flownRig, ground26Kit: ground26Kit, ground39Kit: ground39Kit,
       computeSpares: computeSpares,
-      // v0.9.0 port mapping
-      mapPorts: mapPorts, bandwidthPct: bandwidthPct,
-      bitDepthsFor: bitDepthsFor, BANDWIDTH: BANDWIDTH, PORT_CAPACITY: PORT_CAPACITY
+      // v0.9.0 port mapping / v0.10.0 processors + redundancy
+      mapPorts: mapPorts, bandwidthPct: bandwidthPct, allocatePorts: allocatePorts,
+      bitDepthsFor: bitDepthsFor, BANDWIDTH: BANDWIDTH, PORT_CAPACITY: PORT_CAPACITY,
+      PROCESSOR_PORTS: PROCESSOR_PORTS, BACKUP_MODES: BACKUP_MODES
     };
   }
 
@@ -1071,6 +1176,11 @@
     var bitSel  = select([["8", "8 bit"], ["10", "10 bit"], ["12", "12 bit"]]);
     bitWrap.appendChild(bitSel); colControls.appendChild(bitWrap);
 
+    // Q8 Backup - halves the usable ports, so it can change the processor count.
+    var bkpWrap = field("Backup");
+    var bkpSel  = select([["none", "None"], ["pairs", "Pairs (1&2, 3&4)"], ["offset", "Offset (1&11, 2&12)"]]);
+    bkpWrap.appendChild(bkpSel); colControls.appendChild(bkpWrap);
+
     var kitBox = el("div", null, "font-size:13px;");
     colKit.appendChild(kitBox);
 
@@ -1121,7 +1231,8 @@
         processor:      procSel.value,
         processorModel: procModelSel.value,
         refresh:        parseInt(refreshSel.value, 10),
-        bitDepth:       parseInt(bitSel.value, 10)
+        bitDepth:       parseInt(bitSel.value, 10),
+        backup:         bkpSel.value
       });
       state.result = res;
 
@@ -1141,12 +1252,15 @@
       res.ports.forEach(function (pt) {
         var col = portColour(pt.port);
         var rowLbl = "row " + (res.rows - pt.row);   // label rows from the bottom up
+        var portLbl = (res.processorCount > 1 ? "P" + pt.processor + " " : "") + "port " + pt.primaryPort;
+        var bkpLbl  = pt.backupPort ? '<span style="color:#0a7;">+' + pt.backupPort + '</span>' : '';
         portHtml += '<div style="display:flex;align-items:center;gap:8px;padding:2px 0;">' +
           '<span style="width:13px;height:13px;border-radius:3px;background:' + col + ';flex-shrink:0;"></span>' +
-          '<span style="width:48px;color:#333;">Port ' + pt.port + '</span>' +
+          '<span style="width:72px;color:#333;">' + portLbl + '</span>' +
+          '<span style="width:26px;font-size:11px;">' + bkpLbl + '</span>' +
           '<span style="width:44px;color:#999;font-size:11px;">' + rowLbl + '</span>' +
-          '<span style="width:64px;color:#666;">' + pt.panels.length + ' panel' + (pt.panels.length === 1 ? '' : 's') + '</span>' +
-          '<span style="flex:1;height:6px;background:#eee;border-radius:3px;overflow:hidden;min-width:40px;">' +
+          '<span style="width:60px;color:#666;">' + pt.panels.length + ' panel' + (pt.panels.length === 1 ? '' : 's') + '</span>' +
+          '<span style="flex:1;height:6px;background:#eee;border-radius:3px;overflow:hidden;min-width:34px;">' +
             '<span style="display:block;height:100%;width:' + Math.min(100, pt.pct) + '%;background:' + col + ';"></span>' +
           '</span>' +
           '<span style="width:36px;text-align:right;color:#111;font-weight:500;">' + pt.pct.toFixed(0) + '%</span>' +
@@ -1159,6 +1273,17 @@
         portHtml += '<div style="margin-top:2px;font-size:11px;color:#777;">' +
           'Bandwidth alone would fit ' + res.minPortsByBandwidth + ' line' + (res.minPortsByBandwidth === 1 ? '' : 's') +
           ' - kept one per row so each row can be tested as it goes up.</div>';
+      }
+      // Processor / port budget.
+      var procName = res.processorModel === "mx40pro" ? "MX40 Pro" : "MX30";
+      portHtml += '<div style="margin-top:8px;font-size:12px;color:#333;">' +
+        '<b>' + res.processorCount + ' x ' + procName + '</b> ' +
+        '<span style="color:#777;">&middot; ' + res.portsPerProcessor + ' usable port' +
+        (res.portsPerProcessor === 1 ? '' : 's') + ' each' +
+        (res.redundant ? ' (' + res.totalPortsPerProcessor + ' ports, halved for backup)' : '') +
+        ' &middot; ' + res.portCount + ' used of ' + (res.processorCount * res.portsPerProcessor) + '</span></div>';
+      if (res.upgradeSuggestion) {
+        portHtml += '<div style="margin-top:4px;font-size:11px;color:#b07b00;">' + res.upgradeSuggestion + '</div>';
       }
       portHtml += '<div style="margin-top:4px;font-size:11px;color:#b07b00;">Starter cables not in the kit yet (v0.10.0).</div>';
       portHtml += '</div>';
@@ -1272,6 +1397,7 @@
     procModelSel .addEventListener("change", render);
     refreshSel   .addEventListener("change", render);
     bitSel       .addEventListener("change", render);
+    bkpSel       .addEventListener("change", render);
 
     document.body.appendChild(backdrop);
     render();
