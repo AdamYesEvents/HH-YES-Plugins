@@ -54,13 +54,25 @@
  *   - BANDWIDTH lookup: percentage of ONE PORT's capacity consumed by ONE
  *     panel, per (processor, panel family, panel size, refresh, bit depth).
  *     Supplied by Adam 2026-08-25 and confirmed per-port, not per-processor.
- *   - mapPorts() splits the wall into data lines: serpentine chains along the
- *     longer axis, balanced so the load spreads evenly across ports instead of
- *     filling port 1 to the brim and starving the last.
- *   - Preview now colour-codes each port's panels, draws the serpentine feed
- *     path with a start marker, and reports panels + % used per port.
+ *   - mapPorts() splits the wall into data lines.
+ *   - Preview now colour-codes each port's panels, draws the feed path with a
+ *     start marker, and reports panels + % used per port.
  *   Worked example (Adam's): 4m x 3m Uniview @ 60hz/8bit = 24 panels x 12%
- *   = 288% -> 3 ports, balanced to 8 panels / 96% each = one port per row.
+ *   = 288% -> 3 lines of 8 panels / 96% each, one per row.
+ *
+ * v0.9.1 - WIRING RULES (Adam). These override pure bandwidth efficiency and
+ * replace v0.9.0's serpentine packing:
+ *   - A line NEVER mixes panel sizes. 1000x500 and 500x500 cannot share a port,
+ *     so the 500h top row always gets its own line(s).
+ *   - Wiring always runs LEFT TO RIGHT. No serpentine / no reversing on
+ *     alternate rows - every line starts at its leftmost panel.
+ *   - Lines are ROW-ALIGNED: a line never spans two rows, so 3 rows gives at
+ *     least 3 lines. Deliberately NOT the minimum port count - you build and fly
+ *     a wall row by row, and one line per row lets you test each row as it goes
+ *     up. minPortsByBandwidth reports what bandwidth alone would allow, for
+ *     reference only; the row rule wins.
+ *   A row too wide for one port is split into contiguous left-to-right chunks,
+ *   sized as evenly as possible.
  *
  * STILL TBD after v0.9.0 (targeted at v0.10.0 - cabling):
  *   - Starter cables. One per line. REM ground + processor behind screen =
@@ -76,7 +88,7 @@
  * flip the flag on and reformat buildVideowallPdf() to match the final layout
  * (do not delete the scaffolding).
  *
- * Version: 0.9.0
+ * Version: 0.9.1
  */
 
 (function () {
@@ -246,96 +258,73 @@
     return (typeof v === "number") ? v : null;
   }
 
-  // The panel order a data line follows. Runs go along the LONGER axis (rows on
-  // a wide wall, columns on a tall one) and serpentine - each run reverses so
-  // the daisy-chain stays continuous instead of jumping back to the far side.
+  // Split the wall into data lines (ports).
+  //
+  // WIRING RULES (Adam, 2026-08-25) - these override pure bandwidth efficiency:
+  //  1. A line NEVER mixes panel sizes. 1000x500 and 500x500 cannot share a
+  //     port. Rows are uniform, so keeping lines inside a row satisfies this
+  //     automatically - the 500h top row always gets its own line(s).
+  //  2. Wiring always runs LEFT TO RIGHT. No serpentine, no reversing on
+  //     alternate rows: every line starts at its leftmost panel.
+  //  3. Lines are ROW-ALIGNED - a line never spans two rows, so 3 rows gives at
+  //     least 3 lines. This is deliberately not the minimum port count. You
+  //     build and fly a wall row by row, and having each row on its own line
+  //     lets you test that row as it goes up. Bandwidth alone would often allow
+  //     fewer lines; `minPortsByBandwidth` reports that figure for reference,
+  //     but the row rule wins.
+  //
+  // A row wider than one port's capacity is split into several contiguous
+  // left-to-right chunks, sized as evenly as possible.
+  //
   // Grid convention matches the rest of the tool: r = 0 is the TOP row, which is
   // the 500h row when the wall height has a 0.5m remainder.
-  function serpentine(cols, rows, alongRows) {
-    var seq = [], r, c, i;
-    if (alongRows) {
-      for (r = 0; r < rows; r++)
-        for (i = 0; i < cols; i++)
-          seq.push({ r: r, c: (r % 2 === 0) ? i : (cols - 1 - i) });
-    } else {
-      for (c = 0; c < cols; c++)
-        for (i = 0; i < rows; i++)
-          seq.push({ r: (c % 2 === 0) ? i : (rows - 1 - i), c: c });
-    }
-    return seq;
-  }
-
-  // Split the wall into data lines (ports).
-  //   o = { cols, rows, halfTopRow, pctFull, pctHalf, alongRows (optional) }
-  // Returns { ok, ports[], portCount, totalPct, alongRows } where each port is
-  // { port, panels[{r,c,half,pct,port}], pct }.
+  //
+  //   o = { cols, rows, halfTopRow, pctFull, pctHalf }
+  // Returns { ok, ports[], portCount, totalPct, minPortsByBandwidth } where each
+  // port is { port, row, panels[{r,c,half,pct,port}], pct }.
   function mapPorts(o) {
     var cols = o.cols, rows = o.rows, halfTopRow = !!o.halfTopRow;
     var pctFull = o.pctFull, pctHalf = o.pctHalf;
     if (!(pctFull > 0)) return { ok: false, error: "No bandwidth figure for that mode" };
     if (halfTopRow && !(pctHalf > 0)) return { ok: false, error: "No 500x500 bandwidth figure for that mode" };
     if (!(cols > 0) || !(rows > 0)) return { ok: false, error: "Nothing to map" };
-
-    var alongRows = (o.alongRows != null) ? !!o.alongRows : (cols >= rows);
-    var seq = serpentine(cols, rows, alongRows).map(function (p) {
-      var isHalf = halfTopRow && p.r === 0;
-      return { r: p.r, c: p.c, half: isHalf, pct: isHalf ? pctHalf : pctFull };
-    });
-
-    var total = seq.reduce(function (a, p) { return a + p.pct; }, 0);
-    if (seq.some(function (p) { return p.pct > PORT_CAPACITY + EPS; }))
+    if (pctFull > PORT_CAPACITY + EPS || (halfTopRow && pctHalf > PORT_CAPACITY + EPS))
       return { ok: false, error: "A single panel exceeds one port at that refresh / bit depth" };
 
-    // Walk the chain, starting a new line whenever the next panel would push the
-    // current one past `cap`. Panels stay consecutive, so every line is a real
-    // daisy-chain.
-    function fillWithCap(cap) {
-      var out = [], cur = null;
-      for (var i = 0; i < seq.length; i++) {
-        var p = seq[i];
-        if (cur && cur.pct + p.pct > cap + EPS) { out.push(cur); cur = null; }
-        if (!cur) cur = { panels: [], pct: 0 };
-        cur.panels.push(p); cur.pct += p.pct;
+    var ports = [], total = 0;
+    for (var r = 0; r < rows; r++) {
+      var isHalf = halfTopRow && r === 0;
+      var pct = isHalf ? pctHalf : pctFull;
+
+      // How many lines this row needs, then spread the row's panels across them
+      // as evenly as possible so no line is left carrying scraps.
+      var maxPerLine = Math.floor((PORT_CAPACITY + EPS) / pct);
+      var lines = Math.ceil(cols / maxPerLine);
+      var base = Math.floor(cols / lines), extra = cols % lines;
+
+      var c = 0;
+      for (var i = 0; i < lines; i++) {
+        var n = base + (i < extra ? 1 : 0);
+        var panels = [];
+        for (var k = 0; k < n; k++, c++) {
+          panels.push({ r: r, c: c, half: isHalf, pct: pct });   // always left to right
+        }
+        ports.push({ row: r, panels: panels, pct: +(n * pct).toFixed(2) });
+        total += n * pct;
       }
-      if (cur) out.push(cur);
-      return out;
     }
-
-    // 1. How many lines this wall actually needs.
-    //
-    // NOT ceil(total / 100). A data line is a physical daisy-chain, so a port's
-    // panels have to be CONSECUTIVE in the serpentine order - you cannot
-    // cherry-pick panels from around the wall to land a port on exactly 100%.
-    // Under that contiguity constraint, greedy maximal fill minimises the number
-    // of parts, so this is the true floor, and it can be HIGHER than ceil(/100).
-    //   Real example: a 4m x 3.5m Uniview wall on an MX30 at 25hz/10bit is
-    //   8 x 4% (the 500h top row) + 24 x 7% = 200% exactly. ceil says 2 lines,
-    //   but 32 + 7k never equals 100, so every contiguous split leaves one side
-    //   over capacity and it genuinely needs 3.
-    var portCount = fillWithCap(PORT_CAPACITY).length;
-
-    // 2. With the line count fixed, push the HEAVIEST port as low as it will go.
-    // Filling each port to the brim is valid but ugly - port 1 at 100% and the
-    // last on scraps. Lowering the ceiling until it costs an extra line spreads
-    // the load and minimises the worst-case port, which is what a tech wants.
-    //   Adam's 4x3: 3 lines, ceiling drops 100% -> 96%, giving 96/96/96 - one
-    //   port per row, which is exactly how he said he'd patch it.
-    var maxPanel = seq.reduce(function (a, p) { return Math.max(a, p.pct); }, 0);
-    var cap = PORT_CAPACITY;
-    for (var c = Math.ceil(maxPanel); c <= PORT_CAPACITY; c++) {
-      if (fillWithCap(c).length <= portCount) { cap = c; break; }
-    }
-    var ports = fillWithCap(cap);
 
     ports.forEach(function (pt, idx) {
       pt.port = idx + 1;
-      pt.pct = +pt.pct.toFixed(2);
       pt.panels.forEach(function (p) { p.port = idx + 1; });
     });
 
     return {
       ok: true, ports: ports, portCount: ports.length,
-      totalPct: +total.toFixed(2), alongRows: alongRows
+      totalPct: +total.toFixed(2),
+      // What bandwidth alone would allow, ignoring the row rule. Reported so the
+      // trade-off is visible; never used to reduce the line count.
+      minPortsByBandwidth: Math.max(1, Math.ceil((total - EPS) / PORT_CAPACITY))
     };
   }
 
@@ -349,9 +338,7 @@
   //            processor:      "behind" | "far",
   //            processorModel: "mx30" | "mx40pro"      (default mx30),
   //            refresh:        25 | 50 | 60            (default 60),
-  //            bitDepth:       8 | 10 | 12             (default 8; MX30 max 10),
-  //            alongRows:      optional bool - force run direction, otherwise
-  //                            runs follow the longer axis }
+  //            bitDepth:       8 | 10 | 12             (default 8; MX30 max 10) }
   function computeKit(opts) {
     opts = opts || {};
     if (!opts.pitch || !opts.environment || !opts.support || !opts.processor)
@@ -485,7 +472,7 @@
 
     var portMap = mapPorts({
       cols: cols, rows: rows, halfTopRow: halfPerCol === 1,
-      pctFull: pctFull, pctHalf: pctHalf, alongRows: opts.alongRows
+      pctFull: pctFull, pctHalf: pctHalf
     });
     if (!portMap.ok) return { ok: false, error: portMap.error };
 
@@ -497,7 +484,7 @@
       width: W, height: H,
       // Port mapping
       ports: portMap.ports, portCount: portMap.portCount,
-      totalPct: portMap.totalPct, alongRows: portMap.alongRows,
+      totalPct: portMap.totalPct, minPortsByBandwidth: portMap.minPortsByBandwidth,
       pctFull: pctFull, pctHalf: pctHalf,
       refresh: refresh, bitDepth: bitDepth, processorModel: procModel
     };
@@ -608,7 +595,7 @@
       flownRig: flownRig, ground26Kit: ground26Kit, ground39Kit: ground39Kit,
       computeSpares: computeSpares,
       // v0.9.0 port mapping
-      mapPorts: mapPorts, serpentine: serpentine, bandwidthPct: bandwidthPct,
+      mapPorts: mapPorts, bandwidthPct: bandwidthPct,
       bitDepthsFor: bitDepthsFor, BANDWIDTH: BANDWIDTH, PORT_CAPACITY: PORT_CAPACITY
     };
   }
@@ -1150,12 +1137,14 @@
       var portHtml = '<div style="width:100%;margin-top:12px;font-size:12px;">' +
         '<div style="font-size:11px;letter-spacing:.04em;color:#888;text-transform:uppercase;margin-bottom:6px;">' +
         'Cabling &middot; ' + res.portCount + ' line' + (res.portCount === 1 ? '' : 's') + ' from the processor ' +
-        '<span style="text-transform:none;letter-spacing:0;">(' + (res.alongRows ? 'runs along rows' : 'runs along columns') + ')</span></div>';
+        '<span style="text-transform:none;letter-spacing:0;">(one per row, left to right)</span></div>';
       res.ports.forEach(function (pt) {
         var col = portColour(pt.port);
+        var rowLbl = "row " + (res.rows - pt.row);   // label rows from the bottom up
         portHtml += '<div style="display:flex;align-items:center;gap:8px;padding:2px 0;">' +
           '<span style="width:13px;height:13px;border-radius:3px;background:' + col + ';flex-shrink:0;"></span>' +
           '<span style="width:48px;color:#333;">Port ' + pt.port + '</span>' +
+          '<span style="width:44px;color:#999;font-size:11px;">' + rowLbl + '</span>' +
           '<span style="width:64px;color:#666;">' + pt.panels.length + ' panel' + (pt.panels.length === 1 ? '' : 's') + '</span>' +
           '<span style="flex:1;height:6px;background:#eee;border-radius:3px;overflow:hidden;min-width:40px;">' +
             '<span style="display:block;height:100%;width:' + Math.min(100, pt.pct) + '%;background:' + col + ';"></span>' +
@@ -1166,6 +1155,11 @@
       portHtml += '<div style="margin-top:8px;font-size:11px;color:#777;">' +
         res.pctFull + '% per 1000x500' + (res.halfPanels ? ', ' + res.pctHalf + '% per 500x500' : '') +
         ' at ' + res.refresh + 'hz ' + res.bitDepth + 'bit &middot; ' + res.totalPct.toFixed(0) + '% total load</div>';
+      if (res.portCount > res.minPortsByBandwidth) {
+        portHtml += '<div style="margin-top:2px;font-size:11px;color:#777;">' +
+          'Bandwidth alone would fit ' + res.minPortsByBandwidth + ' line' + (res.minPortsByBandwidth === 1 ? '' : 's') +
+          ' - kept one per row so each row can be tested as it goes up.</div>';
+      }
       portHtml += '<div style="margin-top:4px;font-size:11px;color:#b07b00;">Starter cables not in the kit yet (v0.10.0).</div>';
       portHtml += '</div>';
 
