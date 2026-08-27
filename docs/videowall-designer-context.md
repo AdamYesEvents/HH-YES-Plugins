@@ -254,7 +254,59 @@ e.g. `Indoor Videowall 4w x 3h 3.9mm Flown-Sling MX30`.
 | v0.12.0 | **external catalogue + dialog polish** — parts/ballast/bandwidth moved to `data/videowall-creator/*.json` on jsDelivr (part changes are now a pure data edit); version in the dialog header; loading bar on catalogue fetch and on insert. Loader v0.1.96 |
 | v0.13.0 | **ground decomp cleanup + processor-link cables + overlays** — REM ground capped at 6m hard max, 1m LSU bars retired (all widths use 1.5m/2m only), inter-processor cables added per extra box, SVG previews get top rigging bar (flown) and base bar with upright dots (ground). Loader v0.1.97 |
 | v0.14.0 | **starter cables** — one per line, primary + backup, `length = wall width + row top height`. REM uses banded Ethercon stock (5m `YW-00448` / 10m `YW-00434` / 20m `YW-00438`), Uniview uses fixed 15m `YW-04070`. Cable sub-heading now inserts on the job; preview shows per-line required + best-fit stock. Loader v0.1.98 |
-| **v0.15.0** | **LSU decomp fix + coloured bars** — 6m REM ground reverts to `2×1.5 + 3×1m` (was `3×2m`); 1m LSU bars are bundled in the LSU Set and DON'T appear as a separate kit line; preview draws bar segments coloured by physical length (0.5 teal / 1 blue / 1.5 amber / 2 purple). Loader v0.1.99 |
+| v0.15.0 | **LSU decomp fix + coloured bars** — 6m REM ground reverts to `2×1.5 + 3×1m`; 1m LSU bars bundled inside the set (no kit line); preview draws bar segments coloured by physical length. Loader v0.1.99 |
+| **v0.16.0** | **ground caps + 5m fix + bar placement + Uniview overflow** — REM ground extended to 20m (was 6m) using algorithm; Uniview ground capped at 4m; 5m REM = `2×1.5 + 2×1m` (was `2×1.5 + 1×2m`); REM bottom-bar preview anchors 1.5m outside then fills middle with 1m; Uniview base preview no longer overflows wall (was rendering kit contents inc. spares). Loader v0.1.100 |
+
+### REM ground decomposition (v0.16.0 — authoritative)
+
+**Widths 1.5m–6m** are hardcoded. **Widths 6.5m–20m** use a symmetric algorithm:
+2 × 1.5m outside, middle filled with 1m bars (+1 × 1.5m in middle if the width has a
+0.5m remainder). The algo never uses 2m bars — matches Adam's preference for 1m
+(bundled in the LSU Set) over 2m (a separate SKU on the pick list).
+
+| Width | 1.5m | 2m | 1m *(bundled)* | Bars | Uprights | LSU Sets |
+|---|---|---|---|---|---|---|
+| 1.5m | 1 | — | — | 1 | 2 | 1 |
+| 2.0m | — | 1 | — | 1 | 2 | 1 |
+| 3.0m | 2 | — | — | 2 | 3 | 2 |
+| 3.5m | 1 | 1 | — | 2 | 3 | 2 |
+| 4.0m | 2 | — | 1 | 3 | 4 | 2 |
+| 4.5m | 1 | 1 | 1 | 3 | 4 | 2 |
+| **5.0m** | **2** | **—** | **2** | **4** | **5** | **3** |
+| 5.5m | 3 | — | 1 | 4 | 5 | 3 |
+| 6.0m | 2 | — | 3 | 5 | 6 | 3 |
+| 6.5m *(algo)* | 3 | — | 2 | 5 | 6 | 3 |
+| 7.0m *(algo)* | 2 | — | 4 | 6 | 7 | 4 |
+| 10.0m *(algo)* | 2 | — | 7 | 9 | 10 | 5 |
+| 15.0m *(algo)* | 2 | — | 12 | 14 | 15 | 8 |
+| 20.0m *(algo)* | 2 | — | 17 | 19 | 20 | 10 |
+
+**2.5m remains not achievable** (bar sizes are 1m/1.5m/2m — no combination). Widths above
+**20m** are rejected.
+
+### Uniview ground cap (v0.16.0)
+
+Uniview 2.6mm ground support is capped at **4m** (Adam, 2026-08-28). 4.5m and 5m walls are
+rejected. Uniview flown has no such cap.
+
+### REM bar placement rule (v0.16.0)
+
+Bottom bars for REM ground render in a fixed order in the preview:
+
+```
+[left 1.5m]  [ 1m bars… ]  [ middle 1.5m if any ]  [ 2m bars if any ]  [right 1.5m]
+```
+
+Both anchor 1.5m bars only appear if there are ≥ 2 in total; a single 1.5m goes to the
+left. Symmetric layout when bars_15 ≥ 2. A 6m wall renders `1.5–1–1–1–1.5`; a 5m wall
+renders `1.5–1–1–1.5`; a 4.5m wall (special decomp `1×1.5 + 1×1 + 1×2`) renders `1.5–1–2`.
+
+### Uniview overflow bug (fixed v0.16.0)
+
+Previous versions drew the Uniview base bar using the kit's TOTAL shipping contents
+(2 × 1m + 1 × 0.5m per kit = 5m for a 4m wall using 2 kits). This overflowed the wall
+width. Fixed by using `bars_1` / `bars_05` — the actual bars placed on the wall — instead
+of `kitContents`.
 
 ### REM ground decomposition (v0.15.0 — this table is authoritative)
 

@@ -154,13 +154,33 @@
  *     rigging (top) and both ground bases (bottom). A legend under the wall
  *     shows which colour is which length.
  *
- * STILL TBD after v0.15.0:
+ * v0.16.0 - GROUND CAPS + 5m DECOMP + BAR PLACEMENT + UNIVIEW OVERFLOW FIX:
+ *   - REM ground cap raised 6m -> 20m (Adam, 2026-08-28). Widths 6.5m-20m use
+ *     a symmetric algorithm: 2 x 1.5m on the outside + fill middle with 1m
+ *     bars (+1 x 1.5m in middle if the width has a 0.5m remainder). The algo
+ *     never uses 2m bars, matching Adam's preference for 1m (bundled) over 2m
+ *     (separate SKU).
+ *   - Uniview ground CAPPED at 4m width (Adam) - was uncapped.
+ *   - 5m REM ground: 2 x 1.5m + 2 x 1m (was 2 x 1.5 + 1 x 2). Adam's reason:
+ *     the 2m bar is an extra SKU to carry, but 1m bars ship inside the LSU
+ *     Set the crew is already loading. Costs one extra LSU Set (3 vs 2), but
+ *     saves a separate line on the pick list.
+ *   - REM bottom-bar preview: 1.5m bars anchor the OUTSIDE, middle fills with
+ *     1m bars first, then any middle 1.5m, then any 2m bars (Adam preference).
+ *     6m REM now renders as 1.5-1-1-1-1.5 instead of 1.5-1-1-1.5-1 etc.
+ *     buildWallSvg drawBar now accepts { flatBars: [1.5, 1, 1, 1.5] } for
+ *     explicit ordering; older { bars: [{lengthM,count}] } still works.
+ *   - Uniview ground preview no longer overflows the wall. Was rendering the
+ *     kit's TOTAL contents (2 x 1m + 1 x 0.5m per kit = 5m for a 4m wall);
+ *     now uses bars_1 / bars_05 (actual bars placed on the wall).
+ *
+ * STILL TBD after v0.16.0:
  *
  * PDF generation is TEMPORARILY BLOCKED - see PDF_ENABLED below. When ready,
  * flip the flag on and reformat buildVideowallPdf() to match the final layout
  * (do not delete the scaffolding).
  *
- * Version: 0.15.0
+ * Version: 0.16.0
  */
 
 (function () {
@@ -172,7 +192,7 @@
   var EPS = 1e-6;
   function isMult(v, step) { var q = v / step; return Math.abs(q - Math.round(q)) < EPS; }
 
-  var TOOL_VERSION = "0.15.0";  // shown in the dialog header; keep in sync with the banner above.
+  var TOOL_VERSION = "0.16.0";  // shown in the dialog header; keep in sync with the banner above.
 
   // ---------------------------------------------------------------------------
   // PART CATALOGUE (v0.12.0)
@@ -269,12 +289,17 @@
   // 2.6mm indoor ground support - kits (2m bays) with a 0.5m spare per case.
   // Cases needed = max(1, ceil((W - 0.5) / 2)) because each additional case
   // adds 2m of coverage; the very first case's 0.5m spare bridges to 2.5m.
-  //   4.0m -> 2 kits (4x 1m)
-  //   4.5m -> 2 kits (4x 1m + 1x 0.5m)
-  //   5.0m -> 3 kits (5x 1m)
-  // Each kit contains 2x 1m + 1x 0.5m bars.
+  //   4.0m -> 2 kits (4x 1m)  <- current MAX (Adam, 2026-08-28)
+  //   4.5m -> would need 2 kits (4x 1m + 1x 0.5m) - now REJECTED
+  //   5.0m -> would need 3 kits (5x 1m) - now REJECTED
+  // Each kit contains 2x 1m + 1x 0.5m bars (0.5m is a spare; not placed unless
+  // wall has a 0.5m remainder).
+  var GROUND_26_MAX_W = 4.0;
+
   function ground26Kit(W) {
     if (!(W > 0) || !isMult(W, 0.5)) return { ok: false, error: "Width must be a multiple of 0.5m" };
+    if (W > GROUND_26_MAX_W + EPS)
+      return { ok: false, error: "2.6mm ground support maxes out at " + GROUND_26_MAX_W + "m" };
     var whole = Math.floor(W + EPS);
     var half  = Math.abs(W - whole - 0.5) < EPS ? 1 : 0;
     var kits  = Math.max(1, Math.ceil((W - 0.5 - EPS) / 2));
@@ -292,8 +317,9 @@
   // separate line item on the kit (Adam, 2026-08-28) - but they count towards
   // upright / kit / preview.
   //
-  // Capped at 6m (Adam, 2026-08-27).
-  // Achievable widths (0.5m step, 1.5m-6m):
+  // Capped at 20m (Adam, 2026-08-28 - was 6m).
+  //
+  // Hardcoded widths 1.5m to 6m (spec'd explicitly by Adam):
   //   1.5 -> 1 x 1.5
   //   2.0 -> 1 x 2
   //   2.5 -> NOT achievable
@@ -301,9 +327,15 @@
   //   3.5 -> 1 x 1.5 + 1 x 2
   //   4.0 -> 2 x 1.5 + 1 x 1
   //   4.5 -> 1 x 1.5 + 1 x 1 + 1 x 2       (special case per Adam)
-  //   5.0 -> 2 x 1.5 + 1 x 2
+  //   5.0 -> 2 x 1.5 + 2 x 1                (Adam 2026-08-28 - was 2x1.5 + 1x2)
   //   5.5 -> 3 x 1.5 + 1 x 1
-  //   6.0 -> 2 x 1.5 + 3 x 1                (Adam 2026-08-28 fix - was 4 x 1.5)
+  //   6.0 -> 2 x 1.5 + 3 x 1                (Adam 2026-08-28 - was 4 x 1.5)
+  //
+  // Algorithmic widths 6.5m to 20m: 2 x 1.5m outside + fill middle with 1m
+  // (prefer) + a single 1.5m in the middle if the width has a 0.5m remainder.
+  // Rule: NO 2m bars used in the algo - Adam prefers 1m bars because they ship
+  // inside the LSU Set (no extra SKU to carry).
+  //
   // Compute LSU sets from total connecting-bar count (any length). Each LSU
   // Set (YW-00169) ships 2 uprights; N bars in a row need N+1 uprights.
   function lsuSets(bars_15, bars_2, bars_1) {
@@ -312,7 +344,7 @@
     return Math.ceil((totalBars + 1) / 2);
   }
 
-  var GROUND_39_MAX_W = 6.0;
+  var GROUND_39_MAX_W = 20.0;
 
   function ground39Kit(W) {
     if (!(W > 0) || !isMult(W, 0.5)) return { ok: false, error: "Width must be a multiple of 0.5m" };
@@ -326,11 +358,20 @@
     }
     var TABLE = {
       "1.5": [1, 0, 0], "2.0": [0, 1, 0], "3.0": [2, 0, 0], "3.5": [1, 1, 0],
-      "4.0": [2, 0, 1], "4.5": [1, 1, 1], "5.0": [2, 1, 0], "5.5": [3, 0, 1], "6.0": [2, 0, 3]
+      "4.0": [2, 0, 1], "4.5": [1, 1, 1], "5.0": [2, 0, 2], "5.5": [3, 0, 1], "6.0": [2, 0, 3]
     };
     var row = TABLE[W.toFixed(1)];
-    if (!row) return { ok: false, error: W + "m not achievable in 3.9mm" };
-    return pack(row[0], row[1], row[2]);
+    if (row) return pack(row[0], row[1], row[2]);
+    // Algorithmic 6.5m..20m: 2 x 1.5m outside, middle prefers 1m, 1 x 1.5m
+    // extra in the middle if the width has a 0.5m half-metre remainder.
+    var middle = W - 3;                            // 3m consumed by the 2 outside 1.5m bars
+    var hasHalf = Math.abs((middle * 2) - Math.round(middle * 2)) < EPS &&
+                  Math.round(middle * 2) % 2 === 1;
+    if (hasHalf) {
+      // +1 x 1.5m in the middle absorbs the 0.5m; the rest is whole metres in 1m bars.
+      return pack(3, 0, Math.round(middle - 1.5));
+    }
+    return pack(2, 0, Math.round(middle));
   }
 
   // ---------------------------------------------------------------------------
@@ -1041,11 +1082,18 @@
     // Uprights are drawn as dots on the base bar seams.
     function drawBar(y, bh, bar, above) {
       var out = "";
-      var bars = (bar.bars || []).slice();
       var total = bar.totalM || cols * 0.5;
-      // Explode {lengthM, count} into a flat left-to-right list.
-      var flat = [];
-      bars.forEach(function (b) { for (var i = 0; i < (b.count || 0); i++) flat.push(b.lengthM); });
+      // Caller may supply an EXPLICIT left-to-right layout as `flatBars`
+      // (metres per bar, in placement order). Otherwise we explode
+      // `bars: [{lengthM, count}, ...]` into a flat list. flatBars wins when
+      // both are set - REM ground uses it to put 1.5m on the outside.
+      var flat;
+      if (bar.flatBars && bar.flatBars.length) {
+        flat = bar.flatBars.slice();
+      } else {
+        flat = [];
+        (bar.bars || []).forEach(function (b) { for (var i = 0; i < (b.count || 0); i++) flat.push(b.lengthM); });
+      }
       // Fallback: no per-length data -> single solid bar (legacy behaviour).
       if (!flat.length) {
         out += '<rect x="' + (ox - 4) + '" y="' + y + '" width="' + (W + 8) + '" height="' + bh +
@@ -1811,15 +1859,28 @@
       var pitch = pitchSel.value;
       function barsFromCounts(c15, c2, c1, c05) {
         var out = [];
-        // Ordered largest -> smallest so the visual reads consistently across walls.
         if (c2  > 0) out.push({ lengthM: 2.0, count: c2  });
         if (c15 > 0) out.push({ lengthM: 1.5, count: c15 });
         if (c1  > 0) out.push({ lengthM: 1.0, count: c1  });
         if (c05 > 0) out.push({ lengthM: 0.5, count: c05 });
         return out;
       }
+      // REM ground bar order (Adam, 2026-08-28): 1.5m bars anchor the OUTSIDE
+      // (left + right). Middle fills with 1m bars first, then any middle 1.5m,
+      // then any 2m bars. Symmetric where possible.
+      function remBarLayout(bars_15, bars_2, bars_1) {
+        var out = [];
+        var leftAnchor  = bars_15 >= 1 ? 1 : 0;
+        var rightAnchor = bars_15 >= 2 ? 1 : 0;
+        var middle_15   = bars_15 - leftAnchor - rightAnchor;
+        if (leftAnchor) out.push(1.5);
+        for (var i = 0; i < bars_1; i++) out.push(1.0);
+        for (var j = 0; j < middle_15; j++) out.push(1.5);
+        for (var k = 0; k < bars_2; k++) out.push(2.0);
+        if (rightAnchor) out.push(1.5);
+        return out;
+      }
       if (supSel.value === "flown") {
-        // Flown bars are 1m + 0.5m. Same shape both products.
         var f = res.barsFlown || {};
         var uprightsF = (f.bars_1 || 0) + (f.bars_05 || 0) + 1;
         svgOpts.topBar = {
@@ -1832,29 +1893,32 @@
       } else {
         var uprightsG = res.ballast && res.ballast.uprights;
         if (pitch === "2.6mm") {
-          // Uniview ground: 1m + 0.5m bars (from kitContents).
-          var kc = (res.barsGround26 && res.barsGround26.kitContents) || { bars_1: 0, bars_05: 0 };
+          // Uniview ground: use bars_1 / bars_05 (ACTUAL bars placed) NOT
+          // kitContents - the latter includes spare bars from each kit and
+          // overflows the wall width (Adam bug report, 2026-08-28).
+          var g26 = res.barsGround26 || {};
           svgOpts.footBar = {
             label: "Uniview UR Pro Ground Support base",
-            bars: barsFromCounts(0, 0, kc.bars_1 || 0, kc.bars_05 || 0),
+            bars: barsFromCounts(0, 0, g26.bars_1 || 0, g26.bars_05 || 0),
             totalM: res.width,
             uprights: uprightsG
           };
         } else {
-          // REM LSU: 1.5m + 2m + 1m mix. 1m bars come with the LSU Set.
           var g = res.barsGround39 || {};
           svgOpts.footBar = {
             label: "LSU Connecting Bars (bottom)",
-            bars: barsFromCounts(g.bars_15 || 0, g.bars_2 || 0, g.bars_1 || 0, 0),
+            flatBars: remBarLayout(g.bars_15 || 0, g.bars_2 || 0, g.bars_1 || 0),
             totalM: res.width,
             uprights: uprightsG
           };
         }
       }
-      // Bar legend below the SVG: shows which colour = which length. Only the
-      // lengths actually in use appear.
-      var lens = ((svgOpts.topBar && svgOpts.topBar.bars) || (svgOpts.footBar && svgOpts.footBar.bars) || [])
-        .map(function (b) { return b.lengthM.toFixed(1); });
+      // Legend: colour swatches for every distinct length actually in use.
+      var lenSet = {};
+      if (svgOpts.topBar && svgOpts.topBar.bars)  svgOpts.topBar.bars.forEach(function (b)  { lenSet[b.lengthM.toFixed(1)] = 1; });
+      if (svgOpts.footBar && svgOpts.footBar.bars) svgOpts.footBar.bars.forEach(function (b) { lenSet[b.lengthM.toFixed(1)] = 1; });
+      if (svgOpts.footBar && svgOpts.footBar.flatBars) svgOpts.footBar.flatBars.forEach(function (m) { lenSet[m.toFixed(1)] = 1; });
+      var lens = Object.keys(lenSet).sort();
       var legend = "";
       if (lens.length) {
         legend = '<div style="margin-top:4px;font-size:11px;color:#777;display:flex;gap:12px;flex-wrap:wrap;">';
