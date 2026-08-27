@@ -58,7 +58,7 @@
     "sdi":     { "pn": "YW-00497", "label": "2m SDI Cable (processor link)" }
   },
 
-  "_cablesNote": "Starter cables, one per line. Doubled when backup is running (primary + backup, same length rule per Adam 2026-08-27). REM uses banded Ethercon stock (5/10/20m, pick smallest that fits width+rowHeight); Uniview uses a fixed 15m starter regardless. A REM run over 20m has no stock code - drops to a free-text row until Adam adds a longer length.",
+  "_cablesNote": "Starter cables, one per line. Doubled when backup is running (primary + backup, Adam 2026-08-27). REM: banded Ethercon stock (5/10/20m, pick smallest that fits width+rowHeight). Uniview: fixed 15m starter. A REM line requiring MORE than the longest stock uses max + Ethercon Joiner + smallest extension (Adam 2026-08-28). One spare added per unique stock length used per wall.",
   "cables": {
     "rem": {
       "mode": "banded",
@@ -66,7 +66,8 @@
         { "lengthM": 5,  "pn": "YW-00448", "label": "5m Ethercon Cable" },
         { "lengthM": 10, "pn": "YW-00434", "label": "10m Ethercon Cable" },
         { "lengthM": 20, "pn": "YW-00438", "label": "20m Ethercon Cable" }
-      ]
+      ],
+      "joiner": { "pn": "YW-00453", "label": "Ethercon Joiner" }
     },
     "uniview": {
       "mode": "fixed",

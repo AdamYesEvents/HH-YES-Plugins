@@ -255,7 +255,49 @@ e.g. `Indoor Videowall 4w x 3h 3.9mm Flown-Sling MX30`.
 | v0.13.0 | **ground decomp cleanup + processor-link cables + overlays** — REM ground capped at 6m hard max, 1m LSU bars retired (all widths use 1.5m/2m only), inter-processor cables added per extra box, SVG previews get top rigging bar (flown) and base bar with upright dots (ground). Loader v0.1.97 |
 | v0.14.0 | **starter cables** — one per line, primary + backup, `length = wall width + row top height`. REM uses banded Ethercon stock (5m `YW-00448` / 10m `YW-00434` / 20m `YW-00438`), Uniview uses fixed 15m `YW-04070`. Cable sub-heading now inserts on the job; preview shows per-line required + best-fit stock. Loader v0.1.98 |
 | v0.15.0 | **LSU decomp fix + coloured bars** — 6m REM ground reverts to `2×1.5 + 3×1m`; 1m LSU bars bundled inside the set (no kit line); preview draws bar segments coloured by physical length. Loader v0.1.99 |
-| **v0.16.0** | **ground caps + 5m fix + bar placement + Uniview overflow** — REM ground extended to 20m (was 6m) using algorithm; Uniview ground capped at 4m; 5m REM = `2×1.5 + 2×1m` (was `2×1.5 + 1×2m`); REM bottom-bar preview anchors 1.5m outside then fills middle with 1m; Uniview base preview no longer overflows wall (was rendering kit contents inc. spares). Loader v0.1.100 |
+| v0.16.0 | **ground caps + 5m fix + bar placement + Uniview overflow** — REM ground extended to 20m (algo); Uniview ground capped at 4m (WIDTH, later reverted to HEIGHT in v0.17.0); 5m REM = `2×1.5 + 2×1m`; REM bottom-bar preview 1.5m outside + 1m middle; Uniview base overflow fix. Loader v0.1.100 |
+| **v0.17.0** | **Uniview cap fix + cable spares + joiner + REM upright rule** — Uniview WIDTH uncapped, HEIGHT capped 4m; cable spares (+1 per unique stock length); Ethercon Joiner `YW-00453` auto-added for REM lines >20m; REM upright count changes to `ceil(W)` with positions at 0.5m + 1m intervals (half-metre widths get +1 upright + more toppers + more plates). Loader v0.1.101 |
+
+### REM ground upright rule (v0.17.0 — authoritative)
+
+**Positions:** outer uprights inset 0.5m from each wall end; interior uprights every 1m.
+For half-metre widths, the last two uprights are 0.5m apart on the half-metre side (not 1m).
+
+**Count:** `uprights = ceil(W)` — half-metre widths (3.5, 4.5, 5.5, 6.5, …) get +1 vs the
+old `bars + 1` formula. LSU Sets = `ceil(uprights / 2)`, so half-metre widths that flip
+across an odd upright count (4.5m, 6.5m, …) cost an extra LSU Set.
+
+| Width | Uprights | LSU Sets | Positions (m) |
+|---|---|---|---|
+| 3.0m | 3 | 2 | 0.5, 1.5, 2.5 |
+| **3.5m** | **4** | 2 | 0.5, 1.5, 2.5, **3.0** |
+| 4.0m | 4 | 2 | 0.5, 1.5, 2.5, 3.5 |
+| **4.5m** | **5** | **3** | 0.5, 1.5, 2.5, 3.5, **4.0** |
+| 5.0m | 5 | 3 | 0.5, 1.5, 2.5, 3.5, 4.5 |
+| **5.5m** | **6** | 3 | 0.5, 1.5, 2.5, 3.5, 4.5, **5.0** |
+| 6.0m | 6 | 3 | 0.5, 1.5, 2.5, 3.5, 4.5, 5.5 |
+| **6.5m** | **7** | **4** | 0.5, 1.5, 2.5, 3.5, 4.5, 5.5, **6.0** |
+| 20.0m | 20 | 10 | 0.5, 1.5, …, 19.5 |
+
+Preview draws yellow dots at these exact positions instead of at bar seams.
+
+### Cable spares + Ethercon Joiner (v0.17.0)
+
+**Spares** — one spare per unique stock length used per wall (Adam). Emitted as separate
+rows labelled `"... (spare)"` in the Cable sub-heading. A wall using 1× 5m + 2× 10m
+primaries gets +1× 5m spare + 1× 10m spare.
+
+**Joiner** — REM lines requiring more than the longest stock cable (20m) auto-produce:
+1× max stock + 1× **Ethercon Joiner `YW-00453`** + 1× smallest stock covering the
+remainder. A 20m × 6m REM wall's top-row cable is 26m → 20m + joiner + 10m. Only REM
+lines can auto-extend; Uniview lines exceeding 15m drop to free-text (proprietary
+connector).
+
+### Uniview ground: height cap 4m, width uncapped (v0.17.0)
+
+Corrects a v0.16.0 misread that had capped Uniview WIDTH at 4m. The cap is on HEIGHT
+instead: `GROUND_MAX_H.uniview = 4`. Width is now unlimited (subject to bandwidth and
+kit availability). REM ground still caps at 6m tall via the ballast table.
 
 ### REM ground decomposition (v0.16.0 — authoritative)
 

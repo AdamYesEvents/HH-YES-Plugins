@@ -174,13 +174,34 @@
  *     kit's TOTAL contents (2 x 1m + 1 x 0.5m per kit = 5m for a 4m wall);
  *     now uses bars_1 / bars_05 (actual bars placed on the wall).
  *
- * STILL TBD after v0.16.0:
+ * v0.17.0 - UNIVIEW CAP FIX + CABLE SPARES + JOINER + REM UPRIGHT RULE:
+ *   - Uniview ground: WIDTH cap removed (was 4m, from misread of Adam's spec),
+ *     HEIGHT capped at 4m instead (structural). REM ground still caps at 6m
+ *     tall (via the ballast table).
+ *   - Starter cables (both systems) now include ONE SPARE per unique stock
+ *     length used per wall. Listed as separate "... (spare)" rows in the
+ *     Cable sub-heading. Adam: "start cables need to include spares for each
+ *     length in the count."
+ *   - REM cable over max stock (>20m required): auto-emits max stock cable +
+ *     Ethercon Joiner YW-00453 + smallest stock covering the remainder. If
+ *     even that can't cover (>40m), drops to free-text. Uniview lines >15m
+ *     drop to free-text (no auto-extend - proprietary connector).
+ *   - REM ground upright positioning (Adam 2026-08-28): outer uprights inset
+ *     0.5m from each wall end + interior every 1m. For half-metre widths
+ *     (3.5, 4.5, 5.5, 6.5, ...) the last two uprights are 0.5m apart on the
+ *     half-metre side. Formula: uprights = ceil(W). This is +1 vs the old
+ *     bars+1 rule on half-metre widths - which ripples into +1 topper and
+ *     more ballast plates on those widths. LSU Sets = ceil(uprights / 2), so
+ *     4.5m and 6.5m are now +1 LSU Set too. Preview dots sit at Adam's
+ *     positions instead of at bar seams.
+ *
+ * STILL TBD after v0.17.0:
  *
  * PDF generation is TEMPORARILY BLOCKED - see PDF_ENABLED below. When ready,
  * flip the flag on and reformat buildVideowallPdf() to match the final layout
  * (do not delete the scaffolding).
  *
- * Version: 0.16.0
+ * Version: 0.17.0
  */
 
 (function () {
@@ -192,7 +213,7 @@
   var EPS = 1e-6;
   function isMult(v, step) { var q = v / step; return Math.abs(q - Math.round(q)) < EPS; }
 
-  var TOOL_VERSION = "0.16.0";  // shown in the dialog header; keep in sync with the banner above.
+  var TOOL_VERSION = "0.17.0";  // shown in the dialog header; keep in sync with the banner above.
 
   // ---------------------------------------------------------------------------
   // PART CATALOGUE (v0.12.0)
@@ -263,7 +284,11 @@
           { lengthM: 5,  pn: "YW-00448", label: "5m Ethercon Cable" },
           { lengthM: 10, pn: "YW-00434", label: "10m Ethercon Cable" },
           { lengthM: 20, pn: "YW-00438", label: "20m Ethercon Cable" }
-        ]
+        ],
+        // Used when a line needs MORE than the longest stock cable (Adam,
+        // 2026-08-28). Sequence per over-length line:
+        //   1 x longest stock + 1 x joiner + 1 x smallest stock covering the remainder.
+        joiner: { pn: "YW-00453", label: "Ethercon Joiner" }
       },
       uniview: {
         mode: "fixed",
@@ -289,17 +314,16 @@
   // 2.6mm indoor ground support - kits (2m bays) with a 0.5m spare per case.
   // Cases needed = max(1, ceil((W - 0.5) / 2)) because each additional case
   // adds 2m of coverage; the very first case's 0.5m spare bridges to 2.5m.
-  //   4.0m -> 2 kits (4x 1m)  <- current MAX (Adam, 2026-08-28)
-  //   4.5m -> would need 2 kits (4x 1m + 1x 0.5m) - now REJECTED
-  //   5.0m -> would need 3 kits (5x 1m) - now REJECTED
+  //   4.0m -> 2 kits (4x 1m)
+  //   4.5m -> 2 kits (4x 1m + 1x 0.5m)
+  //   5.0m -> 3 kits (5x 1m)
   // Each kit contains 2x 1m + 1x 0.5m bars (0.5m is a spare; not placed unless
   // wall has a 0.5m remainder).
-  var GROUND_26_MAX_W = 4.0;
-
+  //
+  // NO WIDTH CAP (Adam, 2026-08-28) - Uniview ground supports arbitrary width.
+  // The cap is on HEIGHT instead - see GROUND_MAX_H below.
   function ground26Kit(W) {
     if (!(W > 0) || !isMult(W, 0.5)) return { ok: false, error: "Width must be a multiple of 0.5m" };
-    if (W > GROUND_26_MAX_W + EPS)
-      return { ok: false, error: "2.6mm ground support maxes out at " + GROUND_26_MAX_W + "m" };
     var whole = Math.floor(W + EPS);
     var half  = Math.abs(W - whole - 0.5) < EPS ? 1 : 0;
     var kits  = Math.max(1, Math.ceil((W - 0.5 - EPS) / 2));
@@ -336,15 +360,25 @@
   // Rule: NO 2m bars used in the algo - Adam prefers 1m bars because they ship
   // inside the LSU Set (no extra SKU to carry).
   //
-  // Compute LSU sets from total connecting-bar count (any length). Each LSU
-  // Set (YW-00169) ships 2 uprights; N bars in a row need N+1 uprights.
-  function lsuSets(bars_15, bars_2, bars_1) {
-    var totalBars = (bars_15 || 0) + (bars_2 || 0) + (bars_1 || 0);
-    if (totalBars <= 0) return 0;
-    return Math.ceil((totalBars + 1) / 2);
-  }
-
+  // Upright count and positions for REM ground (Adam, 2026-08-28):
+  //   Outer uprights are inset 0.5m from each wall end. Interior uprights are
+  //   at 1m intervals. For half-metre widths (3.5, 4.5, ...), the last two
+  //   uprights end up 0.5m apart (not 1m) on the half-metre side.
+  //   Formula:  uprights = ceil(W).
+  //   Positions: 0.5, 1.5, ..., floor(W)-0.5, then W-0.5 for half-metre widths.
+  //
+  // Each LSU Set (YW-00169) ships 2 uprights, so LSU Set qty = ceil(uprights / 2).
   var GROUND_39_MAX_W = 20.0;
+
+  function remUprightPositions(W) {
+    var positions = [];
+    var wholeCount = Math.floor(W + EPS);
+    for (var i = 0; i < wholeCount; i++) positions.push(0.5 + i);
+    if (Math.abs((W * 2) - Math.round(W * 2)) < EPS && Math.round(W * 2) % 2 === 1) {
+      positions.push(W - 0.5);
+    }
+    return positions;
+  }
 
   function ground39Kit(W) {
     if (!(W > 0) || !isMult(W, 0.5)) return { ok: false, error: "Width must be a multiple of 0.5m" };
@@ -353,8 +387,14 @@
       return { ok: false, error: "3.9mm ground support maxes out at " + GROUND_39_MAX_W + "m" };
     if (Math.abs(W - 2.5) < EPS) return { ok: false, error: "2.5m not achievable in 3.9mm (bar sizes are 1m, 1.5m and 2m)" };
     function pack(bars_15, bars_2, bars_1) {
-      return { ok: true, kits: lsuSets(bars_15, bars_2, bars_1),
-        bars_15: bars_15, bars_2: bars_2, bars_1: bars_1 };
+      var uprights = Math.ceil(W - EPS);
+      return {
+        ok: true,
+        kits: Math.ceil(uprights / 2),
+        uprights: uprights,
+        uprightPositions: remUprightPositions(W),
+        bars_15: bars_15, bars_2: bars_2, bars_1: bars_1
+      };
     }
     var TABLE = {
       "1.5": [1, 0, 0], "2.0": [0, 1, 0], "3.0": [2, 0, 0], "3.5": [1, 1, 0],
@@ -403,10 +443,13 @@
   };
   var BALLAST_MIN_H = 2.0, BALLAST_MAX_H = 6.0;
 
-  // Minimum ground-support wall heights (Adam, 2026-08-27): REM 2m, Uniview
-  // 1.5m. Uniview's 1.5m sits below the table, so it clamps up to the 2.0m row
-  // rather than being extrapolated downwards.
+  // Ground-support wall height limits (per system):
+  //   Min - Adam 2026-08-27: REM 2m, Uniview 1.5m. Uniview 1.5m sits below the
+  //         ballast table's first row (2.0m) so it clamps up to that figure.
+  //   Max - Adam 2026-08-28: Uniview 4m (structural). REM caps at 6m via the
+  //         ballast table (no separate rule).
   var GROUND_MIN_H = { uniview: 1.5, rem: 2.0 };
+  var GROUND_MAX_H = { uniview: 4.0 };  // rem falls back to BALLAST_MAX_H (6m)
 
   // Ballast for a ground-supported wall.
   //   H        wall height in metres (0.5m steps)
@@ -490,48 +533,89 @@
     var items = [];
     if (!catalogue) return { items: items, perLine: perLine };
 
-    if (catalogue.mode === "fixed") {
-      // Uniview: 15m per line, doubled if backup on.
-      var fx = catalogue.fixed;
-      var qty = perLine.length * (isBackupOn ? 2 : 1);
-      if (qty > 0) items.push({ category: "Cable", label: fx.label, partNumber: fx.pn, qty: qty });
-      perLine.forEach(function (l) { l.stock = fx; });
-      return { items: items, perLine: perLine };
+    // Every "run" is one physical cable (or one composite primary+joiner+ext
+    // group). Backup adds a second run per line.
+    var runsPerLine = isBackupOn ? 2 : 1;
+    var byPn = {}, joinerCount = 0, oversize = [];
+    function bookStock(pn, label, lengthM) {
+      byPn[pn] = byPn[pn] || { partNumber: pn, label: label, qty: 0, lengthM: lengthM };
+      byPn[pn].qty += 1;
     }
 
-    // REM banded: group runs by best-fit stock length. Each run is one cable.
-    // A backup line adds a second run of the same length.
-    var stock = (catalogue.stock || []).slice().sort(function (a, b) { return a.lengthM - b.lengthM; });
-    var byPn = {}, oversize = [];
-    function bookRun(requiredM, line, isBackup) {
-      var s = pickCableStock(stock, requiredM);
-      if (!s) {
-        oversize.push({ requiredM: requiredM, port: line.port, isBackup: isBackup });
-        return null;
-      }
-      byPn[s.pn] = byPn[s.pn] || { partNumber: s.pn, label: s.label, qty: 0, stock: s };
-      byPn[s.pn].qty += 1;
-      return s;
-    }
-    perLine.forEach(function (line) {
-      line.stock = bookRun(line.requiredM, line, false);
-      if (isBackupOn) bookRun(line.requiredM, line, true);
-    });
-    Object.keys(byPn).sort(function (a, b) { return byPn[a].stock.lengthM - byPn[b].stock.lengthM; })
-      .forEach(function (k) {
-        items.push({ category: "Cable", label: byPn[k].label, partNumber: byPn[k].partNumber, qty: byPn[k].qty });
+    if (catalogue.mode === "fixed") {
+      // Uniview: fixed cable, one per line. If a line requires MORE than the
+      // fixed cable can reach, we can't auto-extend (proprietary connector) -
+      // drop a flag to the caller; kit line still emits at qty.
+      var fx = catalogue.fixed;
+      perLine.forEach(function (line) {
+        for (var i = 0; i < runsPerLine; i++) bookStock(fx.pn, fx.label, fx.lengthM);
+        if (line.requiredM > fx.lengthM + EPS) {
+          oversize.push({ requiredM: line.requiredM, port: line.port, stockLengthM: fx.lengthM });
+        }
+        line.stock = fx;
       });
+    } else {
+      // REM banded stock. Over-max lines use max + joiner + smallest extension.
+      var stock = (catalogue.stock || []).slice().sort(function (a, b) { return a.lengthM - b.lengthM; });
+      var joiner = catalogue.joiner;
+      var maxStock = stock[stock.length - 1];
+      perLine.forEach(function (line) {
+        for (var i = 0; i < runsPerLine; i++) {
+          var s = pickCableStock(stock, line.requiredM);
+          if (s) {
+            bookStock(s.pn, s.label, s.lengthM);
+            if (i === 0) line.stock = s;
+          } else if (joiner && maxStock) {
+            // Extend: max stock + joiner + smallest that covers the remainder.
+            var remaining = line.requiredM - maxStock.lengthM;
+            var ext = pickCableStock(stock, remaining);
+            if (ext) {
+              bookStock(maxStock.pn, maxStock.label, maxStock.lengthM);
+              bookStock(ext.pn, ext.label, ext.lengthM);
+              joinerCount += 1;
+              if (i === 0) line.stock = { extended: true, primary: maxStock, extension: ext };
+            } else {
+              // Even primary + ext can't cover it - drop to free-text.
+              oversize.push({ requiredM: line.requiredM, port: line.port });
+              if (i === 0) line.stock = null;
+            }
+          } else {
+            oversize.push({ requiredM: line.requiredM, port: line.port });
+            if (i === 0) line.stock = null;
+          }
+        }
+      });
+    }
+
+    // Emit stock cable lines (sorted by length asc for readability).
+    Object.keys(byPn).sort(function (a, b) { return byPn[a].lengthM - byPn[b].lengthM; })
+      .forEach(function (pn) {
+        items.push({ category: "Cable", label: byPn[pn].label, partNumber: byPn[pn].partNumber, qty: byPn[pn].qty });
+      });
+    // Ethercon joiners (REM only), aggregated.
+    if (joinerCount > 0 && catalogue.joiner) {
+      items.push({ category: "Cable", label: catalogue.joiner.label, partNumber: catalogue.joiner.pn, qty: joinerCount });
+    }
+    // Spares (Adam, 2026-08-28): one spare per unique stock length used, per
+    // family. Listed as separate rows so the pick crew can see what's spare.
+    Object.keys(byPn).sort(function (a, b) { return byPn[a].lengthM - byPn[b].lengthM; })
+      .forEach(function (pn) {
+        items.push({ category: "Cable", label: byPn[pn].label + " (spare)", partNumber: byPn[pn].partNumber, qty: 1 });
+      });
+    // Oversize / uncoverable: free-text row so the crew knows to spec these
+    // manually. Grouped by required length for a legible list.
     if (oversize.length) {
-      // Group oversize runs by required metres so the free-text row is legible.
       var byLen = {};
       oversize.forEach(function (o) { byLen[o.requiredM.toFixed(1)] = (byLen[o.requiredM.toFixed(1)] || 0) + 1; });
       Object.keys(byLen).forEach(function (m) {
         items.push({ category: "Cable",
-          label: "Ethercon cable " + m + "m (over max stock, join or spec)",
+          label: (fam === "uniview"
+            ? "Uniview line needs " + m + "m - exceeds 15m starter, spec extension"
+            : "Cable " + m + "m (over max stock even with joiner, spec extension)"),
           partNumber: null, qty: byLen[m] });
       });
     }
-    return { items: items, perLine: perLine, oversize: oversize };
+    return { items: items, perLine: perLine, oversize: oversize, joinerCount: joinerCount };
   }
 
   // Spare panels come cased - one leftover partial case worth, OR a whole
@@ -831,10 +915,15 @@
       // That is not always what the kits supply: an LSU Set ships 2 uprights, so
       // a 3-bar run needs 4 uprights but rounds up to 2 sets = 4 supplied, while
       // a 2-bar run needs 3 and gets 4.
-      var minH = GROUND_MIN_H[isUniview ? "uniview" : "rem"];
+      var famH = isUniview ? "uniview" : "rem";
+      var minH = GROUND_MIN_H[famH];
+      var maxH = GROUND_MAX_H[famH];    // may be undefined (falls back to ballast max)
       if (H < minH - EPS)
         return { ok: false, error: (isUniview ? "2.6mm" : "3.9mm") +
           " ground support minimum wall height is " + minH + "m" };
+      if (maxH != null && H > maxH + EPS)
+        return { ok: false, error: (isUniview ? "2.6mm" : "3.9mm") +
+          " ground support maxes out at " + maxH + "m tall" };
 
       var uprights;
       var gp = PARTS.ground[fam];
@@ -851,9 +940,10 @@
         items.push({ category: "Rigging", label: setLabel, partNumber: gp.set.pn, qty: g39.kits });
         if (g39.bars_15 > 0) items.push({ category: "Rigging", label: gp.bar15.label, partNumber: gp.bar15.pn, qty: g39.bars_15 });
         if (g39.bars_2  > 0) items.push({ category: "Rigging", label: gp.bar2.label,  partNumber: gp.bar2.pn,  qty: g39.bars_2 });
-        // 1m bars ship inside the LSU Set (Adam, 2026-08-28) - no line item,
-        // but they count for upright / topper / ballast quantities.
-        uprights = (g39.bars_15 + g39.bars_2 + g39.bars_1) + 1;
+        // 1m bars ship inside the LSU Set (Adam, 2026-08-28) - no line item.
+        // Upright count follows Adam's 0.5m-inset + 1m-interval rule
+        // (see remUprightPositions), NOT the bars+1 sum.
+        uprights = g39.uprights;
         // 30cm topper - REM ground only, one per upright, every height.
         items.push({ category: "Rigging", label: gp.topper.label, partNumber: gp.topper.pn, qty: uprights });
       }
@@ -1109,10 +1199,18 @@
           px += lm * scale;
         });
       }
-      // Upright dots at seams: uprights count = flat.length + 1 typically, or
-      // whatever the caller supplies. Placed at bar boundaries not evenly.
-      if (bar.uprights && bar.uprights > 1) {
-        var n = bar.uprights, positions = [];
+      // Upright dots. Three modes, in priority order:
+      //   1. bar.uprightPositions - explicit metres array (REM ground rule:
+      //      0.5m inset + every 1m, plus tight 0.5m gap for half-metre widths).
+      //   2. bar.uprights count with flat.length + 1 matching - placed at bar
+      //      seams (bars share uprights).
+      //   3. bar.uprights count only - evenly-spaced fallback.
+      var positions = [];
+      if (bar.uprightPositions && bar.uprightPositions.length) {
+        var pxPerM = W / total;
+        bar.uprightPositions.forEach(function (m) { positions.push(ox + m * pxPerM); });
+      } else if (bar.uprights && bar.uprights > 1) {
+        var n = bar.uprights;
         if (flat.length && flat.length + 1 === n) {
           var acc = ox;
           positions.push(acc);
@@ -1120,11 +1218,11 @@
         } else {
           for (var i = 0; i < n; i++) positions.push(ox + (W * i / (n - 1)));
         }
-        positions.forEach(function (ux) {
-          out += '<circle cx="' + ux.toFixed(1) + '" cy="' + (y + bh / 2).toFixed(1) +
-            '" r="3" fill="#e5b100" stroke="#0f0e2a" stroke-width="0.8"/>';
-        });
       }
+      positions.forEach(function (ux) {
+        out += '<circle cx="' + ux.toFixed(1) + '" cy="' + (y + bh / 2).toFixed(1) +
+          '" r="3" fill="#e5b100" stroke="#0f0e2a" stroke-width="0.8"/>';
+      });
       // Label
       var ly = above ? (y - 4) : (y + bh + 11);
       out += '<text x="' + (ox + W / 2) + '" y="' + ly +
@@ -1909,7 +2007,9 @@
             label: "LSU Connecting Bars (bottom)",
             flatBars: remBarLayout(g.bars_15 || 0, g.bars_2 || 0, g.bars_1 || 0),
             totalM: res.width,
-            uprights: uprightsG
+            // Explicit positions (Adam 2026-08-28): 0.5m inset + every 1m, plus
+            // a tight 0.5m gap on the half-metre side of half-metre widths.
+            uprightPositions: g.uprightPositions || null
           };
         }
       }
