@@ -141,13 +141,26 @@
  *   - Preview shows per-line required length, best-fit stock length, and totals
  *     grouped by part number.
  *
- * STILL TBD after v0.14.0:
+ * v0.15.0 - LSU DECOMP FIX + COLOURED BAR SEGMENTS:
+ *   - 6m REM ground is 2 x 1.5m + 3 x 1m (Adam 2026-08-28) - fixes v0.13.0's
+ *     3 x 2m. Restores 1m bars across the full table (4m: 2 x 1.5 + 1, 4.5m:
+ *     1.5 + 1 + 2, 5.5m: 3 x 1.5 + 1).
+ *   - 1m LSU bars are BUNDLED in the LSU Set (YW-00169), not a separate SKU.
+ *     They count for uprights / toppers / ballast but do NOT appear as a kit
+ *     line item. The LSU Set label carries an "(incl. N x 1m bar)" note so
+ *     the pick crew knows.
+ *   - Preview overlays now draw bars as coloured SEGMENTS per physical length:
+ *     0.5m teal, 1.0m blue, 1.5m amber, 2.0m purple. Same palette on flown
+ *     rigging (top) and both ground bases (bottom). A legend under the wall
+ *     shows which colour is which length.
+ *
+ * STILL TBD after v0.15.0:
  *
  * PDF generation is TEMPORARILY BLOCKED - see PDF_ENABLED below. When ready,
  * flip the flag on and reformat buildVideowallPdf() to match the final layout
  * (do not delete the scaffolding).
  *
- * Version: 0.14.0
+ * Version: 0.15.0
  */
 
 (function () {
@@ -159,7 +172,7 @@
   var EPS = 1e-6;
   function isMult(v, step) { var q = v / step; return Math.abs(q - Math.round(q)) < EPS; }
 
-  var TOOL_VERSION = "0.14.0";  // shown in the dialog header; keep in sync with the banner above.
+  var TOOL_VERSION = "0.15.0";  // shown in the dialog header; keep in sync with the banner above.
 
   // ---------------------------------------------------------------------------
   // PART CATALOGUE (v0.12.0)
@@ -274,23 +287,27 @@
     };
   }
 
-  // 3.9mm ground support - primary bays of 1.5m or 2m ONLY. No 1m filler bars.
-  // Capped at 6m (Adam, 2026-08-27) - taller / wider rigs need engineering.
+  // 3.9mm ground support - primary bays of 1.5m or 2m, plus 1m filler bars
+  // where needed. 1m bars are BUNDLED in the LSU Set (YW-00169) and are NOT a
+  // separate line item on the kit (Adam, 2026-08-28) - but they count towards
+  // upright / kit / preview.
+  //
+  // Capped at 6m (Adam, 2026-08-27).
   // Achievable widths (0.5m step, 1.5m-6m):
   //   1.5 -> 1 x 1.5
   //   2.0 -> 1 x 2
   //   2.5 -> NOT achievable
   //   3.0 -> 2 x 1.5
   //   3.5 -> 1 x 1.5 + 1 x 2
-  //   4.0 -> 2 x 2                (was 2 x 1.5 + 1 x 1)
-  //   4.5 -> 3 x 1.5              (was 1 x 1.5 + 1 x 1 + 1 x 2)
+  //   4.0 -> 2 x 1.5 + 1 x 1
+  //   4.5 -> 1 x 1.5 + 1 x 1 + 1 x 2       (special case per Adam)
   //   5.0 -> 2 x 1.5 + 1 x 2
-  //   5.5 -> 1 x 1.5 + 2 x 2      (was 3 x 1.5 + 1 x 1)
-  //   6.0 -> 3 x 2                (was 4 x 1.5)
-  // Compute LSU sets from total connecting-bar count. Each LSU Set (YW-00169)
-  // ships 2 uprights; N bars in a row need N+1 uprights.
-  function lsuSets(bars_15, bars_2) {
-    var totalBars = (bars_15 || 0) + (bars_2 || 0);
+  //   5.5 -> 3 x 1.5 + 1 x 1
+  //   6.0 -> 2 x 1.5 + 3 x 1                (Adam 2026-08-28 fix - was 4 x 1.5)
+  // Compute LSU sets from total connecting-bar count (any length). Each LSU
+  // Set (YW-00169) ships 2 uprights; N bars in a row need N+1 uprights.
+  function lsuSets(bars_15, bars_2, bars_1) {
+    var totalBars = (bars_15 || 0) + (bars_2 || 0) + (bars_1 || 0);
     if (totalBars <= 0) return 0;
     return Math.ceil((totalBars + 1) / 2);
   }
@@ -302,17 +319,18 @@
     if (W < 1.5 - EPS) return { ok: false, error: "3.9mm ground support minimum is 1.5m" };
     if (W > GROUND_39_MAX_W + EPS)
       return { ok: false, error: "3.9mm ground support maxes out at " + GROUND_39_MAX_W + "m" };
-    if (Math.abs(W - 2.5) < EPS) return { ok: false, error: "2.5m not achievable in 3.9mm (bar sizes are 1.5m and 2m)" };
-    function pack(bars_15, bars_2) {
-      return { ok: true, kits: lsuSets(bars_15, bars_2), bars_15: bars_15, bars_2: bars_2, bars_1: 0 };
+    if (Math.abs(W - 2.5) < EPS) return { ok: false, error: "2.5m not achievable in 3.9mm (bar sizes are 1m, 1.5m and 2m)" };
+    function pack(bars_15, bars_2, bars_1) {
+      return { ok: true, kits: lsuSets(bars_15, bars_2, bars_1),
+        bars_15: bars_15, bars_2: bars_2, bars_1: bars_1 };
     }
     var TABLE = {
-      "1.5": [1, 0], "2.0": [0, 1], "3.0": [2, 0], "3.5": [1, 1],
-      "4.0": [0, 2], "4.5": [3, 0], "5.0": [2, 1], "5.5": [1, 2], "6.0": [0, 3]
+      "1.5": [1, 0, 0], "2.0": [0, 1, 0], "3.0": [2, 0, 0], "3.5": [1, 1, 0],
+      "4.0": [2, 0, 1], "4.5": [1, 1, 1], "5.0": [2, 1, 0], "5.5": [3, 0, 1], "6.0": [2, 0, 3]
     };
     var row = TABLE[W.toFixed(1)];
     if (!row) return { ok: false, error: W + "m not achievable in 3.9mm" };
-    return pack(row[0], row[1]);
+    return pack(row[0], row[1], row[2]);
   }
 
   // ---------------------------------------------------------------------------
@@ -787,10 +805,14 @@
       } else {
         var g39 = ground39Kit(W);
         if (!g39.ok) return { ok: false, error: g39.error };
-        items.push({ category: "Rigging", label: gp.set.label, partNumber: gp.set.pn, qty: g39.kits });
+        var setLabel = gp.set.label;
+        if (g39.bars_1 > 0) setLabel += " (incl. " + g39.bars_1 + " x 1m bar" + (g39.bars_1 === 1 ? "" : "s") + ")";
+        items.push({ category: "Rigging", label: setLabel, partNumber: gp.set.pn, qty: g39.kits });
         if (g39.bars_15 > 0) items.push({ category: "Rigging", label: gp.bar15.label, partNumber: gp.bar15.pn, qty: g39.bars_15 });
         if (g39.bars_2  > 0) items.push({ category: "Rigging", label: gp.bar2.label,  partNumber: gp.bar2.pn,  qty: g39.bars_2 });
-        uprights = (g39.bars_15 + g39.bars_2) + 1;
+        // 1m bars ship inside the LSU Set (Adam, 2026-08-28) - no line item,
+        // but they count for upright / topper / ballast quantities.
+        uprights = (g39.bars_15 + g39.bars_2 + g39.bars_1) + 1;
         // 30cm topper - REM ground only, one per upright, every height.
         items.push({ category: "Rigging", label: gp.topper.label, partNumber: gp.topper.pn, qty: uprights });
       }
@@ -895,7 +917,12 @@
       // Ballast (null when flown)
       ballast: ballast,
       // Cabling
-      cables: cableRes
+      cables: cableRes,
+      // Bar decomposition for preview overlays. Populated only for the branch
+      // that actually built the bars; other branches leave it null.
+      barsFlown: (opts.support === "flown") ? (typeof rig !== "undefined" ? rig : null) : null,
+      barsGround26: (opts.support === "ground" && isUniview) ? (typeof g26 !== "undefined" ? g26 : null) : null,
+      barsGround39: (opts.support === "ground" && !isUniview) ? (typeof g39 !== "undefined" ? g39 : null) : null
     };
   }
 
@@ -906,6 +933,16 @@
     "#0369a1", "#4d7c0f", "#a21caf", "#c2410c", "#115e59"
   ];
   function portColour(n) { return PORT_COLOURS[(n - 1) % PORT_COLOURS.length]; }
+
+  // Bar segments colour by physical length so mixed-length runs (LSU 1.5+2+1
+  // on a 4.5m REM ground; rigging bars 1m + 0.5m on 4.5m flown) read at a
+  // glance. Same palette used on top (flown) and bottom (ground) bars.
+  var BAR_COLOUR = {
+    "0.5": "#0d9488",   // teal
+    "1.0": "#2563eb",   // blue
+    "1.5": "#d97706",   // amber
+    "2.0": "#7c3aed"    // purple
+  };
 
   // Front-elevation SVG of the wall - grid of 500w panels. Top row is drawn
   // at half height when the wall's H has a 0.5m remainder (500h panels).
@@ -994,35 +1031,62 @@
     var wLbl = '<text x="' + (ox + W / 2) + '" y="' + (SH - 6) + '" font-family="Arial,Helvetica,sans-serif" font-size="11" fill="#666" text-anchor="middle">' + (cols * 0.5) + ' m wide</text>';
     var hLbl = '<text x="' + (SW - 8) + '" y="' + (oy + H / 2) + '" font-family="Arial,Helvetica,sans-serif" font-size="11" fill="#666" text-anchor="middle" transform="rotate(90 ' + (SW - 8) + ' ' + (oy + H / 2) + ')">' + height + ' m high</text>';
 
-    // Hardware overlays (v0.13.0). Top rigging bar for flown walls; base/foot bar
-    // for ground walls (both systems). Drawn as a dark bar with an inline label
-    // so the crew sees at a glance what runs above / below the panels.
-    var overlays = "";
-    if (topBar) {
-      var tby = oy - 10, tbh = 6;
-      overlays += '<rect x="' + (ox - 4) + '" y="' + tby + '" width="' + (W + 8) + '" height="' + tbh +
-        '" rx="2" fill="#26215C" stroke="#0f0e2a" stroke-width="1"/>';
-      overlays += '<text x="' + (ox + W / 2) + '" y="' + (tby - 4) +
-        '" font-family="Arial,Helvetica,sans-serif" font-size="10" fill="#26215C" text-anchor="middle">' +
-        (topBar.label || "Rigging bar") + '</text>';
-    }
-    if (footBar) {
-      var fby = oy + H + 6, fbh = 6;
-      overlays += '<rect x="' + (ox - 4) + '" y="' + fby + '" width="' + (W + 8) + '" height="' + fbh +
-        '" rx="2" fill="#26215C" stroke="#0f0e2a" stroke-width="1"/>';
-      // Upright dots on the base bar - one per erected upright, evenly spaced.
-      if (footBar.uprights && footBar.uprights > 1) {
-        var n = footBar.uprights;
-        for (var u = 0; u < n; u++) {
-          var ux = ox + (W * u / (n - 1));
-          overlays += '<circle cx="' + ux.toFixed(1) + '" cy="' + (fby + fbh / 2).toFixed(1) +
-            '" r="3" fill="#e5b100" stroke="#0f0e2a" stroke-width="0.8"/>';
-        }
+    // Hardware overlays (v0.13.0 / colour-coded v0.15.0). Top rigging bar for
+    // flown walls; base/foot bar for ground walls (both systems). Bars are
+    // drawn as coloured SEGMENTS - one per physical bar - so mixed decomps
+    // (LSU 1.5 + 2 + 1m mix on a 4.5m REM ground) read at a glance.
+    //   BAR_COLOUR[lengthM] -> fill
+    // opts.topBar / opts.footBar may pass:
+    //   { label, bars: [{ lengthM, count }, ...], uprights?, totalM? }
+    // Uprights are drawn as dots on the base bar seams.
+    function drawBar(y, bh, bar, above) {
+      var out = "";
+      var bars = (bar.bars || []).slice();
+      var total = bar.totalM || cols * 0.5;
+      // Explode {lengthM, count} into a flat left-to-right list.
+      var flat = [];
+      bars.forEach(function (b) { for (var i = 0; i < (b.count || 0); i++) flat.push(b.lengthM); });
+      // Fallback: no per-length data -> single solid bar (legacy behaviour).
+      if (!flat.length) {
+        out += '<rect x="' + (ox - 4) + '" y="' + y + '" width="' + (W + 8) + '" height="' + bh +
+          '" rx="2" fill="#26215C" stroke="#0f0e2a" stroke-width="1"/>';
+      } else {
+        var px = ox, gap = 1;
+        var scale = W / total;
+        flat.forEach(function (lm, i) {
+          var sw = lm * scale - (i < flat.length - 1 ? gap : 0);
+          var fill = BAR_COLOUR[lm.toFixed(1)] || "#26215C";
+          out += '<rect x="' + px.toFixed(1) + '" y="' + y + '" width="' + Math.max(1, sw).toFixed(1) +
+            '" height="' + bh + '" rx="1.5" fill="' + fill + '" stroke="#0f0e2a" stroke-width="0.8"/>';
+          px += lm * scale;
+        });
       }
-      overlays += '<text x="' + (ox + W / 2) + '" y="' + (fby + fbh + 11) +
+      // Upright dots at seams: uprights count = flat.length + 1 typically, or
+      // whatever the caller supplies. Placed at bar boundaries not evenly.
+      if (bar.uprights && bar.uprights > 1) {
+        var n = bar.uprights, positions = [];
+        if (flat.length && flat.length + 1 === n) {
+          var acc = ox;
+          positions.push(acc);
+          flat.forEach(function (lm) { acc += lm * (W / total); positions.push(acc); });
+        } else {
+          for (var i = 0; i < n; i++) positions.push(ox + (W * i / (n - 1)));
+        }
+        positions.forEach(function (ux) {
+          out += '<circle cx="' + ux.toFixed(1) + '" cy="' + (y + bh / 2).toFixed(1) +
+            '" r="3" fill="#e5b100" stroke="#0f0e2a" stroke-width="0.8"/>';
+        });
+      }
+      // Label
+      var ly = above ? (y - 4) : (y + bh + 11);
+      out += '<text x="' + (ox + W / 2) + '" y="' + ly +
         '" font-family="Arial,Helvetica,sans-serif" font-size="10" fill="#26215C" text-anchor="middle">' +
-        (footBar.label || "Base bar") + '</text>';
+        (bar.label || "") + '</text>';
+      return out;
     }
+    var overlays = "";
+    if (topBar)  overlays += drawBar(oy - 10, 6, topBar, true);
+    if (footBar) overlays += drawBar(oy + H + 6, 6, footBar, false);
 
     return '<svg width="' + SW + '" height="' + SH + '" viewBox="0 0 ' + SW + ' ' + SH + '" xmlns="http://www.w3.org/2000/svg">' +
       cells + nums + paths + overlays + frame + wLbl + hLbl + '</svg>';
@@ -1742,20 +1806,66 @@
       }
       portHtml += '</div>';
 
-      // Hardware overlays: flown -> top rigging bar; ground -> base bar (with
-      // dots for each erected upright on both systems).
+      // Hardware overlays with coloured bar segments per physical length.
       var svgOpts = { height: res.height, ports: res.ports };
-      if (supSel.value === "flown") {
-        svgOpts.topBar = { label: (pitchSel.value === "2.6mm" ? "Uniview UR Pro" : "Chauvet REM") +
-          " Rigging Bar (" + (pitchSel.value === "3.9mm" && rigSel.value === "clamp" ? "clamp" : "sling") + ")" };
-      } else {
-        var uprights = res.ballast && res.ballast.uprights;
-        var baseLabel = (pitchSel.value === "2.6mm")
-          ? "Uniview UR Pro Ground Support base"
-          : "LSU Connecting Bars (bottom)";
-        svgOpts.footBar = { label: baseLabel, uprights: uprights };
+      var pitch = pitchSel.value;
+      function barsFromCounts(c15, c2, c1, c05) {
+        var out = [];
+        // Ordered largest -> smallest so the visual reads consistently across walls.
+        if (c2  > 0) out.push({ lengthM: 2.0, count: c2  });
+        if (c15 > 0) out.push({ lengthM: 1.5, count: c15 });
+        if (c1  > 0) out.push({ lengthM: 1.0, count: c1  });
+        if (c05 > 0) out.push({ lengthM: 0.5, count: c05 });
+        return out;
       }
-      colPreview.innerHTML = buildWallSvg(res.cols, res.rows, svgOpts) + portHtml;
+      if (supSel.value === "flown") {
+        // Flown bars are 1m + 0.5m. Same shape both products.
+        var f = res.barsFlown || {};
+        var uprightsF = (f.bars_1 || 0) + (f.bars_05 || 0) + 1;
+        svgOpts.topBar = {
+          label: (pitch === "2.6mm" ? "Uniview UR Pro" : "Chauvet REM") +
+            " Rigging Bar (" + (pitch === "3.9mm" && rigSel.value === "clamp" ? "clamp" : "sling") + ")",
+          bars: barsFromCounts(0, 0, f.bars_1 || 0, f.bars_05 || 0),
+          totalM: res.width,
+          uprights: uprightsF
+        };
+      } else {
+        var uprightsG = res.ballast && res.ballast.uprights;
+        if (pitch === "2.6mm") {
+          // Uniview ground: 1m + 0.5m bars (from kitContents).
+          var kc = (res.barsGround26 && res.barsGround26.kitContents) || { bars_1: 0, bars_05: 0 };
+          svgOpts.footBar = {
+            label: "Uniview UR Pro Ground Support base",
+            bars: barsFromCounts(0, 0, kc.bars_1 || 0, kc.bars_05 || 0),
+            totalM: res.width,
+            uprights: uprightsG
+          };
+        } else {
+          // REM LSU: 1.5m + 2m + 1m mix. 1m bars come with the LSU Set.
+          var g = res.barsGround39 || {};
+          svgOpts.footBar = {
+            label: "LSU Connecting Bars (bottom)",
+            bars: barsFromCounts(g.bars_15 || 0, g.bars_2 || 0, g.bars_1 || 0, 0),
+            totalM: res.width,
+            uprights: uprightsG
+          };
+        }
+      }
+      // Bar legend below the SVG: shows which colour = which length. Only the
+      // lengths actually in use appear.
+      var lens = ((svgOpts.topBar && svgOpts.topBar.bars) || (svgOpts.footBar && svgOpts.footBar.bars) || [])
+        .map(function (b) { return b.lengthM.toFixed(1); });
+      var legend = "";
+      if (lens.length) {
+        legend = '<div style="margin-top:4px;font-size:11px;color:#777;display:flex;gap:12px;flex-wrap:wrap;">';
+        lens.forEach(function (lm) {
+          legend += '<span style="display:inline-flex;align-items:center;gap:4px;">' +
+            '<span style="width:12px;height:6px;border-radius:2px;background:' + (({"0.5":"#0d9488","1.0":"#2563eb","1.5":"#d97706","2.0":"#7c3aed"})[lm] || "#26215C") + ';"></span>' +
+            lm.replace(/\.0$/, "") + 'm</span>';
+        });
+        legend += '</div>';
+      }
+      colPreview.innerHTML = buildWallSvg(res.cols, res.rows, svgOpts) + legend + portHtml;
 
       var byCat = {};
       res.items.forEach(function (it) { (byCat[it.category] = byCat[it.category] || []).push(it); });

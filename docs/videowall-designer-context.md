@@ -253,7 +253,43 @@ e.g. `Indoor Videowall 4w x 3h 3.9mm Flown-Sling MX30`.
 | v0.11.0 | **ballast + topper** — `YW-00259` 12.5kg weight plates auto-added per upright off the German exhibition table, both ground systems; `YW-04062` 30cm topper on every REM ground wall; ground-support minimum heights enforced. Loader v0.1.95 |
 | v0.12.0 | **external catalogue + dialog polish** — parts/ballast/bandwidth moved to `data/videowall-creator/*.json` on jsDelivr (part changes are now a pure data edit); version in the dialog header; loading bar on catalogue fetch and on insert. Loader v0.1.96 |
 | v0.13.0 | **ground decomp cleanup + processor-link cables + overlays** — REM ground capped at 6m hard max, 1m LSU bars retired (all widths use 1.5m/2m only), inter-processor cables added per extra box, SVG previews get top rigging bar (flown) and base bar with upright dots (ground). Loader v0.1.97 |
-| **v0.14.0** | **starter cables** — one per line, primary + backup, `length = wall width + row top height`. REM uses banded Ethercon stock (5m `YW-00448` / 10m `YW-00434` / 20m `YW-00438`), Uniview uses fixed 15m `YW-04070`. Cable sub-heading now inserts on the job; preview shows per-line required + best-fit stock. Loader v0.1.98 |
+| v0.14.0 | **starter cables** — one per line, primary + backup, `length = wall width + row top height`. REM uses banded Ethercon stock (5m `YW-00448` / 10m `YW-00434` / 20m `YW-00438`), Uniview uses fixed 15m `YW-04070`. Cable sub-heading now inserts on the job; preview shows per-line required + best-fit stock. Loader v0.1.98 |
+| **v0.15.0** | **LSU decomp fix + coloured bars** — 6m REM ground reverts to `2×1.5 + 3×1m` (was `3×2m`); 1m LSU bars are bundled in the LSU Set and DON'T appear as a separate kit line; preview draws bar segments coloured by physical length (0.5 teal / 1 blue / 1.5 amber / 2 purple). Loader v0.1.99 |
+
+### REM ground decomposition (v0.15.0 — this table is authoritative)
+
+Each row supplies the physical bars ON THE GROUND. 1m bars come free inside the LSU Set —
+they are NOT separately ordered. `bars_15` and `bars_2` become kit lines; `bars_1` only
+influences upright / topper / ballast counts and the preview.
+
+| Width | 1.5m | 2m | 1m (bundled) | Bars | Uprights | LSU Sets |
+|---|---|---|---|---|---|---|
+| 1.5m | 1 | — | — | 1 | 2 | 1 |
+| 2.0m | — | 1 | — | 1 | 2 | 1 |
+| 2.5m | *not achievable* | | | | | |
+| 3.0m | 2 | — | — | 2 | 3 | 2 |
+| 3.5m | 1 | 1 | — | 2 | 3 | 2 |
+| 4.0m | 2 | — | 1 | 3 | 4 | 2 |
+| 4.5m | 1 | 1 | 1 | 3 | 4 | 2 |
+| 5.0m | 2 | 1 | — | 3 | 4 | 2 |
+| 5.5m | 3 | — | 1 | 4 | 5 | 3 |
+| **6.0m** | **2** | — | **3** | **5** | **6** | **3** |
+
+At 3m wall height a 6m wide REM ground now takes 6 × 6 = **36 weight plates** (was 24 at
+v0.14.0), 6 toppers (was 4), 3 LSU Sets (was 2). Genuinely a bigger kit than the v0.13/14
+version, but this matches the actual build spec.
+
+### Bar preview colours (v0.15.0)
+
+| Length | Colour |
+|---|---|
+| 0.5m | teal `#0d9488` |
+| 1.0m | blue `#2563eb` |
+| 1.5m | amber `#d97706` |
+| 2.0m | purple `#7c3aed` |
+
+Same palette on flown rigging (top overlay) and ground base bars (both systems). Legend
+under the wall lists only the lengths actually in use.
 
 ### Starter cables (v0.14.0) — the rule that finally landed
 
