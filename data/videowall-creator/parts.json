@@ -50,5 +50,12 @@
   "processors": {
     "mx30":    { "pn": "YW-04071", "label": "Novastar MX30 Videowall Processor",     "name": "Novastar MX30",     "ports": 10 },
     "mx40pro": { "pn": "YW-00347", "label": "Novastar MX40 Pro Videowall Processor", "name": "Novastar MX40 Pro", "ports": 20 }
+  },
+
+  "_procCablesNote": "Inter-processor link cables. Added at (processorCount - 1) sets each - one link between every pair of adjacent boxes. PNs are placeholders (TBD-*); once real codes are supplied here, jobs auto-resolve instead of dropping to free-text lines.",
+  "procCables": {
+    "network": { "pn": "TBD-NET-3M",  "label": "3m Network Cable (processor link)" },
+    "hdmi":    { "pn": "TBD-HDMI-3M", "label": "3m HDMI Cable (processor link)" },
+    "sdi":     { "pn": "TBD-SDI-2M",  "label": "2m SDI Cable (processor link)" }
   }
 }

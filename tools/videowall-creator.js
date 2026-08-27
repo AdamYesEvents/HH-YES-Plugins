@@ -115,7 +115,19 @@
  *     onProgress callback with the same {phase, category, doneItems, totalItems}
  *     contract as stage-designer's addStageKit.
  *
- * STILL TBD after v0.12.0 (targeted at v0.13.0 - cabling):
+ * v0.13.0 - GROUND DECOMP CLEANUP + PROCESSOR-LINK CABLES + HARDWARE OVERLAYS:
+ *   - REM ground: cap raised to 6m HARD MAX (Adam, 2026-08-28). 1m connecting
+ *     bars retired - decomposition uses ONLY 1.5m and 2m bars. Changed rows:
+ *     4.0m 2x2 (was 2x1.5+1m), 4.5m 3x1.5 (was 1.5+1+2), 5.5m 1.5+2x2 (was
+ *     3x1.5+1m), 6.0m 3x2 (was 4x1.5). LSU-CONNB-L100 no longer generated.
+ *   - Inter-processor cables: one set per additional processor
+ *     (processorCount - 1 sets) - 3m network + 3m HDMI + 2m SDI. Codes are
+ *     placeholders (TBD-*) until Adam supplies real YWs; today they drop to
+ *     free-text rows on the job.
+ *   - Preview overlays: flown walls get a top rigging-bar bar; ground walls
+ *     (both systems) get a base bar with a dot per erected upright.
+ *
+ * STILL TBD after v0.13.0 (targeted at v0.14.0 - cabling):
  *   - Cabling, primary AND backup. RULE RESOLVED (Adam, 2026-08-27): one cable
  *     per line for both, length = wall width + that line's row height. The
  *     backup lands on the far end of the chain, which is what forces the full
@@ -129,7 +141,7 @@
  * flip the flag on and reformat buildVideowallPdf() to match the final layout
  * (do not delete the scaffolding).
  *
- * Version: 0.12.0
+ * Version: 0.13.0
  */
 
 (function () {
@@ -141,7 +153,7 @@
   var EPS = 1e-6;
   function isMult(v, step) { var q = v / step; return Math.abs(q - Math.round(q)) < EPS; }
 
-  var TOOL_VERSION = "0.12.0";  // shown in the dialog header; keep in sync with the banner above.
+  var TOOL_VERSION = "0.13.0";  // shown in the dialog header; keep in sync with the banner above.
 
   // ---------------------------------------------------------------------------
   // PART CATALOGUE (v0.12.0)
@@ -194,6 +206,14 @@
     processors: {
       mx30:    { pn: "YW-04071", label: "Novastar MX30 Videowall Processor",     name: "Novastar MX30",     ports: 10 },
       mx40pro: { pn: "YW-00347", label: "Novastar MX40 Pro Videowall Processor", name: "Novastar MX40 Pro", ports: 20 }
+    },
+    // Inter-processor cabling: one set per ADDITIONAL processor (processorCount - 1).
+    // PNs are placeholders until Adam supplies them - resolve() falls through to a
+    // free-text row on the job, same as the LSU-CONNB placeholders.
+    procCables: {
+      network: { pn: "TBD-NET-3M",  label: "3m Network Cable (processor link)" },
+      hdmi:    { pn: "TBD-HDMI-3M", label: "3m HDMI Cable (processor link)" },
+      sdi:     { pn: "TBD-SDI-2M",  label: "2m SDI Cable (processor link)" }
     }
   };
   // Product family key for the catalogue: 2.6mm is Uniview, 3.9mm is Chauvet REM.
@@ -232,52 +252,45 @@
     };
   }
 
-  // 3.9mm ground support - primary bays of 1.5m or 2m, plus one optional 1m
-  // filler.  Base case contains 2x 1m comb bars (fillers).  Extra 1.5m and 2m
-  // bars are spec'd separately.
-  // Achievable widths and preferred decomposition (matches the spec):
+  // 3.9mm ground support - primary bays of 1.5m or 2m ONLY. No 1m filler bars.
+  // Capped at 6m (Adam, 2026-08-27) - taller / wider rigs need engineering.
+  // Achievable widths (0.5m step, 1.5m-6m):
   //   1.5 -> 1 x 1.5
   //   2.0 -> 1 x 2
   //   2.5 -> NOT achievable
   //   3.0 -> 2 x 1.5
   //   3.5 -> 1 x 1.5 + 1 x 2
-  //   4.0 -> 2 x 1.5 + 1 x 1
-  //   4.5 -> 3 x 1.5
+  //   4.0 -> 2 x 2                (was 2 x 1.5 + 1 x 1)
+  //   4.5 -> 3 x 1.5              (was 1 x 1.5 + 1 x 1 + 1 x 2)
   //   5.0 -> 2 x 1.5 + 1 x 2
-  //   5.5 -> 3 x 1.5 + 1 x 1
-  //   6.0 -> 4 x 1.5
-  //   6.5 -> 3 x 1.5 + 1 x 2
-  //   7.0 -> 4 x 1.5 + 1 x 1
+  //   5.5 -> 1 x 1.5 + 2 x 2      (was 3 x 1.5 + 1 x 1)
+  //   6.0 -> 3 x 2                (was 4 x 1.5)
   // Compute LSU sets from total connecting-bar count. Each LSU Set (YW-00169)
-  // ships 2 uprights; N bars in a row need N+1 uprights. Adjacent bars share
-  // uprights so the count is exact - we just round up when we get an odd
-  // upright count.
-  function lsuSets(bars_15, bars_2, bars_1) {
-    var totalBars = (bars_15 || 0) + (bars_2 || 0) + (bars_1 || 0);
+  // ships 2 uprights; N bars in a row need N+1 uprights.
+  function lsuSets(bars_15, bars_2) {
+    var totalBars = (bars_15 || 0) + (bars_2 || 0);
     if (totalBars <= 0) return 0;
     return Math.ceil((totalBars + 1) / 2);
   }
 
+  var GROUND_39_MAX_W = 6.0;
+
   function ground39Kit(W) {
     if (!(W > 0) || !isMult(W, 0.5)) return { ok: false, error: "Width must be a multiple of 0.5m" };
     if (W < 1.5 - EPS) return { ok: false, error: "3.9mm ground support minimum is 1.5m" };
-    function pack(bars_15, bars_2, bars_1) {
-      return { ok: true, kits: lsuSets(bars_15, bars_2, bars_1), bars_15: bars_15, bars_2: bars_2, bars_1: bars_1 };
+    if (W > GROUND_39_MAX_W + EPS)
+      return { ok: false, error: "3.9mm ground support maxes out at " + GROUND_39_MAX_W + "m" };
+    if (Math.abs(W - 2.5) < EPS) return { ok: false, error: "2.5m not achievable in 3.9mm (bar sizes are 1.5m and 2m)" };
+    function pack(bars_15, bars_2) {
+      return { ok: true, kits: lsuSets(bars_15, bars_2), bars_15: bars_15, bars_2: bars_2, bars_1: 0 };
     }
-    if (Math.abs(W - 1.5) < EPS) return pack(1, 0, 0);
-    if (Math.abs(W - 2.0) < EPS) return pack(0, 1, 0);
-    if (W < 3.0 - EPS) return { ok: false, error: W + "m not achievable in 3.9mm (try 2m or 3m)" };
-    // Explicit per-Adam decomposition for the achievable widths he specified.
-    // 4.5m in particular differs from the "max 1.5s" pattern: it's 1.5 + 1 + 2.
-    if (Math.abs(W - 4.5) < EPS) return pack(1, 1, 1);
-    for (var N = 2; N <= 40; N++) {
-      var base = 1.5 * N;
-      if (Math.abs(W - base) < EPS)         return pack(N,     0, 0);
-      if (Math.abs(W - (base + 0.5)) < EPS) return pack(N - 1, 1, 0);
-      if (Math.abs(W - (base + 1.0)) < EPS) return pack(N,     0, 1);
-      if (W < base) break;
-    }
-    return { ok: false, error: W + "m not achievable with 3.9mm system" };
+    var TABLE = {
+      "1.5": [1, 0], "2.0": [0, 1], "3.0": [2, 0], "3.5": [1, 1],
+      "4.0": [0, 2], "4.5": [3, 0], "5.0": [2, 1], "5.5": [1, 2], "6.0": [0, 3]
+    };
+    var row = TABLE[W.toFixed(1)];
+    if (!row) return { ok: false, error: W + "m not achievable in 3.9mm" };
+    return pack(row[0], row[1]);
   }
 
   // ---------------------------------------------------------------------------
@@ -659,8 +672,7 @@
         items.push({ category: "Rigging", label: gp.set.label, partNumber: gp.set.pn, qty: g39.kits });
         if (g39.bars_15 > 0) items.push({ category: "Rigging", label: gp.bar15.label, partNumber: gp.bar15.pn, qty: g39.bars_15 });
         if (g39.bars_2  > 0) items.push({ category: "Rigging", label: gp.bar2.label,  partNumber: gp.bar2.pn,  qty: g39.bars_2 });
-        if (g39.bars_1  > 0) items.push({ category: "Rigging", label: gp.bar1.label,  partNumber: gp.bar1.pn,  qty: g39.bars_1 });
-        uprights = (g39.bars_15 + g39.bars_2 + g39.bars_1) + 1;
+        uprights = (g39.bars_15 + g39.bars_2) + 1;
         // 30cm topper - REM ground only, one per upright, every height.
         items.push({ category: "Rigging", label: gp.topper.label, partNumber: gp.topper.pn, qty: uprights });
       }
@@ -681,6 +693,14 @@
     var procPart = PARTS.processors[procModel];
     var processorItem = { category: "Processor", label: procPart.label, partNumber: procPart.pn, qty: 1 };
     items.push(processorItem);
+    // Inter-processor cables inserted below once processorCount is known - one
+    // set per ADDITIONAL processor (linking box N-1 to box N).
+    var procCableItems = [
+      { category: "Processor", label: PARTS.procCables.network.label, partNumber: PARTS.procCables.network.pn, qty: 0 },
+      { category: "Processor", label: PARTS.procCables.hdmi.label,    partNumber: PARTS.procCables.hdmi.pn,    qty: 0 },
+      { category: "Processor", label: PARTS.procCables.sdi.label,     partNumber: PARTS.procCables.sdi.pn,     qty: 0 }
+    ];
+    procCableItems.forEach(function (it) { items.push(it); });
     // Signal / starter cables still deferred (hardware first). When ready,
     // add items with category "Cable" and un-skip "Cable" in INSERT_ORDER.
 
@@ -710,6 +730,13 @@
       pt.label = (alloc.processors > 1 ? a.processor + ":" : "") + a.primary;
     });
     processorItem.qty = alloc.processors;
+    // One cable set per link between boxes = processorCount - 1. Drop the lines
+    // when there is only one processor so they don't clutter the kit.
+    var linkSets = Math.max(0, alloc.processors - 1);
+    procCableItems.forEach(function (it) { it.qty = linkSets; });
+    if (linkSets === 0) {
+      items = items.filter(function (it) { return procCableItems.indexOf(it) < 0; });
+    }
 
     // Would a bigger processor do it in fewer boxes? Worth saying out loud -
     // with backup running, an MX30 only offers 5 primaries, so walls spill onto
@@ -765,14 +792,21 @@
     var maxW = opts.maxW || 420, maxH = opts.maxH || 260, pad = 24;
     var height = opts.height || rows;                       // wall height in metres
     var trim = Math.max(0, rows - height);                  // 0 or 0.5 typically
+    // Hardware overlays draw outside the wall grid, so we need vertical head/foot
+    // room. topBar = flown rigging bar above the wall; footBar = ground base bar
+    // beneath. Their heights are the reserved gap in SVG pixels.
+    var topBar  = opts.topBar  || null;    // { label } or null (flown)
+    var footBar = opts.footBar || null;    // { label, uprights? } or null (ground)
+    var extraTop  = topBar  ? 22 : 0;
+    var extraFoot = footBar ? 26 : 0;
     // Panels are 0.5m wide x 1m high in real units; scale so the wall fits the box.
     var wPx = (maxW - pad * 2) / (cols * 0.5);
-    var hPx = (maxH - pad * 2) / height;
+    var hPx = (maxH - pad * 2 - extraTop - extraFoot) / height;
     var unit = Math.max(6, Math.min(wPx, hPx));             // px per metre
     var panelW = 0.5 * unit, panelH = 1.0 * unit;
     var W = panelW * cols, H = unit * height;
-    var SW = W + pad * 2, SH = H + pad * 2;
-    var ox = pad, oy = pad;
+    var SW = W + pad * 2, SH = H + pad * 2 + extraTop + extraFoot;
+    var ox = pad, oy = pad + extraTop;
     var ports = opts.ports || null;
 
     // The TOP row (r==0) is trimmed when height isn't a whole metre.
@@ -834,8 +868,39 @@
     var frame = '<rect x="' + (ox - 0.5) + '" y="' + (oy - 0.5) + '" width="' + (W + 1) + '" height="' + (H + 1) + '" fill="none" stroke="#26215C" stroke-width="2"/>';
     var wLbl = '<text x="' + (ox + W / 2) + '" y="' + (SH - 6) + '" font-family="Arial,Helvetica,sans-serif" font-size="11" fill="#666" text-anchor="middle">' + (cols * 0.5) + ' m wide</text>';
     var hLbl = '<text x="' + (SW - 8) + '" y="' + (oy + H / 2) + '" font-family="Arial,Helvetica,sans-serif" font-size="11" fill="#666" text-anchor="middle" transform="rotate(90 ' + (SW - 8) + ' ' + (oy + H / 2) + ')">' + height + ' m high</text>';
+
+    // Hardware overlays (v0.13.0). Top rigging bar for flown walls; base/foot bar
+    // for ground walls (both systems). Drawn as a dark bar with an inline label
+    // so the crew sees at a glance what runs above / below the panels.
+    var overlays = "";
+    if (topBar) {
+      var tby = oy - 10, tbh = 6;
+      overlays += '<rect x="' + (ox - 4) + '" y="' + tby + '" width="' + (W + 8) + '" height="' + tbh +
+        '" rx="2" fill="#26215C" stroke="#0f0e2a" stroke-width="1"/>';
+      overlays += '<text x="' + (ox + W / 2) + '" y="' + (tby - 4) +
+        '" font-family="Arial,Helvetica,sans-serif" font-size="10" fill="#26215C" text-anchor="middle">' +
+        (topBar.label || "Rigging bar") + '</text>';
+    }
+    if (footBar) {
+      var fby = oy + H + 6, fbh = 6;
+      overlays += '<rect x="' + (ox - 4) + '" y="' + fby + '" width="' + (W + 8) + '" height="' + fbh +
+        '" rx="2" fill="#26215C" stroke="#0f0e2a" stroke-width="1"/>';
+      // Upright dots on the base bar - one per erected upright, evenly spaced.
+      if (footBar.uprights && footBar.uprights > 1) {
+        var n = footBar.uprights;
+        for (var u = 0; u < n; u++) {
+          var ux = ox + (W * u / (n - 1));
+          overlays += '<circle cx="' + ux.toFixed(1) + '" cy="' + (fby + fbh / 2).toFixed(1) +
+            '" r="3" fill="#e5b100" stroke="#0f0e2a" stroke-width="0.8"/>';
+        }
+      }
+      overlays += '<text x="' + (ox + W / 2) + '" y="' + (fby + fbh + 11) +
+        '" font-family="Arial,Helvetica,sans-serif" font-size="10" fill="#26215C" text-anchor="middle">' +
+        (footBar.label || "Base bar") + '</text>';
+    }
+
     return '<svg width="' + SW + '" height="' + SH + '" viewBox="0 0 ' + SW + ' ' + SH + '" xmlns="http://www.w3.org/2000/svg">' +
-      cells + nums + paths + frame + wLbl + hLbl + '</svg>';
+      cells + nums + paths + overlays + frame + wLbl + hLbl + '</svg>';
   }
 
   // ===========================================================================
@@ -1528,7 +1593,20 @@
       portHtml += '<div style="margin-top:4px;font-size:11px;color:#b07b00;">Starter cables not in the kit yet (v0.10.0).</div>';
       portHtml += '</div>';
 
-      colPreview.innerHTML = buildWallSvg(res.cols, res.rows, { height: res.height, ports: res.ports }) + portHtml;
+      // Hardware overlays: flown -> top rigging bar; ground -> base bar (with
+      // dots for each erected upright on both systems).
+      var svgOpts = { height: res.height, ports: res.ports };
+      if (supSel.value === "flown") {
+        svgOpts.topBar = { label: (pitchSel.value === "2.6mm" ? "Uniview UR Pro" : "Chauvet REM") +
+          " Rigging Bar (" + (pitchSel.value === "3.9mm" && rigSel.value === "clamp" ? "clamp" : "sling") + ")" };
+      } else {
+        var uprights = res.ballast && res.ballast.uprights;
+        var baseLabel = (pitchSel.value === "2.6mm")
+          ? "Uniview UR Pro Ground Support base"
+          : "LSU Connecting Bars (bottom)";
+        svgOpts.footBar = { label: baseLabel, uprights: uprights };
+      }
+      colPreview.innerHTML = buildWallSvg(res.cols, res.rows, svgOpts) + portHtml;
 
       var byCat = {};
       res.items.forEach(function (it) { (byCat[it.category] = byCat[it.category] || []).push(it); });
