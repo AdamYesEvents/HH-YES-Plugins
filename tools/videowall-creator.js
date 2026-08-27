@@ -231,13 +231,40 @@
  *     3.0m Uniview ground: kits 2 (same), uprights 4 -> 3, plates -6 at 3m tall
  *     4.5m Uniview ground: kits 2 -> 3, uprights 4 -> 5, plates +6 at 3m tall
  *
- * STILL TBD after v0.18.0:
+ * v0.19.0 - UNIVIEW UPRIGHT REFINEMENT + 0.5m BAR IN MIDDLE + AXIS LABELS:
+ *   Adam 2026-08-28 refined the Uniview upright specs from v0.18.0. Explicit
+ *   table now (positions in metres, cols = which panel columns from the left):
+ *     0.5m -> [0.25]                     col 1
+ *     1.0m -> [0.25, 0.75]               cols 1, 2
+ *     1.5m -> [0.25, 1.25]               cols 1, 3
+ *     2.0m -> [0.75, 1.25]               cols 2, 3
+ *     2.5m -> [0.25, 1.25, 2.25]         cols 1, 3, 5
+ *     3.0m -> [0.25, 1.25, 1.75, 2.75]   cols 1, 3, 4, 6  (add col 4, use both kits)
+ *     3.5m -> [0.25, 1.25, 2.25, 3.25]   cols 1, 3, 5, 7  (unchanged)
+ *     4.0m -> [0.75, 1.75, 2.25, 3.25]   cols 2, 4, 5, 7  (second col in + central pair)
+ *     4.5m -> [0.75, 1.75, 2.75, 3.75]   cols 2, 4, 6, 8  (0.5m bar to middle, no extra kit)
+ *   W >= 5m: extrapolated as alternate cols starting col 2 (0.75, 1.75, ...),
+ *   floor(W) uprights - PENDING ADAM CONFIRMATION.
+ *
+ *   Kit count is still ceil(uprights / 2), so 3m stays at 2 kits (was 2 in
+ *   v0.18.0), 4.5m drops to 2 kits (was 3). Ballast:
+ *     3.0m at 3m tall: 4 x 6 = 24 plates (was 18 in v0.18.0 with 3 uprights)
+ *     4.5m at 3m tall: 4 x 6 = 24 plates (was 30 in v0.18.0 with 5 uprights)
+ *
+ *   0.5m Uniview ground bar now placed in the MIDDLE of the wall for
+ *   half-metre widths (Adam: "move the 0.5m bar to the middle of screen").
+ *   Adds visual centre, avoids the tight-end-cluster in the old layout.
+ *
+ *   Preview now labels the COLUMNS (1..cols) along the top and ROWS
+ *   (A..) down the left side, with A = BOTTOM row (physical build order).
+ *
+ * STILL TBD after v0.19.0:
  *
  * PDF generation is TEMPORARILY BLOCKED - see PDF_ENABLED below. When ready,
  * flip the flag on and reformat buildVideowallPdf() to match the final layout
  * (do not delete the scaffolding).
  *
- * Version: 0.18.0
+ * Version: 0.19.0
  */
 
 (function () {
@@ -249,7 +276,7 @@
   var EPS = 1e-6;
   function isMult(v, step) { var q = v / step; return Math.abs(q - Math.round(q)) < EPS; }
 
-  var TOOL_VERSION = "0.18.0";  // shown in the dialog header; keep in sync with the banner above.
+  var TOOL_VERSION = "0.19.0";  // shown in the dialog header; keep in sync with the banner above.
 
   // ---------------------------------------------------------------------------
   // PART CATALOGUE (v0.12.0)
@@ -376,22 +403,64 @@
   //   1.5m -> [0.25, 1.25]                        (skip middle)
   //   2.0m -> [0.75, 1.25]                        (central pair)
   //   W>=2.5 -> [0.25, 1.25, 2.25, ..., 0.25 + (N-1)]  (1m apart from left)
-  function univiewUprightCount(W) {
-    if (!(W > 0)) return 0;
-    if (W <= 0.5 + EPS) return 1;
-    return Math.max(2, Math.ceil(W - EPS));
-  }
+  // Explicit table 0.5m-4.5m (Adam, 2026-08-28 - refined from v0.18.0):
+  //   0.5m -> [0.25]                              1 upright, col 1
+  //   1.0m -> [0.25, 0.75]                        cols 1, 2 (1m header bar)
+  //   1.5m -> [0.25, 1.25]                        cols 1, 3 (skip middle)
+  //   2.0m -> [0.75, 1.25]                        cols 2, 3 (central pair)
+  //   2.5m -> [0.25, 1.25, 2.25]                  cols 1, 3, 5
+  //   3.0m -> [0.25, 1.25, 1.75, 2.75]            cols 1, 3, 4, 6 (add col 4 symmetric, uses both kits)
+  //   3.5m -> [0.25, 1.25, 2.25, 3.25]            cols 1, 3, 5, 7
+  //   4.0m -> [0.75, 1.75, 2.25, 3.25]            cols 2, 4, 5, 7 (second col in + central pair)
+  //   4.5m -> [0.75, 1.75, 2.75, 3.75]            cols 2, 4, 6, 8 (0.5m bar goes to middle - no extra kit)
+  //
+  // W >= 5m (extrapolation - NEEDS ADAM CONFIRMATION):
+  //   alternate columns starting col 2 (extending the 4.5m pattern).
+  //   uprights count = floor(W)
+  var UNIVIEW_UPRIGHT_TABLE = {
+    "0.5": [0.25],
+    "1.0": [0.25, 0.75],
+    "1.5": [0.25, 1.25],
+    "2.0": [0.75, 1.25],
+    "2.5": [0.25, 1.25, 2.25],
+    "3.0": [0.25, 1.25, 1.75, 2.75],
+    "3.5": [0.25, 1.25, 2.25, 3.25],
+    "4.0": [0.75, 1.75, 2.25, 3.25],
+    "4.5": [0.75, 1.75, 2.75, 3.75]
+  };
+
   function univiewUprightPositions(W) {
     if (!(W > 0)) return [];
-    if (W <= 0.5 + EPS) return [0.25];
-    if (Math.abs(W - 1.0) < EPS) return [0.25, 0.75];
-    if (Math.abs(W - 1.5) < EPS) return [0.25, 1.25];
-    if (Math.abs(W - 2.0) < EPS) return [0.75, 1.25];
-    // W >= 2.5m: N = ceil(W) uprights, at panel centres 1m apart from left.
-    var N = Math.ceil(W - EPS);
+    var row = UNIVIEW_UPRIGHT_TABLE[W.toFixed(1)];
+    if (row) return row.slice();
+    // W >= 5m: alternate cols starting col 2 (0.75, 1.75, 2.75, ...).
+    // Col 2k center is at (k - 0.25) metres from the left wall edge.
     var positions = [];
-    for (var i = 0; i < N; i++) positions.push(0.25 + i);
+    for (var k = 1; k <= Math.floor(W + EPS); k++) positions.push(k - 0.25);
     return positions;
+  }
+
+  function univiewUprightCount(W) {
+    return univiewUprightPositions(W).length;
+  }
+
+  // Bar layout for Uniview GROUND: puts the 0.5m rigging bar in the MIDDLE of
+  // the wall for half-metre widths (4.5m, 6.5m, ...), not at the right end
+  // (Adam, 2026-08-28: "move the 0.5m bar to the middle of screen").
+  // For half-metre widths with an EVEN number of 1m bars (4.5m, 6.5m, ...),
+  // the 0.5m sits exactly at the wall centre. For ODD 1m bar counts (5.5m,
+  // 7.5m, ...) it sits one bar left of centre (arbitrary tie-break).
+  function univiewGroundBarLayout(bars_1, bars_05) {
+    var flat = [];
+    if (!bars_05) {
+      for (var i = 0; i < bars_1; i++) flat.push(1.0);
+      return flat;
+    }
+    var insertAt = Math.floor(bars_1 / 2);
+    for (var i = 0; i < insertAt; i++) flat.push(1.0);
+    flat.push(0.5);
+    for (var j = insertAt; j < bars_1; j++) flat.push(1.0);
+    return flat;
   }
 
   // 2.6mm indoor ground support - each kit (YW-04065) ships 2 uprights +
@@ -1192,14 +1261,18 @@
     var footBar = opts.footBar || null;    // { label, uprights? } or null (ground)
     var extraTop  = topBar  ? 22 : 0;
     var extraFoot = footBar ? 26 : 0;
+    // Column numbers on top + row letters on left (Adam v0.19.0).
+    var labelSize = 10;
+    var colLabelGap = 14;                  // space above the wall for col numbers
+    var rowLabelGap = 16;                  // space left of the wall for row letters
     // Panels are 0.5m wide x 1m high in real units; scale so the wall fits the box.
-    var wPx = (maxW - pad * 2) / (cols * 0.5);
-    var hPx = (maxH - pad * 2 - extraTop - extraFoot) / height;
+    var wPx = (maxW - pad * 2 - rowLabelGap) / (cols * 0.5);
+    var hPx = (maxH - pad * 2 - extraTop - extraFoot - colLabelGap) / height;
     var unit = Math.max(6, Math.min(wPx, hPx));             // px per metre
     var panelW = 0.5 * unit, panelH = 1.0 * unit;
     var W = panelW * cols, H = unit * height;
-    var SW = W + pad * 2, SH = H + pad * 2 + extraTop + extraFoot;
-    var ox = pad, oy = pad + extraTop;
+    var SW = W + pad * 2 + rowLabelGap, SH = H + pad * 2 + extraTop + extraFoot + colLabelGap;
+    var ox = pad + rowLabelGap, oy = pad + extraTop + colLabelGap;
     var ports = opts.ports || null;
 
     // The TOP row (r==0) is trimmed when height isn't a whole metre.
@@ -1261,6 +1334,24 @@
     var frame = '<rect x="' + (ox - 0.5) + '" y="' + (oy - 0.5) + '" width="' + (W + 1) + '" height="' + (H + 1) + '" fill="none" stroke="#26215C" stroke-width="2"/>';
     var wLbl = '<text x="' + (ox + W / 2) + '" y="' + (SH - 6) + '" font-family="Arial,Helvetica,sans-serif" font-size="11" fill="#666" text-anchor="middle">' + (cols * 0.5) + ' m wide</text>';
     var hLbl = '<text x="' + (SW - 8) + '" y="' + (oy + H / 2) + '" font-family="Arial,Helvetica,sans-serif" font-size="11" fill="#666" text-anchor="middle" transform="rotate(90 ' + (SW - 8) + ' ' + (oy + H / 2) + ')">' + height + ' m high</text>';
+
+    // Column numbers along the TOP (1..cols, left to right) and row letters
+    // down the LEFT (A = bottom row, B above, ...). Adam v0.19.0.
+    var axes = "";
+    for (var cc = 0; cc < cols; cc++) {
+      axes += '<text x="' + (ox + cc * panelW + panelW / 2).toFixed(1) +
+        '" y="' + (oy - 4) + '" font-family="Arial,Helvetica,sans-serif" font-size="' + labelSize +
+        '" fill="#888" text-anchor="middle">' + (cc + 1) + '</text>';
+    }
+    // Row letters: A at BOTTOM row (physical build order). Rows are indexed with
+    // r=0 at the TOP, so bottom row index = rows - 1 gets label A.
+    for (var rr = 0; rr < rows; rr++) {
+      var letterIdx = (rows - 1) - rr;   // r=0 (top) -> letter index (rows-1)
+      var letter = String.fromCharCode(65 + letterIdx);  // A=65
+      axes += '<text x="' + (ox - 6) + '" y="' + (cellY(rr) + cellH(rr) / 2).toFixed(1) +
+        '" font-family="Arial,Helvetica,sans-serif" font-size="' + labelSize +
+        '" fill="#888" text-anchor="end" dominant-baseline="central">' + letter + '</text>';
+    }
 
     // Hardware overlays (v0.13.0 / colour-coded v0.15.0). Top rigging bar for
     // flown walls; base/foot bar for ground walls (both systems). Bars are
@@ -1335,7 +1426,7 @@
     if (footBar) overlays += drawBar(oy + H + 6, 6, footBar, false);
 
     return '<svg width="' + SW + '" height="' + SH + '" viewBox="0 0 ' + SW + ' ' + SH + '" xmlns="http://www.w3.org/2000/svg">' +
-      cells + nums + paths + overlays + frame + wLbl + hLbl + '</svg>';
+      cells + nums + paths + overlays + frame + wLbl + hLbl + axes + '</svg>';
   }
 
   // ===========================================================================
@@ -2104,12 +2195,13 @@
         var uprightsG = res.ballast && res.ballast.uprights;
         if (pitch === "2.6mm") {
           // Uniview ground: bars_1 / bars_05 are ACTUAL bars placed (kit
-          // contents include spares that overflow the wall). Dots follow
-          // Adam's Uniview rule (v0.18.0) - matches upright count from kit.
+          // contents include spares that overflow the wall). 0.5m bar goes
+          // in the MIDDLE for half-metre widths (Adam v0.19.0). Dots follow
+          // Adam's Uniview rule.
           var g26 = res.barsGround26 || {};
           svgOpts.footBar = {
             label: "Uniview UR Pro Ground Support base",
-            bars: barsFromCounts(0, 0, g26.bars_1 || 0, g26.bars_05 || 0),
+            flatBars: univiewGroundBarLayout(g26.bars_1 || 0, g26.bars_05 || 0),
             totalM: res.width,
             uprightPositions: g26.uprightPositions || null
           };

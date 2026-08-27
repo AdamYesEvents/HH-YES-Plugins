@@ -258,7 +258,38 @@ e.g. `Indoor Videowall 4w x 3h 3.9mm Flown-Sling MX30`.
 | v0.16.0 | **ground caps + 5m fix + bar placement + Uniview overflow** — REM ground extended to 20m (algo); Uniview ground capped at 4m (WIDTH, later reverted to HEIGHT in v0.17.0); 5m REM = `2×1.5 + 2×1m`; REM bottom-bar preview 1.5m outside + 1m middle; Uniview base overflow fix. Loader v0.1.100 |
 | v0.17.0 | **Uniview cap fix + cable spares + joiner + REM upright rule** — Uniview WIDTH uncapped, HEIGHT capped 4m; cable spares; Ethercon Joiner `YW-00453` for REM lines >20m; REM upright count = `ceil(W)`. Loader v0.1.101 |
 | v0.17.1 | **REM upright position tweak** — tight 0.5m gap shifts one position IN from the right on half-metre widths. Loader v0.1.102 |
-| **v0.18.0** | **Uniview upright rule** — dots in panel middles per Adam's per-width spec (0.5→1, 1→2, 1.5→2, 2→2 central, 2.5+→ceil(W) 1m apart). Applies to flown top bar AND ground foot bar. Ground kit count driven by uprights (kits = ceil(uprights/2)); ballast for Uniview ground follows the new upright count. Loader v0.1.103 |
+| v0.18.0 | **Uniview upright rule** — dots at panel middles per Adam's per-width spec. Applies to flown top bar AND ground foot bar. Ground kits driven by uprights, ballast follows. Loader v0.1.103 |
+| **v0.19.0** | **Uniview refinement + 0.5m bar centred + axis labels** — new per-width upright specs for 3m, 4m, 4.5m; 0.5m Uniview ground bar moves to wall middle for half-metre widths; preview labels columns 1..N along top and rows A.. down left (A = bottom). Loader v0.1.104 |
+
+### Uniview upright rule (v0.19.0 — authoritative refinement)
+
+| Width | Uprights | Cols | Positions (m) | Notes |
+|---|---|---|---|---|
+| 0.5m | 1 | 1 | `[0.25]` | single panel |
+| 1.0m | 2 | 1, 2 | `[0.25, 0.75]` | 1m header bar, 2 supports |
+| 1.5m | 2 | 1, 3 | `[0.25, 1.25]` | 1m gap, skip middle |
+| 2.0m | 2 | 2, 3 | `[0.75, 1.25]` | central pair |
+| 2.5m | 3 | 1, 3, 5 | `[0.25, 1.25, 2.25]` | outside + middle |
+| **3.0m** | **4** | 1, 3, 4, 6 | `[0.25, 1.25, 1.75, 2.75]` | add col 4 to use both kits (v0.19.0 fix) |
+| 3.5m | 4 | 1, 3, 5, 7 | `[0.25, 1.25, 2.25, 3.25]` | |
+| **4.0m** | **4** | 2, 4, 5, 7 | `[0.75, 1.75, 2.25, 3.25]` | second col in + central pair (v0.19.0 fix) |
+| **4.5m** | **4** | 2, 4, 6, 8 | `[0.75, 1.75, 2.75, 3.75]` | 0.5m bar to middle → 2 kits (v0.19.0 fix) |
+| 5m+ | `floor(W)` | 2, 4, 6, ... | `[0.75, 1.75, 2.75, ...]` | *extrapolated, needs Adam confirmation* |
+
+Kit count still `ceil(uprights / 2)`. For 4.5m this drops kits from 3 → 2 vs v0.18.0, saving one LSU kit —
+made possible by moving the 0.5m bar to the wall middle (so no extra hardware is needed for the tight end).
+
+### 0.5m bar placement — Uniview ground (v0.19.0)
+
+For half-metre widths (4.5, 5.5, 6.5, …), the 0.5m rigging bar sits in the middle of the wall,
+not at the right end. Bar order becomes `[…, 1m, 0.5m, 1m, …]` centred on the wall. For odd
+`bars_1` counts (5.5m, 7.5m, …) the 0.5m lands one bar left of true centre.
+
+### Axis labels on the preview (v0.19.0)
+
+Column numbers `1..cols` along the top of the wall, and row letters `A..` down the left,
+with **A at the bottom row** (physical build order, matches how the wall is stacked from
+the floor up).
 
 ### Uniview upright rule (v0.18.0 — authoritative)
 
