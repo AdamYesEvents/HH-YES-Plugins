@@ -18,9 +18,6 @@
  * support kit line. Still TBD:
  *   - LSU connecting bar YW-codes (product code LSU-CONNB-L150 used as label
  *     placeholder; Adam to supply YW codes)
- *   - LSU weight plates YW-02892 - not auto-added yet; ballast formula on the
- *     backlog (a 3m wall needs 3 plates even though the kits supply 4)
- *   - LSU 30cm topper YW-04062 - height rule TBD
  *   - Processor + signal cables - hardware-first release; Chauvet has no
  *     starter cable, Uniview has YW-04070 Ethercon, but neither wired yet
  *
@@ -91,7 +88,20 @@
  *     "2:3" for processor 2 port 3), not the line index - with backup running,
  *     line 2 lands on port 3 under the pairs scheme.
  *
- * STILL TBD after v0.10.0 (targeted at v0.11.0 - cabling):
+ * v0.11.0 - BALLAST + TOPPER:
+ *   - Weight plates YW-00259 (12.5kg each) now auto-added on every
+ *     ground-supported wall, BOTH systems, off the "Ballast loading" table from
+ *     the technical guidelines for Exhibitions in Germany (Adam, 2026-08-27).
+ *     kg is PER UPRIGHT; plates round up per upright, then multiply by the
+ *     upright count. Safety factor 1.5 is already baked into the table - do not
+ *     apply another. (Supersedes the old YW-02892 placeholder note.)
+ *   - Minimum ground-support wall heights enforced: REM 2m, Uniview 1.5m.
+ *     Uniview's 1.5m sits below the table's first row so it clamps up to the
+ *     2.0m figure. Ground walls over 6m are rejected - off the end of the table.
+ *   - LSU 30cm topper YW-04062 added on every REM ground wall, one per upright.
+ *     REM-only; the Uniview system does not take it.
+ *
+ * STILL TBD after v0.11.0 (targeted at v0.12.0 - cabling):
  *   - Starter cables. One per line. REM ground + processor behind screen =
  *     5/10/20m Ethercon by wall width (processor centred); REM flown = short
  *     links out to a loom; Uniview = 15m per line (width-insensitive).
@@ -107,7 +117,7 @@
  * flip the flag on and reformat buildVideowallPdf() to match the final layout
  * (do not delete the scaffolding).
  *
- * Version: 0.10.0
+ * Version: 0.11.0
  */
 
 (function () {
@@ -198,6 +208,70 @@
       if (W < base) break;
     }
     return { ok: false, error: W + "m not achievable with 3.9mm system" };
+  }
+
+  // ---------------------------------------------------------------------------
+  // BALLAST (v0.11.0)
+  // ---------------------------------------------------------------------------
+  // Source: "Ballast loading" excerpt from the technical guidelines for
+  // Exhibitions in Germany, supplied by Adam 2026-08-27. Ballast is already
+  // calculated with a safety factor of 1.5 - do NOT apply another one.
+  //
+  // The kg figure is PER UPRIGHT (per bay support), confirmed by Adam. The table
+  // is indexed by height only and carries no width term, which is consistent
+  // with a per-support figure - a wider wall gets more uprights, not heavier
+  // ones.
+  //
+  // Same weight system on BOTH ground support systems (Uniview 2.6mm and
+  // Chauvet REM 3.9mm) - Adam, 2026-08-27.
+  var BALLAST_PLATE_KG = 12.5;                 // YW-00259 weight plate
+  var BALLAST_PLATE_PN = "YW-00259";
+  // String keys - a bare 2.0 would collapse to "2" and miss a toFixed(1) lookup.
+  var BALLAST = {
+    "2.0": { kg: 17,  moment: 0.25 },
+    "2.5": { kg: 38,  moment: 0.39 },
+    "3.0": { kg: 64,  moment: 0.56 },
+    "3.5": { kg: 95,  moment: 0.77 },
+    "4.0": { kg: 131, moment: 1.00 },
+    "4.5": { kg: 151, moment: 1.13 },
+    "5.0": { kg: 173, moment: 1.28 },
+    "5.5": { kg: 198, moment: 1.45 },
+    "6.0": { kg: 226, moment: 1.63 }
+  };
+  var BALLAST_MIN_H = 2.0, BALLAST_MAX_H = 6.0;
+
+  // Minimum ground-support wall heights (Adam, 2026-08-27): REM 2m, Uniview
+  // 1.5m. Uniview's 1.5m sits below the table, so it clamps up to the 2.0m row
+  // rather than being extrapolated downwards.
+  var GROUND_MIN_H = { uniview: 1.5, rem: 2.0 };
+
+  // Ballast for a ground-supported wall.
+  //   H        wall height in metres (0.5m steps)
+  //   uprights number of uprights actually erected
+  // Returns { ok, kgPerUpright, platesPerUpright, uprights, totalPlates,
+  //           totalKg, lookupH, clamped, moment }.
+  function ballastFor(H, uprights) {
+    if (!(H > 0)) return { ok: false, error: "Height must be a positive number" };
+    if (!(uprights > 0)) return { ok: false, error: "Ballast needs an upright count" };
+    if (H > BALLAST_MAX_H + EPS)
+      return { ok: false, error: "The ballast table stops at " + BALLAST_MAX_H +
+        "m - a ground-supported wall over " + BALLAST_MAX_H + "m needs engineering sign-off" };
+    // Below 2m the table has no row; clamp up to the 2.0m figure (conservative).
+    var lookupH = (H < BALLAST_MIN_H - EPS) ? BALLAST_MIN_H : H;
+    var row = BALLAST[lookupH.toFixed(1)];
+    if (!row) return { ok: false, error: "No ballast figure for " + H + "m" };
+    var platesPerUpright = Math.ceil(row.kg / BALLAST_PLATE_KG - EPS);
+    return {
+      ok: true,
+      kgPerUpright: row.kg,
+      moment: row.moment,
+      platesPerUpright: platesPerUpright,
+      uprights: uprights,
+      totalPlates: platesPerUpright * uprights,
+      totalKg: platesPerUpright * uprights * BALLAST_PLATE_KG,
+      lookupH: lookupH,
+      clamped: Math.abs(lookupH - H) > EPS
+    };
   }
 
   // Spare panels come cased - one leftover partial case worth, OR a whole
@@ -442,6 +516,7 @@
     var panels = fullPanels + halfPanels;
 
     var items = [];
+    var ballast = null;                 // set only on ground-supported walls
 
     // Panels branch by pitch (product family).
     //   3.9mm - Chauvet REM (indoor OR outdoor):  YW-00341 1000x500, YW-00342 500x500
@@ -499,13 +574,26 @@
       // Uniview 2.6mm:  YW-04065 Ground Support Kit (2 uprights).
       // Chauvet 3.9mm:  YW-00169 LSU Set (2 uprights) + LSU Connecting Bars
       //                 (LSU-CONNB-L150 - YW code to follow).
-      // Weight plates (YW-02892) NOT auto-added yet - ballast formula on the
-      // backlog (a 3m wall needs 3 plates even though the kits supply 4).
-      // LSU 30cm topper (YW-04062) also TBD - height threshold undecided.
+      // Both systems then take the SAME ballast: YW-00259 12.5kg weight plates,
+      // per upright, off the German exhibition-guideline table (v0.11.0).
+      // The 30cm topper (YW-04062) is REM-only and goes on every REM ground
+      // wall, one per upright (Adam, 2026-08-27).
+      //
+      // uprights = the number actually ERECTED, which is what gets ballasted.
+      // That is not always what the kits supply: an LSU Set ships 2 uprights, so
+      // a 3-bar run needs 4 uprights but rounds up to 2 sets = 4 supplied, while
+      // a 2-bar run needs 3 and gets 4.
+      var minH = GROUND_MIN_H[isUniview ? "uniview" : "rem"];
+      if (H < minH - EPS)
+        return { ok: false, error: (isUniview ? "2.6mm" : "3.9mm") +
+          " ground support minimum wall height is " + minH + "m" };
+
+      var uprights;
       if (isUniview) {
         var g26 = ground26Kit(W);
         if (!g26.ok) return { ok: false, error: g26.error };
         items.push({ category: "Rigging", label: "Uniview UR Pro Ground Support Kit (2 uprights)", partNumber: "YW-04065", qty: g26.kits });
+        uprights = 2 * g26.kits;
       } else {
         var g39 = ground39Kit(W);
         if (!g39.ok) return { ok: false, error: g39.error };
@@ -513,7 +601,19 @@
         if (g39.bars_15 > 0) items.push({ category: "Rigging", label: "LSU Connecting Bar 1.5m", partNumber: "LSU-CONNB-L150", qty: g39.bars_15 });
         if (g39.bars_2  > 0) items.push({ category: "Rigging", label: "LSU Connecting Bar 2m",   partNumber: "LSU-CONNB-L200", qty: g39.bars_2 });
         if (g39.bars_1  > 0) items.push({ category: "Rigging", label: "LSU Connecting Bar 1m",   partNumber: "LSU-CONNB-L100", qty: g39.bars_1 });
+        uprights = (g39.bars_15 + g39.bars_2 + g39.bars_1) + 1;
+        // 30cm topper - REM ground only, one per upright, every height.
+        items.push({ category: "Rigging", label: "LSU 30cm Topper", partNumber: "YW-04062", qty: uprights });
       }
+
+      ballast = ballastFor(H, uprights);
+      if (!ballast.ok) return { ok: false, error: ballast.error };
+      items.push({
+        category: "Rigging",
+        label: "Weight Plate 12.5kg (" + ballast.platesPerUpright + " per upright x " + uprights + ")",
+        partNumber: BALLAST_PLATE_PN,
+        qty: ballast.totalPlates
+      });
     }
 
     // ---- Processor -----------------------------------------------------------
@@ -583,7 +683,9 @@
       // Processors + redundancy
       backup: backup, redundant: alloc.redundant,
       processorCount: alloc.processors, portsPerProcessor: alloc.perProcessor,
-      totalPortsPerProcessor: alloc.totalPorts, upgradeSuggestion: upgrade
+      totalPortsPerProcessor: alloc.totalPorts, upgradeSuggestion: upgrade,
+      // Ballast (null when flown)
+      ballast: ballast
     };
   }
 
@@ -698,6 +800,9 @@
       computeKit: computeKit, buildWallSvg: buildWallSvg,
       flownRig: flownRig, ground26Kit: ground26Kit, ground39Kit: ground39Kit,
       computeSpares: computeSpares,
+      // v0.11.0 ballast
+      ballastFor: ballastFor, BALLAST: BALLAST,
+      BALLAST_PLATE_KG: BALLAST_PLATE_KG, GROUND_MIN_H: GROUND_MIN_H,
       // v0.9.0 port mapping / v0.10.0 processors + redundancy
       mapPorts: mapPorts, bandwidthPct: bandwidthPct, allocatePorts: allocatePorts,
       bitDepthsFor: bitDepthsFor, BANDWIDTH: BANDWIDTH, PORT_CAPACITY: PORT_CAPACITY,
@@ -1315,6 +1420,14 @@
         });
       });
       html += '<div style="margin-top:10px;font-size:12px;color:#777;">' + res.panels + ' panels &middot; ' + res.width + ' &times; ' + res.height + ' m</div>';
+      if (res.ballast) {
+        html += '<div style="margin-top:6px;font-size:12px;color:#777;">Ballast: <b style="color:#111;">' +
+          res.ballast.kgPerUpright + 'kg per upright</b> &times; ' + res.ballast.uprights + ' uprights &middot; ' +
+          res.ballast.totalPlates + ' plates (' + res.ballast.totalKg + 'kg)</div>';
+        html += '<div style="margin-top:2px;font-size:11px;color:#999;">Table @ ' + res.ballast.lookupH.toFixed(1) +
+          'm, ' + res.ballast.moment.toFixed(2) + ' kNm, safety factor 1.5 already applied' +
+          (res.ballast.clamped ? ' &middot; clamped up from ' + res.height + 'm' : '') + '</div>';
+      }
       html += '<div style="margin-top:6px;font-size:11px;color:#b07b00;">Cable sub-heading deferred (starter cables still TBD).</div>';
       kitBox.innerHTML = html;
 
