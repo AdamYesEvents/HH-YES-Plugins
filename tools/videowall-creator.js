@@ -127,21 +127,27 @@
  *   - Preview overlays: flown walls get a top rigging-bar bar; ground walls
  *     (both systems) get a base bar with a dot per erected upright.
  *
- * STILL TBD after v0.13.0 (targeted at v0.14.0 - cabling):
- *   - Cabling, primary AND backup. RULE RESOLVED (Adam, 2026-08-27): one cable
- *     per line for both, length = wall width + that line's row height. The
- *     backup lands on the far end of the chain, which is what forces the full
- *     wall width in; the input is spec'd the same way. This SUPERSEDES the older
- *     "REM 5/10/20m by width, Uniview 15m flat" spec.
- *     Still blocked on: the stock cable lengths carried, and their YW part
- *     codes. Computed lengths must round up to a real stock length, and without
- *     codes every cable would drop to a free-text line on every job.
+ * v0.14.0 - STARTER CABLES:
+ *   - One cable per line, doubled if backup is running. Length rule (Adam):
+ *     wall width + row top height above the floor. Backup lands on the far end
+ *     of the chain, which is what forces the full wall width in; the input is
+ *     spec'd the same way.
+ *   - REM uses BANDED Ethercon stock (5m YW-00448, 10m YW-00434, 20m YW-00438).
+ *     Pick the smallest that fits. A required length above 20m is emitted as a
+ *     free-text row - Adam has not stocked anything longer.
+ *   - Uniview uses a FIXED 15m starter per line (YW-04070), width-insensitive.
+ *     Different mode from REM - matches Adam's original spec.
+ *   - Cable sub-heading now inserts on the job (was skipped since v0.6.0).
+ *   - Preview shows per-line required length, best-fit stock length, and totals
+ *     grouped by part number.
+ *
+ * STILL TBD after v0.14.0:
  *
  * PDF generation is TEMPORARILY BLOCKED - see PDF_ENABLED below. When ready,
  * flip the flag on and reformat buildVideowallPdf() to match the final layout
  * (do not delete the scaffolding).
  *
- * Version: 0.13.0
+ * Version: 0.14.0
  */
 
 (function () {
@@ -153,7 +159,7 @@
   var EPS = 1e-6;
   function isMult(v, step) { var q = v / step; return Math.abs(q - Math.round(q)) < EPS; }
 
-  var TOOL_VERSION = "0.13.0";  // shown in the dialog header; keep in sync with the banner above.
+  var TOOL_VERSION = "0.14.0";  // shown in the dialog header; keep in sync with the banner above.
 
   // ---------------------------------------------------------------------------
   // PART CATALOGUE (v0.12.0)
@@ -211,6 +217,25 @@
       network: { pn: "YW-00442", label: "3m Network Cable (processor link)" },
       hdmi:    { pn: "YW-00484", label: "3m HDMI Cable (processor link)" },
       sdi:     { pn: "YW-00497", label: "2m SDI Cable (processor link)" }
+    },
+    // Starter cables per line. Doubled when backup is running (Adam, 2026-08-27:
+    // primary + backup, same length rule: wall width + row height). REM picks
+    // the smallest banded Ethercon stock that fits; Uniview uses a fixed 15m
+    // starter regardless of wall size. Over-max REM lengths drop to a
+    // free-text row (no stock code) until a longer length is stocked.
+    cables: {
+      rem: {
+        mode: "banded",
+        stock: [
+          { lengthM: 5,  pn: "YW-00448", label: "5m Ethercon Cable" },
+          { lengthM: 10, pn: "YW-00434", label: "10m Ethercon Cable" },
+          { lengthM: 20, pn: "YW-00438", label: "20m Ethercon Cable" }
+        ]
+      },
+      uniview: {
+        mode: "fixed",
+        fixed: { lengthM: 15, pn: "YW-04070", label: "15m Uniview Starter Cable" }
+      }
     }
   };
   // Product family key for the catalogue: 2.6mm is Uniview, 3.9mm is Chauvet REM.
@@ -352,6 +377,102 @@
       lookupH: lookupH,
       clamped: Math.abs(lookupH - H) > EPS
     };
+  }
+
+  // ---------------------------------------------------------------------------
+  // CABLING (v0.14.0)
+  // ---------------------------------------------------------------------------
+  // Rule (Adam, 2026-08-27): one starter cable per line, PRIMARY and BACKUP if
+  // backup is running. Length = wall width + row height (row's top edge above
+  // the floor). Backup lands on the far end of the chain, which is what forces
+  // the full wall width into the length - and the input is spec'd the same way.
+  //
+  // REM stock is banded: pick the smallest length that fits (5/10/20m today).
+  // Uniview is fixed at 15m per line, width-insensitive - its cable is a
+  // starter, not a stock reel.
+
+  // r=0 is the TOP row. Returns the row's TOP edge height above the floor in
+  // metres, which is the highest point the cable has to reach. Conservative -
+  // guarantees enough cable, worst case slight slack.
+  function rowTopFromFloor(r, halfPerCol, H) {
+    if (r === 0) return H;
+    return H - (halfPerCol ? 0.5 : 1) - (r - 1);
+  }
+
+  // Given a REM cable stock list (ascending by lengthM), return the smallest
+  // that fits requiredM, or null if the required length exceeds every stock
+  // entry (caller then emits a free-text row).
+  function pickCableStock(stock, requiredM) {
+    for (var i = 0; i < stock.length; i++) {
+      if (stock[i].lengthM >= requiredM - EPS) return stock[i];
+    }
+    return null;
+  }
+
+  // Compute the cable line items for a wall. Ports have their row on the first
+  // panel (v0.9.1: lines are row-aligned and left-to-right).
+  //   ports        - portMap.ports (each has .panels[0].r and .port index)
+  //   halfPerCol   - 1 if the top row is a 500h half-row, else 0
+  //   height       - wall height in metres
+  //   width        - wall width in metres
+  //   isBackupOn   - true if Q8 backup is running
+  //   fam          - "uniview" or "rem"
+  //   catalogue    - PARTS.cables entry for the family
+  // Returns { items: [...kit lines], perLine: [...preview rows] }.
+  function cablesForWall(ports, halfPerCol, height, width, isBackupOn, fam, catalogue) {
+    var perLine = [];
+    ports.forEach(function (pt) {
+      if (!pt.panels || !pt.panels.length) return;
+      var r = pt.panels[0].r;
+      var required = width + rowTopFromFloor(r, halfPerCol, height);
+      perLine.push({ port: pt.port, primaryPort: pt.primaryPort, row: r, requiredM: required, isBackupOn: !!isBackupOn });
+    });
+
+    var items = [];
+    if (!catalogue) return { items: items, perLine: perLine };
+
+    if (catalogue.mode === "fixed") {
+      // Uniview: 15m per line, doubled if backup on.
+      var fx = catalogue.fixed;
+      var qty = perLine.length * (isBackupOn ? 2 : 1);
+      if (qty > 0) items.push({ category: "Cable", label: fx.label, partNumber: fx.pn, qty: qty });
+      perLine.forEach(function (l) { l.stock = fx; });
+      return { items: items, perLine: perLine };
+    }
+
+    // REM banded: group runs by best-fit stock length. Each run is one cable.
+    // A backup line adds a second run of the same length.
+    var stock = (catalogue.stock || []).slice().sort(function (a, b) { return a.lengthM - b.lengthM; });
+    var byPn = {}, oversize = [];
+    function bookRun(requiredM, line, isBackup) {
+      var s = pickCableStock(stock, requiredM);
+      if (!s) {
+        oversize.push({ requiredM: requiredM, port: line.port, isBackup: isBackup });
+        return null;
+      }
+      byPn[s.pn] = byPn[s.pn] || { partNumber: s.pn, label: s.label, qty: 0, stock: s };
+      byPn[s.pn].qty += 1;
+      return s;
+    }
+    perLine.forEach(function (line) {
+      line.stock = bookRun(line.requiredM, line, false);
+      if (isBackupOn) bookRun(line.requiredM, line, true);
+    });
+    Object.keys(byPn).sort(function (a, b) { return byPn[a].stock.lengthM - byPn[b].stock.lengthM; })
+      .forEach(function (k) {
+        items.push({ category: "Cable", label: byPn[k].label, partNumber: byPn[k].partNumber, qty: byPn[k].qty });
+      });
+    if (oversize.length) {
+      // Group oversize runs by required metres so the free-text row is legible.
+      var byLen = {};
+      oversize.forEach(function (o) { byLen[o.requiredM.toFixed(1)] = (byLen[o.requiredM.toFixed(1)] || 0) + 1; });
+      Object.keys(byLen).forEach(function (m) {
+        items.push({ category: "Cable",
+          label: "Ethercon cable " + m + "m (over max stock, join or spec)",
+          partNumber: null, qty: byLen[m] });
+      });
+    }
+    return { items: items, perLine: perLine, oversize: oversize };
   }
 
   // Spare panels come cased - one leftover partial case worth, OR a whole
@@ -735,6 +856,11 @@
       items = items.filter(function (it) { return procCableItems.indexOf(it) < 0; });
     }
 
+    // ---- Starter cables ------------------------------------------------------
+    // One per line, doubled if backup on. Length = wall width + row top height.
+    var cableRes = cablesForWall(portMap.ports, halfPerCol, H, W, alloc.redundant, fam, PARTS.cables && PARTS.cables[fam]);
+    cableRes.items.forEach(function (it) { items.push(it); });
+
     // Would a bigger processor do it in fewer boxes? Worth saying out loud -
     // with backup running, an MX30 only offers 5 primaries, so walls spill onto
     // a second box quickly and an MX40 Pro (10 primaries) often collapses it
@@ -767,7 +893,9 @@
       processorCount: alloc.processors, portsPerProcessor: alloc.perProcessor,
       totalPortsPerProcessor: alloc.totalPorts, upgradeSuggestion: upgrade,
       // Ballast (null when flown)
-      ballast: ballast
+      ballast: ballast,
+      // Cabling
+      cables: cableRes
     };
   }
 
@@ -924,6 +1052,8 @@
       ballastFor: ballastFor, BALLAST: BALLAST, GROUND_MIN_H: GROUND_MIN_H,
       // v0.12.0 catalogue
       PARTS: PARTS, TOOL_VERSION: TOOL_VERSION,
+      // v0.14.0 cabling
+      cablesForWall: cablesForWall, rowTopFromFloor: rowTopFromFloor, pickCableStock: pickCableStock,
       // v0.9.0 port mapping / v0.10.0 processors + redundancy
       mapPorts: mapPorts, bandwidthPct: bandwidthPct, allocatePorts: allocatePorts,
       bitDepthsFor: bitDepthsFor, BANDWIDTH: BANDWIDTH, PORT_CAPACITY: PORT_CAPACITY,
@@ -955,7 +1085,7 @@
   // Sub-heading order in HireHop. "Spares" is always created empty for now -
   // a placeholder for manual entry until spare-count logic is designed.
   // Processor + Cable intentionally omitted this release.
-  var INSERT_ORDER  = ["Screen", "Spares", "Processor", "Rigging"];
+  var INSERT_ORDER  = ["Screen", "Spares", "Processor", "Rigging", "Cable"];
   var ALWAYS_CREATE = { Spares: true };
 
   function resolvePart(inst, partNumber, qty) {
@@ -1587,7 +1717,29 @@
       if (res.upgradeSuggestion) {
         portHtml += '<div style="margin-top:4px;font-size:11px;color:#b07b00;">' + res.upgradeSuggestion + '</div>';
       }
-      portHtml += '<div style="margin-top:4px;font-size:11px;color:#b07b00;">Starter cables not in the kit yet (v0.10.0).</div>';
+      // Starter-cable summary. Grouped by stock length; flags oversize runs.
+      if (res.cables && res.cables.items && res.cables.items.length) {
+        portHtml += '<div style="margin-top:8px;font-size:12px;color:#333;">' +
+          '<b>Starter cables</b>' +
+          (res.redundant ? ' <span style="color:#777;font-size:11px;">(primary + backup, same length rule)</span>' : '') +
+          '</div>';
+        res.cables.items.forEach(function (it) {
+          var isOversize = !it.partNumber;
+          portHtml += '<div style="margin-top:2px;font-size:12px;color:' + (isOversize ? '#b07b00' : '#333') + ';">' +
+            '<span style="color:#666;font-size:11px;margin-right:6px;">' + (it.partNumber || 'TBD') + '</span>' +
+            it.label + ' <span style="color:#111;font-weight:500;">x ' + it.qty + '</span></div>';
+        });
+        // Per-line breakdown so the crew can trace which line got which cable.
+        if (res.cables.perLine && res.cables.perLine.length) {
+          portHtml += '<div style="margin-top:4px;font-size:11px;color:#777;">';
+          res.cables.perLine.forEach(function (l) {
+            var stockLbl = l.stock ? (l.stock.lengthM + 'm') : ('needs ' + l.requiredM.toFixed(1) + 'm - oversize');
+            portHtml += 'port ' + l.primaryPort + ': ' + l.requiredM.toFixed(1) + 'm required &rarr; ' + stockLbl +
+              (l.isBackupOn ? ' (primary+backup)' : '') + '<br/>';
+          });
+          portHtml += '</div>';
+        }
+      }
       portHtml += '</div>';
 
       // Hardware overlays: flown -> top rigging bar; ground -> base bar (with
@@ -1609,7 +1761,7 @@
       res.items.forEach(function (it) { (byCat[it.category] = byCat[it.category] || []).push(it); });
       // Display order matches the sub-headings we'll create in HireHop: Screen,
       // Spares (always empty for now - manual add reminder), Rigging.
-      var order = ["Screen", "Spares", "Processor", "Rigging"];
+      var order = ["Screen", "Spares", "Processor", "Rigging", "Cable"];
       var html = '<div style="font-size:11px;letter-spacing:.04em;color:#888;text-transform:uppercase;margin-bottom:6px;">Generated kit</div>';
       order.forEach(function (cat) {
         var arr = byCat[cat] || [];
@@ -1638,7 +1790,6 @@
           'm, ' + res.ballast.moment.toFixed(2) + ' kNm, safety factor 1.5 already applied' +
           (res.ballast.clamped ? ' &middot; clamped up from ' + res.height + 'm' : '') + '</div>';
       }
-      html += '<div style="margin-top:6px;font-size:11px;color:#b07b00;">Cable sub-heading deferred (starter cables still TBD).</div>';
       kitBox.innerHTML = html;
 
       var envLabel = envSel.value === "outdoor" ? "Outdoor" : "Indoor";
