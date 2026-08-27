@@ -205,13 +205,39 @@
  *     [0.5, 1.5, 2.5, 3.5, 4.5, 5.0]  ->  [0.5, 1.5, 2.5, 3.5, 4.0, 5.0]
  *   Upright COUNT unchanged (still ceil(W)); only positions shift.
  *
- * STILL TBD after v0.17.1:
+ * v0.18.0 - UNIVIEW UPRIGHT RULE:
+ *   Uniview panels are 500mm wide; dots go in the MIDDLE OF A PANEL, not at
+ *   bar seams (Adam, 2026-08-28). Specific rules per width:
+ *     0.5m -> 1 upright at 0.25m
+ *     1.0m -> 2 uprights at 0.25, 0.75 ("for the 1m header bar")
+ *     1.5m -> 2 uprights at 0.25, 1.25 (1m gap, skip middle panel)
+ *     2.0m -> 2 uprights at 0.75, 1.25 (central 2 columns)
+ *     2.5m+ -> N = ceil(W) uprights at 0.25, 1.25, 2.25, ... (1m apart)
+ *   Rule of thumb: "middle of the panels about 1m apart. for every 2m there
+ *   should be 2 uprights."
+ *
+ *   Applies to both:
+ *   - Uniview FLOWN top rigging bar (preview dots only, no ballast)
+ *   - Uniview GROUND foot bar (preview dots + upright count + kit count +
+ *     ballast plates)
+ *
+ *   Ground kit count is now driven by uprights (kits = ceil(uprights / 2)),
+ *   replacing the old coverage-based formula (max(1, ceil((W-0.5)/2))). For
+ *   odd Uniview widths (2.5, 4.5) this may over-supply by 1 upright, but
+ *   ensures the crew has enough hardware.
+ *
+ *   Sample deltas from v0.17.1:
+ *     2.5m Uniview ground: kits 1 -> 2 (uprights 2 -> 3, plates +6 at 3m tall)
+ *     3.0m Uniview ground: kits 2 (same), uprights 4 -> 3, plates -6 at 3m tall
+ *     4.5m Uniview ground: kits 2 -> 3, uprights 4 -> 5, plates +6 at 3m tall
+ *
+ * STILL TBD after v0.18.0:
  *
  * PDF generation is TEMPORARILY BLOCKED - see PDF_ENABLED below. When ready,
  * flip the flag on and reformat buildVideowallPdf() to match the final layout
  * (do not delete the scaffolding).
  *
- * Version: 0.17.1
+ * Version: 0.18.0
  */
 
 (function () {
@@ -223,7 +249,7 @@
   var EPS = 1e-6;
   function isMult(v, step) { var q = v / step; return Math.abs(q - Math.round(q)) < EPS; }
 
-  var TOOL_VERSION = "0.17.1";  // shown in the dialog header; keep in sync with the banner above.
+  var TOOL_VERSION = "0.18.0";  // shown in the dialog header; keep in sync with the banner above.
 
   // ---------------------------------------------------------------------------
   // PART CATALOGUE (v0.12.0)
@@ -321,14 +347,58 @@
     return { bars_1: whole, bars_05: half };
   }
 
-  // 2.6mm indoor ground support - kits (2m bays) with a 0.5m spare per case.
-  // Cases needed = max(1, ceil((W - 0.5) / 2)) because each additional case
-  // adds 2m of coverage; the very first case's 0.5m spare bridges to 2.5m.
-  //   4.0m -> 2 kits (4x 1m)
-  //   4.5m -> 2 kits (4x 1m + 1x 0.5m)
-  //   5.0m -> 3 kits (5x 1m)
-  // Each kit contains 2x 1m + 1x 0.5m bars (0.5m is a spare; not placed unless
-  // wall has a 0.5m remainder).
+  // ---------------------------------------------------------------------------
+  // UNIVIEW UPRIGHT / REAR-SUPPORT RULE (v0.18.0)
+  // ---------------------------------------------------------------------------
+  // Adam, 2026-08-28: "the dot needs to be in the middle of the panel. so
+  //   a 0.5m wide screen would have 1 upright, a 1w = 2 for a 1m header bar,
+  //   1.5m 2 uprights with a 1m gap between uprights. 2w is 2 uprights with
+  //   the central 2 columns, 2.5w outside and middle.
+  //   rule of thumb: uprights go in the middle of the panels about 1m apart.
+  //   for every 2m there should be 2 uprights"
+  //
+  // Applies to Uniview FLOWN (top rigging bar dots) AND Uniview GROUND (foot
+  // bar dots + ballast upright count + LSU kit count).
+  //
+  // Uniview panels are 500mm wide, so panel centres are at 0.25, 0.75, 1.25,
+  // 1.75, ... (every 0.5m offset by 0.25m).
+  //
+  // Count formula:
+  //   W <= 0.5m  -> 1
+  //   W == 1.0m  -> 2  (special: 1m header bar needs 2 supports)
+  //   W == 1.5m  -> 2
+  //   W == 2.0m  -> 2  (central 2 columns)
+  //   W >= 2.5m  -> ceil(W)
+  //
+  // Positions:
+  //   0.5m -> [0.25]
+  //   1.0m -> [0.25, 0.75]
+  //   1.5m -> [0.25, 1.25]                        (skip middle)
+  //   2.0m -> [0.75, 1.25]                        (central pair)
+  //   W>=2.5 -> [0.25, 1.25, 2.25, ..., 0.25 + (N-1)]  (1m apart from left)
+  function univiewUprightCount(W) {
+    if (!(W > 0)) return 0;
+    if (W <= 0.5 + EPS) return 1;
+    return Math.max(2, Math.ceil(W - EPS));
+  }
+  function univiewUprightPositions(W) {
+    if (!(W > 0)) return [];
+    if (W <= 0.5 + EPS) return [0.25];
+    if (Math.abs(W - 1.0) < EPS) return [0.25, 0.75];
+    if (Math.abs(W - 1.5) < EPS) return [0.25, 1.25];
+    if (Math.abs(W - 2.0) < EPS) return [0.75, 1.25];
+    // W >= 2.5m: N = ceil(W) uprights, at panel centres 1m apart from left.
+    var N = Math.ceil(W - EPS);
+    var positions = [];
+    for (var i = 0; i < N; i++) positions.push(0.25 + i);
+    return positions;
+  }
+
+  // 2.6mm indoor ground support - each kit (YW-04065) ships 2 uprights +
+  // 2x 1m bars + 1x 0.5m bar. Kit count is now driven by Adam's Uniview
+  // upright rule (v0.18.0): kits = ceil(uprights / 2). The old coverage
+  // formula (max(1, ceil((W-0.5)/2))) is superseded - Adam's rule gives kit
+  // counts that also cover the wall width for every valid W.
   //
   // NO WIDTH CAP (Adam, 2026-08-28) - Uniview ground supports arbitrary width.
   // The cap is on HEIGHT instead - see GROUND_MAX_H below.
@@ -336,10 +406,13 @@
     if (!(W > 0) || !isMult(W, 0.5)) return { ok: false, error: "Width must be a multiple of 0.5m" };
     var whole = Math.floor(W + EPS);
     var half  = Math.abs(W - whole - 0.5) < EPS ? 1 : 0;
-    var kits  = Math.max(1, Math.ceil((W - 0.5 - EPS) / 2));
+    var uprights = univiewUprightCount(W);
+    var kits = Math.ceil(uprights / 2);
     return {
       ok: true,
       kits: kits,
+      uprights: uprights,
+      uprightPositions: univiewUprightPositions(W),
       bars_1: whole,
       bars_05: half,
       kitContents: { bars_1: 2 * kits, bars_05: 1 * kits }
@@ -955,7 +1028,10 @@
         var g26 = ground26Kit(W);
         if (!g26.ok) return { ok: false, error: g26.error };
         items.push({ category: "Rigging", label: gp.kit.label, partNumber: gp.kit.pn, qty: g26.kits });
-        uprights = 2 * g26.kits;
+        // Uniview upright count now follows Adam's rule (v0.18.0); ballast
+        // and preview dots both use this. Each kit ships 2 uprights, so we
+        // may over-supply by 1 on odd upright counts - accepted trade-off.
+        uprights = g26.uprights;
       } else {
         var g39 = ground39Kit(W);
         if (!g39.ok) return { ok: false, error: g39.error };
@@ -1288,6 +1364,8 @@
       PARTS: PARTS, TOOL_VERSION: TOOL_VERSION,
       // v0.14.0 cabling
       cablesForWall: cablesForWall, rowTopFromFloor: rowTopFromFloor, pickCableStock: pickCableStock,
+      // v0.18.0 Uniview upright rule
+      univiewUprightCount: univiewUprightCount, univiewUprightPositions: univiewUprightPositions,
       // v0.9.0 port mapping / v0.10.0 processors + redundancy
       mapPorts: mapPorts, bandwidthPct: bandwidthPct, allocatePorts: allocatePorts,
       bitDepthsFor: bitDepthsFor, BANDWIDTH: BANDWIDTH, PORT_CAPACITY: PORT_CAPACITY,
@@ -2004,26 +2082,36 @@
       }
       if (supSel.value === "flown") {
         var f = res.barsFlown || {};
-        var uprightsF = (f.bars_1 || 0) + (f.bars_05 || 0) + 1;
+        // Uniview flown: rear-support dots per Adam's Uniview rule (v0.18.0).
+        // REM flown: no Adam-specific rule yet - dots fall back to bars+1 seams.
+        var topPositions = null;
+        var uprightsF;
+        if (pitch === "2.6mm") {
+          topPositions = univiewUprightPositions(res.width);
+          uprightsF = topPositions.length;
+        } else {
+          uprightsF = (f.bars_1 || 0) + (f.bars_05 || 0) + 1;
+        }
         svgOpts.topBar = {
           label: (pitch === "2.6mm" ? "Uniview UR Pro" : "Chauvet REM") +
             " Rigging Bar (" + (pitch === "3.9mm" && rigSel.value === "clamp" ? "clamp" : "sling") + ")",
           bars: barsFromCounts(0, 0, f.bars_1 || 0, f.bars_05 || 0),
           totalM: res.width,
-          uprights: uprightsF
+          uprights: uprightsF,
+          uprightPositions: topPositions
         };
       } else {
         var uprightsG = res.ballast && res.ballast.uprights;
         if (pitch === "2.6mm") {
-          // Uniview ground: use bars_1 / bars_05 (ACTUAL bars placed) NOT
-          // kitContents - the latter includes spare bars from each kit and
-          // overflows the wall width (Adam bug report, 2026-08-28).
+          // Uniview ground: bars_1 / bars_05 are ACTUAL bars placed (kit
+          // contents include spares that overflow the wall). Dots follow
+          // Adam's Uniview rule (v0.18.0) - matches upright count from kit.
           var g26 = res.barsGround26 || {};
           svgOpts.footBar = {
             label: "Uniview UR Pro Ground Support base",
             bars: barsFromCounts(0, 0, g26.bars_1 || 0, g26.bars_05 || 0),
             totalM: res.width,
-            uprights: uprightsG
+            uprightPositions: g26.uprightPositions || null
           };
         } else {
           var g = res.barsGround39 || {};

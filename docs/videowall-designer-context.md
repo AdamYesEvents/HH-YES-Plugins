@@ -256,7 +256,57 @@ e.g. `Indoor Videowall 4w x 3h 3.9mm Flown-Sling MX30`.
 | v0.14.0 | **starter cables** — one per line, primary + backup, `length = wall width + row top height`. REM uses banded Ethercon stock (5m `YW-00448` / 10m `YW-00434` / 20m `YW-00438`), Uniview uses fixed 15m `YW-04070`. Cable sub-heading now inserts on the job; preview shows per-line required + best-fit stock. Loader v0.1.98 |
 | v0.15.0 | **LSU decomp fix + coloured bars** — 6m REM ground reverts to `2×1.5 + 3×1m`; 1m LSU bars bundled inside the set (no kit line); preview draws bar segments coloured by physical length. Loader v0.1.99 |
 | v0.16.0 | **ground caps + 5m fix + bar placement + Uniview overflow** — REM ground extended to 20m (algo); Uniview ground capped at 4m (WIDTH, later reverted to HEIGHT in v0.17.0); 5m REM = `2×1.5 + 2×1m`; REM bottom-bar preview 1.5m outside + 1m middle; Uniview base overflow fix. Loader v0.1.100 |
-| **v0.17.0** | **Uniview cap fix + cable spares + joiner + REM upright rule** — Uniview WIDTH uncapped, HEIGHT capped 4m; cable spares (+1 per unique stock length); Ethercon Joiner `YW-00453` auto-added for REM lines >20m; REM upright count changes to `ceil(W)` with positions at 0.5m + 1m intervals (half-metre widths get +1 upright + more toppers + more plates). Loader v0.1.101 |
+| v0.17.0 | **Uniview cap fix + cable spares + joiner + REM upright rule** — Uniview WIDTH uncapped, HEIGHT capped 4m; cable spares; Ethercon Joiner `YW-00453` for REM lines >20m; REM upright count = `ceil(W)`. Loader v0.1.101 |
+| v0.17.1 | **REM upright position tweak** — tight 0.5m gap shifts one position IN from the right on half-metre widths. Loader v0.1.102 |
+| **v0.18.0** | **Uniview upright rule** — dots in panel middles per Adam's per-width spec (0.5→1, 1→2, 1.5→2, 2→2 central, 2.5+→ceil(W) 1m apart). Applies to flown top bar AND ground foot bar. Ground kit count driven by uprights (kits = ceil(uprights/2)); ballast for Uniview ground follows the new upright count. Loader v0.1.103 |
+
+### Uniview upright rule (v0.18.0 — authoritative)
+
+Uniview panels are 500mm wide so panel centres sit at 0.25, 0.75, 1.25, 1.75, … Dots go
+in the **middle of a panel**, not at bar seams (Adam, 2026-08-28).
+
+**Count formula:**
+
+| Width | Uprights | Notes |
+|---|---|---|
+| 0.5m | 1 | single panel, dot at 0.25 |
+| 1.0m | 2 | "for the 1m header bar" — 2 supports on 1 bar |
+| 1.5m | 2 | 1m gap, skip middle panel |
+| 2.0m | 2 | central 2 columns |
+| 2.5m+ | `ceil(W)` | rule of thumb — 1m apart, 2 per 2m |
+
+**Positions:**
+
+| Width | Positions (m) |
+|---|---|
+| 0.5m | `[0.25]` |
+| 1.0m | `[0.25, 0.75]` |
+| 1.5m | `[0.25, 1.25]` |
+| 2.0m | `[0.75, 1.25]` |
+| 2.5m | `[0.25, 1.25, 2.25]` |
+| 3.0m | `[0.25, 1.25, 2.25]` |
+| 3.5m | `[0.25, 1.25, 2.25, 3.25]` |
+| 4.0m | `[0.25, 1.25, 2.25, 3.25]` |
+| 6.0m | `[0.25, 1.25, 2.25, 3.25, 4.25, 5.25]` |
+
+Applies to BOTH:
+- Uniview flown top rigging bar (preview dots only)
+- Uniview ground foot bar (preview dots + upright count + kit count + ballast)
+
+**Ground kit count** now driven by uprights: `kits = ceil(uprights / 2)`. Replaces the old
+coverage formula (`max(1, ceil((W-0.5)/2))`). Odd Uniview widths (2.5m, 4.5m, …) may
+over-supply by 1 upright but ensure enough hardware. Ballast for Uniview ground now
+follows the new upright count.
+
+**Kit/ballast deltas from v0.17.1 for Uniview ground:**
+
+| Width | Kits before | Kits after | Uprights before | Uprights after | Plates at 3m tall |
+|---|---|---|---|---|---|
+| 2.5m | 1 | **2** | 2 | 3 | 8 → **12** |
+| 3.0m | 2 | 2 | 4 | **3** | 24 → **18** |
+| 4.0m | 2 | 2 | 4 | 4 | 24 (unchanged) |
+| 4.5m | 2 | **3** | 4 | **5** | 24 → **30** |
+| 6.0m | 3 | 3 | 6 | 6 | 36 (unchanged) |
 
 ### REM ground upright rule (v0.17.0 — authoritative)
 
