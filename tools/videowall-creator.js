@@ -195,11 +195,10 @@
     ground: {
       uniview: { kit: { pn: "YW-04065", label: "Uniview UR Pro Ground Support Kit (2 uprights)" } },
       rem: {
-        set:    { pn: "YW-00169",       label: "LSU Set (2 uprights) Kit" },
-        bar15:  { pn: "LSU-CONNB-L150", label: "LSU Connecting Bar 1.5m" },
-        bar2:   { pn: "LSU-CONNB-L200", label: "LSU Connecting Bar 2m" },
-        bar1:   { pn: "LSU-CONNB-L100", label: "LSU Connecting Bar 1m" },
-        topper: { pn: "YW-04062",       label: "LSU 30cm Topper" }
+        set:    { pn: "YW-00169", label: "LSU Set (2 uprights) Kit" },
+        bar15:  { pn: "YW-04072", label: "LSU Connecting Bar 1.5m" },
+        bar2:   { pn: "YW-04073", label: "LSU Connecting Bar 2m" },
+        topper: { pn: "YW-04062", label: "LSU 30cm Topper" }
       }
     },
     ballastPlate: { pn: "YW-00259", label: "Weight Plate 12.5kg", plateKg: 12.5 },
@@ -208,12 +207,10 @@
       mx40pro: { pn: "YW-00347", label: "Novastar MX40 Pro Videowall Processor", name: "Novastar MX40 Pro", ports: 20 }
     },
     // Inter-processor cabling: one set per ADDITIONAL processor (processorCount - 1).
-    // PNs are placeholders until Adam supplies them - resolve() falls through to a
-    // free-text row on the job, same as the LSU-CONNB placeholders.
     procCables: {
-      network: { pn: "TBD-NET-3M",  label: "3m Network Cable (processor link)" },
-      hdmi:    { pn: "TBD-HDMI-3M", label: "3m HDMI Cable (processor link)" },
-      sdi:     { pn: "TBD-SDI-2M",  label: "2m SDI Cable (processor link)" }
+      network: { pn: "YW-00442", label: "3m Network Cable (processor link)" },
+      hdmi:    { pn: "YW-00484", label: "3m HDMI Cable (processor link)" },
+      sdi:     { pn: "YW-00497", label: "2m SDI Cable (processor link)" }
     }
   };
   // Product family key for the catalogue: 2.6mm is Uniview, 3.9mm is Chauvet REM.
