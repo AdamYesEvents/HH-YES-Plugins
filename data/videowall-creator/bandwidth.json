@@ -1,0 +1,33 @@
+{
+  "_comment": "Percentage of ONE PORT's capacity consumed by ONE panel (Adam, 2026-08-25). Per PORT, not per processor - a port is full at 100%, so maxPanelsPerPort = floor(100 / pct). Shape: table[processor][family][size][refreshHz][bitDepth].",
+
+  "_doNotTidy": [
+    "The MX30 has NO 12bit column - it is 8/10bit only. Omitting the key is what disables 12bit for the MX30.",
+    "Uniview figures are IDENTICAL on MX30 and MX40.",
+    "Chauvet REM costs noticeably more on the MX30 (8% vs 5% at 60hz/8bit for a 1000x500). That is real and is NOT explained by pixel bandwidth alone - authoritative lookup data, not something to compute.",
+    "Uniview 500x500 @ 60hz/8bit is 6%. An early spreadsheet said 3%; that was wrong (below the 50hz figure, and not half the 1000x500). Both tables agree on 6%."
+  ],
+
+  "table": {
+    "mx30": {
+      "uniview": {
+        "full": { "25": { "8": 5, "10": 7 }, "50": { "8": 10, "10": 13 }, "60": { "8": 12, "10": 15 } },
+        "half": { "25": { "8": 3, "10": 4 }, "50": { "8": 5,  "10": 7  }, "60": { "8": 6,  "10": 8  } }
+      },
+      "chauvet": {
+        "full": { "25": { "8": 4, "10": 5 }, "50": { "8": 7, "10": 9 }, "60": { "8": 8, "10": 10 } },
+        "half": { "25": { "8": 2, "10": 3 }, "50": { "8": 4, "10": 5 }, "60": { "8": 4, "10": 5  } }
+      }
+    },
+    "mx40pro": {
+      "uniview": {
+        "full": { "25": { "8": 5, "10": 7, "12": 10 }, "50": { "8": 10, "10": 13, "12": 19 }, "60": { "8": 12, "10": 15, "12": 23 } },
+        "half": { "25": { "8": 3, "10": 4, "12": 5  }, "50": { "8": 5,  "10": 7,  "12": 10 }, "60": { "8": 6,  "10": 8,  "12": 12 } }
+      },
+      "chauvet": {
+        "full": { "25": { "8": 3, "10": 3, "12": 5 }, "50": { "8": 5, "10": 6, "12": 9 }, "60": { "8": 5, "10": 7, "12": 10 } },
+        "half": { "25": { "8": 2, "10": 2, "12": 3 }, "50": { "8": 3, "10": 3, "12": 5 }, "60": { "8": 3, "10": 4, "12": 5  } }
+      }
+    }
+  }
+}

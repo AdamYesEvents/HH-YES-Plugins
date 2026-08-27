@@ -1,0 +1,54 @@
+{
+  "_comment": "Videowall Creator part catalogue. Edited here, not in the JS - the tool fetches this from jsDelivr at runtime, so a part number change needs NO code release, tag or loader re-pin. Mirrors the data/stage-designer/ pattern. Any key omitted falls back to the inline default baked into videowall-creator.js.",
+
+  "panels": {
+    "uniview": {
+      "full": { "pn": "YW-04066", "label": "Uniview UR Pro 2.6mm panel 1000x500", "caseSize": 4 },
+      "half": { "pn": "YW-04067", "label": "Uniview UR Pro 2.6mm panel 500x500",  "caseSize": 8 }
+    },
+    "rem": {
+      "full": { "pn": "YW-00341", "label": "Chauvet REM 3.9mm panel 1000x500", "caseSize": 4 },
+      "half": { "pn": "YW-00342", "label": "Chauvet REM 3.9mm panel 500x500",  "caseSize": 8 }
+    }
+  },
+
+  "flown": {
+    "uniview": {
+      "sling": {
+        "bar1":  { "pn": "YW-04068", "label": "Uniview UR Pro Rigging Bar 1m on Sling" },
+        "bar05": { "pn": "YW-04069", "label": "Uniview UR Pro Rigging Bar 0.5m on Sling" }
+      }
+    },
+    "rem": {
+      "clamp": {
+        "bar1":  { "pn": "YW-00343", "label": "Chauvet REM 1m Header Bar on Clamp" },
+        "bar05": { "pn": "YW-00345", "label": "Chauvet REM 0.5m Curve Header Bar on Clamp" }
+      },
+      "sling": {
+        "bar1":  { "pn": "YW-00344", "label": "Chauvet REM 1m Header Bar on Sling" },
+        "bar05": { "pn": "YW-00346", "label": "Chauvet REM 0.5m Curve Header Bar on Sling" }
+      }
+    }
+  },
+
+  "ground": {
+    "uniview": {
+      "kit": { "pn": "YW-04065", "label": "Uniview UR Pro Ground Support Kit (2 uprights)" }
+    },
+    "rem": {
+      "set":    { "pn": "YW-00169",       "label": "LSU Set (2 uprights) Kit" },
+      "bar15":  { "pn": "LSU-CONNB-L150", "label": "LSU Connecting Bar 1.5m" },
+      "bar2":   { "pn": "LSU-CONNB-L200", "label": "LSU Connecting Bar 2m" },
+      "bar1":   { "pn": "LSU-CONNB-L100", "label": "LSU Connecting Bar 1m" },
+      "topper": { "pn": "YW-04062",       "label": "LSU 30cm Topper" }
+    }
+  },
+
+  "_ballastPlateNote": "12.5kg plate used by BOTH ground systems. plateKg drives the round-up, so changing it here changes the plate count.",
+  "ballastPlate": { "pn": "YW-00259", "label": "Weight Plate 12.5kg", "plateKg": 12.5 },
+
+  "processors": {
+    "mx30":    { "pn": "YW-04071", "label": "Novastar MX30 Videowall Processor",     "name": "Novastar MX30",     "ports": 10 },
+    "mx40pro": { "pn": "YW-00347", "label": "Novastar MX40 Pro Videowall Processor", "name": "Novastar MX40 Pro", "ports": 20 }
+  }
+}

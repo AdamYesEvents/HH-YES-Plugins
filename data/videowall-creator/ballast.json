@@ -1,0 +1,26 @@
+{
+  "_comment": "Ballast loading, from the technical guidelines for Exhibitions in Germany (Adam, 2026-08-27). kg is PER UPRIGHT (per bay support) - the table has no width term because a wider wall gets more uprights, not heavier ones. SAFETY FACTOR 1.5 IS ALREADY APPLIED in the kg column - do not add another. Same table for BOTH ground support systems.",
+
+  "_plateNote": "Plate weight and part code live in parts.json under ballastPlate. Plates round UP per upright, then multiply by the upright count - rounding once at the end would under-ballast individual towers.",
+
+  "minHeight": {
+    "_comment": "Minimum ground-support wall height per system (Adam). Uniview's 1.5m is below the table's first row, so it clamps up to the 2.0m figure.",
+    "uniview": 1.5,
+    "rem": 2.0
+  },
+
+  "maxHeight": 6.0,
+  "_maxHeightNote": "Ground-supported walls above this are rejected - off the end of the table, needs engineering sign-off. Raise only with a longer table.",
+
+  "table": {
+    "2.0": { "kg": 17,  "moment": 0.25 },
+    "2.5": { "kg": 38,  "moment": 0.39 },
+    "3.0": { "kg": 64,  "moment": 0.56 },
+    "3.5": { "kg": 95,  "moment": 0.77 },
+    "4.0": { "kg": 131, "moment": 1.00 },
+    "4.5": { "kg": 151, "moment": 1.13 },
+    "5.0": { "kg": 173, "moment": 1.28 },
+    "5.5": { "kg": 198, "moment": 1.45 },
+    "6.0": { "kg": 226, "moment": 1.63 }
+  }
+}

@@ -101,23 +101,35 @@
  *   - LSU 30cm topper YW-04062 added on every REM ground wall, one per upright.
  *     REM-only; the Uniview system does not take it.
  *
- * STILL TBD after v0.11.0 (targeted at v0.12.0 - cabling):
- *   - Starter cables. One per line. REM ground + processor behind screen =
- *     5/10/20m Ethercon by wall width (processor centred); REM flown = short
- *     links out to a loom; Uniview = 15m per line (width-insensitive).
- *     Blocked on: width bands, part numbers, the flown loom spec, and the
- *     Uniview 15m part number.
- *   - Backup cabling. Redundancy doubles the data runs, and the backup feed
- *     conventionally lands on the far END of each chain (so data can flow back
- *     the other way if the primary drops). That means backup cable lengths are
- *     NOT the same as primary lengths - needs Adam's rule before it goes in
- *     the kit. The port allocation is done; only the cables are missing.
+ * v0.12.0 - EXTERNAL PART CATALOGUE + DIALOG POLISH:
+ *   - Part numbers, the ballast table and the bandwidth tables now load from
+ *     data/videowall-creator/{parts,ballast,bandwidth}.json on jsDelivr at
+ *     dialog-open time, the same way stage-designer loads its catalogue. A part
+ *     number change is now a PURE DATA EDIT - no code release, no tag, no loader
+ *     re-pin. The inline PARTS / BALLAST / BANDWIDTH values are the fallback and
+ *     must stay in sync with the JSON; if a fetch fails the tool runs on them.
+ *   - Version number shown in the dialog header (TOOL_VERSION), matching
+ *     stage-designer.
+ *   - Loading bar: the footer shows a spinner + progress bar while the catalogue
+ *     downloads, and again during insertion. addVideowallKit now takes an
+ *     onProgress callback with the same {phase, category, doneItems, totalItems}
+ *     contract as stage-designer's addStageKit.
+ *
+ * STILL TBD after v0.12.0 (targeted at v0.13.0 - cabling):
+ *   - Cabling, primary AND backup. RULE RESOLVED (Adam, 2026-08-27): one cable
+ *     per line for both, length = wall width + that line's row height. The
+ *     backup lands on the far end of the chain, which is what forces the full
+ *     wall width in; the input is spec'd the same way. This SUPERSEDES the older
+ *     "REM 5/10/20m by width, Uniview 15m flat" spec.
+ *     Still blocked on: the stock cable lengths carried, and their YW part
+ *     codes. Computed lengths must round up to a real stock length, and without
+ *     codes every cable would drop to a free-text line on every job.
  *
  * PDF generation is TEMPORARILY BLOCKED - see PDF_ENABLED below. When ready,
  * flip the flag on and reformat buildVideowallPdf() to match the final layout
  * (do not delete the scaffolding).
  *
- * Version: 0.11.0
+ * Version: 0.12.0
  */
 
 (function () {
@@ -128,6 +140,64 @@
 
   var EPS = 1e-6;
   function isMult(v, step) { var q = v / step; return Math.abs(q - Math.round(q)) < EPS; }
+
+  var TOOL_VERSION = "0.12.0";  // shown in the dialog header; keep in sync with the banner above.
+
+  // ---------------------------------------------------------------------------
+  // PART CATALOGUE (v0.12.0)
+  // ---------------------------------------------------------------------------
+  // These are the INLINE DEFAULTS / fallback. At dialog-open time loadCatalogue()
+  // fetches data/videowall-creator/*.json from jsDelivr and overwrites them, so a
+  // part number change is a pure data edit - no code release, tag or loader
+  // re-pin. Same pattern as stage-designer's data/stage-designer/ catalogue.
+  // If the fetch fails the tool still works, on these values.
+  var PARTS = {
+    panels: {
+      uniview: {
+        full: { pn: "YW-04066", label: "Uniview UR Pro 2.6mm panel 1000x500", caseSize: 4 },
+        half: { pn: "YW-04067", label: "Uniview UR Pro 2.6mm panel 500x500",  caseSize: 8 }
+      },
+      rem: {
+        full: { pn: "YW-00341", label: "Chauvet REM 3.9mm panel 1000x500", caseSize: 4 },
+        half: { pn: "YW-00342", label: "Chauvet REM 3.9mm panel 500x500",  caseSize: 8 }
+      }
+    },
+    flown: {
+      uniview: {
+        sling: {
+          bar1:  { pn: "YW-04068", label: "Uniview UR Pro Rigging Bar 1m on Sling" },
+          bar05: { pn: "YW-04069", label: "Uniview UR Pro Rigging Bar 0.5m on Sling" }
+        }
+      },
+      rem: {
+        clamp: {
+          bar1:  { pn: "YW-00343", label: "Chauvet REM 1m Header Bar on Clamp" },
+          bar05: { pn: "YW-00345", label: "Chauvet REM 0.5m Curve Header Bar on Clamp" }
+        },
+        sling: {
+          bar1:  { pn: "YW-00344", label: "Chauvet REM 1m Header Bar on Sling" },
+          bar05: { pn: "YW-00346", label: "Chauvet REM 0.5m Curve Header Bar on Sling" }
+        }
+      }
+    },
+    ground: {
+      uniview: { kit: { pn: "YW-04065", label: "Uniview UR Pro Ground Support Kit (2 uprights)" } },
+      rem: {
+        set:    { pn: "YW-00169",       label: "LSU Set (2 uprights) Kit" },
+        bar15:  { pn: "LSU-CONNB-L150", label: "LSU Connecting Bar 1.5m" },
+        bar2:   { pn: "LSU-CONNB-L200", label: "LSU Connecting Bar 2m" },
+        bar1:   { pn: "LSU-CONNB-L100", label: "LSU Connecting Bar 1m" },
+        topper: { pn: "YW-04062",       label: "LSU 30cm Topper" }
+      }
+    },
+    ballastPlate: { pn: "YW-00259", label: "Weight Plate 12.5kg", plateKg: 12.5 },
+    processors: {
+      mx30:    { pn: "YW-04071", label: "Novastar MX30 Videowall Processor",     name: "Novastar MX30",     ports: 10 },
+      mx40pro: { pn: "YW-00347", label: "Novastar MX40 Pro Videowall Processor", name: "Novastar MX40 Pro", ports: 20 }
+    }
+  };
+  // Product family key for the catalogue: 2.6mm is Uniview, 3.9mm is Chauvet REM.
+  function famKey(isUniview) { return isUniview ? "uniview" : "rem"; }
 
   // Flown rigging bars: prefer 1m, allow one 0.5m add-on. Width must be a
   // multiple of 0.5m.
@@ -224,8 +294,7 @@
   //
   // Same weight system on BOTH ground support systems (Uniview 2.6mm and
   // Chauvet REM 3.9mm) - Adam, 2026-08-27.
-  var BALLAST_PLATE_KG = 12.5;                 // YW-00259 weight plate
-  var BALLAST_PLATE_PN = "YW-00259";
+  // Plate weight and part code live in PARTS.ballastPlate (catalogue-driven).
   // String keys - a bare 2.0 would collapse to "2" and miss a toFixed(1) lookup.
   var BALLAST = {
     "2.0": { kg: 17,  moment: 0.25 },
@@ -260,7 +329,8 @@
     var lookupH = (H < BALLAST_MIN_H - EPS) ? BALLAST_MIN_H : H;
     var row = BALLAST[lookupH.toFixed(1)];
     if (!row) return { ok: false, error: "No ballast figure for " + H + "m" };
-    var platesPerUpright = Math.ceil(row.kg / BALLAST_PLATE_KG - EPS);
+    var plateKg = PARTS.ballastPlate.plateKg;
+    var platesPerUpright = Math.ceil(row.kg / plateKg - EPS);
     return {
       ok: true,
       kgPerUpright: row.kg,
@@ -268,7 +338,7 @@
       platesPerUpright: platesPerUpright,
       uprights: uprights,
       totalPlates: platesPerUpright * uprights,
-      totalKg: platesPerUpright * uprights * BALLAST_PLATE_KG,
+      totalKg: platesPerUpright * uprights * plateKg,
       lookupH: lookupH,
       clamped: Math.abs(lookupH - H) > EPS
     };
@@ -334,8 +404,9 @@
   var BIT_DEPTHS    = [8, 10, 12];
 
   // Physical Gigabit output ports per processor (Adam 2026-08-25).
-  var PROCESSOR_PORTS = { mx30: 10, mx40pro: 20 };
-  var PROCESSOR_NAME  = { mx30: "Novastar MX30", mx40pro: "Novastar MX40 Pro" };
+  // Port count and display name now come from PARTS.processors (catalogue-driven).
+  function processorPorts(model) { var p = PARTS.processors[model]; return p && p.ports; }
+  function processorName(model)  { var p = PARTS.processors[model]; return (p && p.name) || model; }
 
   // Redundancy. Running backup pairs each primary port with a backup port, so
   // only HALF the ports are available as primaries - an MX30 drops from 10
@@ -348,7 +419,7 @@
 
   // Work out which physical port (and which processor) each data line lands on.
   function allocatePorts(processorModel, backup, lines) {
-    var total = PROCESSOR_PORTS[processorModel];
+    var total = processorPorts(processorModel);
     if (!total || !(lines > 0)) return null;
     var half = total / 2;
     var redundant = (backup && backup !== "none");
@@ -522,23 +593,17 @@
     //   3.9mm - Chauvet REM (indoor OR outdoor):  YW-00341 1000x500, YW-00342 500x500
     //   2.6mm - Uniview UR Pro (indoor only):     YW-04066 1000x500, YW-04067 500x500
     var isUniview = (opts.pitch === "2.6mm");
-    var panelFullLabel = isUniview
-      ? "Uniview UR Pro 2.6mm panel 1000x500"
-      : "Chauvet REM 3.9mm panel 1000x500";
-    var panelHalfLabel = isUniview
-      ? "Uniview UR Pro 2.6mm panel 500x500"
-      : "Chauvet REM 3.9mm panel 500x500";
-    var panelFullPN = isUniview ? "YW-04066" : "YW-00341";
-    var panelHalfPN = isUniview ? "YW-04067" : "YW-00342";
+    var fam = famKey(isUniview);
+    var panelFull = PARTS.panels[fam].full, panelHalf = PARTS.panels[fam].half;
     if (fullPanels > 0) {
-      items.push({ category: "Screen", label: panelFullLabel, partNumber: panelFullPN, qty: fullPanels });
-      var spareFull = computeSpares(fullPanels, 4);
-      if (spareFull > 0) items.push({ category: "Spares", label: panelFullLabel, partNumber: panelFullPN, qty: spareFull, hundredPercent: true });
+      items.push({ category: "Screen", label: panelFull.label, partNumber: panelFull.pn, qty: fullPanels });
+      var spareFull = computeSpares(fullPanels, panelFull.caseSize);
+      if (spareFull > 0) items.push({ category: "Spares", label: panelFull.label, partNumber: panelFull.pn, qty: spareFull, hundredPercent: true });
     }
     if (halfPanels > 0) {
-      items.push({ category: "Screen", label: panelHalfLabel, partNumber: panelHalfPN, qty: halfPanels });
-      var spareHalf = computeSpares(halfPanels, 8);
-      if (spareHalf > 0) items.push({ category: "Spares", label: panelHalfLabel, partNumber: panelHalfPN, qty: spareHalf, hundredPercent: true });
+      items.push({ category: "Screen", label: panelHalf.label, partNumber: panelHalf.pn, qty: halfPanels });
+      var spareHalf = computeSpares(halfPanels, panelHalf.caseSize);
+      if (spareHalf > 0) items.push({ category: "Spares", label: panelHalf.label, partNumber: panelHalf.pn, qty: spareHalf, hundredPercent: true });
     }
 
     // ---- Rigging / support --------------------------------------------------
@@ -548,26 +613,19 @@
       // Chauvet REM Header Bar:   1m clamp YW-00343, 1m sling YW-00344,
       //                           0.5m curve clamp YW-00345, 0.5m curve sling YW-00346.
       // Uniview UR Pro Rigging Bar (sling only): 1m YW-04068, 0.5m YW-04069.
-      var useClamp = false;
+      var rigMode;
       if (isUniview) {
-        // Uniview flown - always sling.
+        rigMode = "sling";                    // Uniview flown - always sling.
       } else {
         if (!opts.rigging) return { ok: false, error: "Choose Clamp or Sling for a flown Chauvet wall" };
         if (opts.rigging !== "clamp" && opts.rigging !== "sling")
           return { ok: false, error: "Rigging must be clamp or sling" };
-        useClamp = (opts.rigging === "clamp");
+        rigMode = opts.rigging;
       }
       if (rig) {
-        if (isUniview) {
-          if (rig.bars_1 > 0)  items.push({ category: "Rigging", label: "Uniview UR Pro Rigging Bar 1m on Sling",    partNumber: "YW-04068", qty: rig.bars_1 });
-          if (rig.bars_05 > 0) items.push({ category: "Rigging", label: "Uniview UR Pro Rigging Bar 0.5m on Sling", partNumber: "YW-04069", qty: rig.bars_05 });
-        } else if (useClamp) {
-          if (rig.bars_1 > 0)  items.push({ category: "Rigging", label: "Chauvet REM 1m Header Bar on Clamp",         partNumber: "YW-00343", qty: rig.bars_1 });
-          if (rig.bars_05 > 0) items.push({ category: "Rigging", label: "Chauvet REM 0.5m Curve Header Bar on Clamp", partNumber: "YW-00345", qty: rig.bars_05 });
-        } else {
-          if (rig.bars_1 > 0)  items.push({ category: "Rigging", label: "Chauvet REM 1m Header Bar on Sling",         partNumber: "YW-00344", qty: rig.bars_1 });
-          if (rig.bars_05 > 0) items.push({ category: "Rigging", label: "Chauvet REM 0.5m Curve Header Bar on Sling", partNumber: "YW-00346", qty: rig.bars_05 });
-        }
+        var bars = PARTS.flown[fam][rigMode];
+        if (rig.bars_1 > 0)  items.push({ category: "Rigging", label: bars.bar1.label,  partNumber: bars.bar1.pn,  qty: rig.bars_1 });
+        if (rig.bars_05 > 0) items.push({ category: "Rigging", label: bars.bar05.label, partNumber: bars.bar05.pn, qty: rig.bars_05 });
       }
     } else {
       // Ground support - kit differs by pitch.
@@ -589,29 +647,30 @@
           " ground support minimum wall height is " + minH + "m" };
 
       var uprights;
+      var gp = PARTS.ground[fam];
       if (isUniview) {
         var g26 = ground26Kit(W);
         if (!g26.ok) return { ok: false, error: g26.error };
-        items.push({ category: "Rigging", label: "Uniview UR Pro Ground Support Kit (2 uprights)", partNumber: "YW-04065", qty: g26.kits });
+        items.push({ category: "Rigging", label: gp.kit.label, partNumber: gp.kit.pn, qty: g26.kits });
         uprights = 2 * g26.kits;
       } else {
         var g39 = ground39Kit(W);
         if (!g39.ok) return { ok: false, error: g39.error };
-        items.push({ category: "Rigging", label: "LSU Set (2 uprights) Kit", partNumber: "YW-00169", qty: g39.kits });
-        if (g39.bars_15 > 0) items.push({ category: "Rigging", label: "LSU Connecting Bar 1.5m", partNumber: "LSU-CONNB-L150", qty: g39.bars_15 });
-        if (g39.bars_2  > 0) items.push({ category: "Rigging", label: "LSU Connecting Bar 2m",   partNumber: "LSU-CONNB-L200", qty: g39.bars_2 });
-        if (g39.bars_1  > 0) items.push({ category: "Rigging", label: "LSU Connecting Bar 1m",   partNumber: "LSU-CONNB-L100", qty: g39.bars_1 });
+        items.push({ category: "Rigging", label: gp.set.label, partNumber: gp.set.pn, qty: g39.kits });
+        if (g39.bars_15 > 0) items.push({ category: "Rigging", label: gp.bar15.label, partNumber: gp.bar15.pn, qty: g39.bars_15 });
+        if (g39.bars_2  > 0) items.push({ category: "Rigging", label: gp.bar2.label,  partNumber: gp.bar2.pn,  qty: g39.bars_2 });
+        if (g39.bars_1  > 0) items.push({ category: "Rigging", label: gp.bar1.label,  partNumber: gp.bar1.pn,  qty: g39.bars_1 });
         uprights = (g39.bars_15 + g39.bars_2 + g39.bars_1) + 1;
         // 30cm topper - REM ground only, one per upright, every height.
-        items.push({ category: "Rigging", label: "LSU 30cm Topper", partNumber: "YW-04062", qty: uprights });
+        items.push({ category: "Rigging", label: gp.topper.label, partNumber: gp.topper.pn, qty: uprights });
       }
 
       ballast = ballastFor(H, uprights);
       if (!ballast.ok) return { ok: false, error: ballast.error };
       items.push({
         category: "Rigging",
-        label: "Weight Plate 12.5kg (" + ballast.platesPerUpright + " per upright x " + uprights + ")",
-        partNumber: BALLAST_PLATE_PN,
+        label: PARTS.ballastPlate.label + " (" + ballast.platesPerUpright + " per upright x " + uprights + ")",
+        partNumber: PARTS.ballastPlate.pn,
         qty: ballast.totalPlates
       });
     }
@@ -619,9 +678,8 @@
     // ---- Processor -----------------------------------------------------------
     // Novastar MX30 (YW-04071) or MX40 Pro (YW-00347) - user picks via Q5.
     // qty is patched below once the port map says how many processors it takes.
-    var processorItem = (procModel === "mx40pro")
-      ? { category: "Processor", label: "Novastar MX40 Pro Videowall Processor", partNumber: "YW-00347", qty: 1 }
-      : { category: "Processor", label: "Novastar MX30 Videowall Processor",     partNumber: "YW-04071", qty: 1 };
+    var procPart = PARTS.processors[procModel];
+    var processorItem = { category: "Processor", label: procPart.label, partNumber: procPart.pn, qty: 1 };
     items.push(processorItem);
     // Signal / starter cables still deferred (hardware first). When ready,
     // add items with category "Cable" and un-skip "Cable" in INSERT_ORDER.
@@ -801,12 +859,13 @@
       flownRig: flownRig, ground26Kit: ground26Kit, ground39Kit: ground39Kit,
       computeSpares: computeSpares,
       // v0.11.0 ballast
-      ballastFor: ballastFor, BALLAST: BALLAST,
-      BALLAST_PLATE_KG: BALLAST_PLATE_KG, GROUND_MIN_H: GROUND_MIN_H,
+      ballastFor: ballastFor, BALLAST: BALLAST, GROUND_MIN_H: GROUND_MIN_H,
+      // v0.12.0 catalogue
+      PARTS: PARTS, TOOL_VERSION: TOOL_VERSION,
       // v0.9.0 port mapping / v0.10.0 processors + redundancy
       mapPorts: mapPorts, bandwidthPct: bandwidthPct, allocatePorts: allocatePorts,
       bitDepthsFor: bitDepthsFor, BANDWIDTH: BANDWIDTH, PORT_CAPACITY: PORT_CAPACITY,
-      PROCESSOR_PORTS: PROCESSOR_PORTS, BACKUP_MODES: BACKUP_MODES
+      processorPorts: processorPorts, BACKUP_MODES: BACKUP_MODES
     };
   }
 
@@ -1142,15 +1201,29 @@
     })();
   }
 
-  function addVideowallKit(inst, items, title, onDone) {
+  // onProgress (optional) is called with {phase, category, doneItems, totalItems}
+  // so the dialog can drive a spinner + progress bar, same contract as
+  // stage-designer's addStageKit.
+  function addVideowallKit(inst, items, title, onDone, onProgress) {
     var groups = groupByCategory(items);
     var parentId = selectedParentHeadingId(inst);
+    // Total line count across every category - the denominator for the bar.
+    var totalItems = items.length;
+    var doneItems = 0;
+    function report(phase, category) {
+      if (typeof onProgress !== "function") return;
+      try { onProgress({ phase: phase, category: category, doneItems: doneItems, totalItems: totalItems }); }
+      catch (e) { /* a broken progress callback must never strand the insert */ }
+    }
+    report("resolving");
     resolveAllByCategory(inst, groups).then(function (res) {
+      report("wall-folder");
       createHeading(inst, title, parentId, 5 /* Grouped */).then(function (mainId) {
         if (!mainId) { onDone({ ok: false, error: "Could not create the videowall folder" }); return; }
         var i = 0, parts = 0, customs = 0;
         function nextCategory() {
           if (i >= INSERT_ORDER.length) {
+            report("finalising");
             dismissAutopullThen(function () {
               clickSupplyingRefresh(inst);
               onDone({ ok: true, headingId: mainId, parts: parts, customs: customs });
@@ -1161,11 +1234,14 @@
           var shopping = res.shoppingByCat[cat] || {}, customList = res.customsByCat[cat] || [];
           var hasContent = Object.keys(shopping).length || customList.length;
           if (!hasContent && !ALWAYS_CREATE[cat]) { nextCategory(); return; }
+          report("subheading", cat);
           createHeading(inst, cat, mainId).then(function (subId) {
             if (!subId) { console.warn("[videowall-creator] sub-heading failed:", cat); nextCategory(); return; }
             parts += Object.keys(shopping).length;
             customs += customList.length;
             if (!hasContent) { nextCategory(); return; }
+            doneItems += Object.keys(shopping).length + customList.length;
+            report("item", cat);
             // For Spares, snapshot existing line IDs so we can identify the
             // freshly-created ones and force their price to 0 afterwards.
             var isSpares = (cat === "Spares");
@@ -1179,6 +1255,64 @@
         nextCategory();
       });
     });
+  }
+
+  // ===========================================================================
+  // CATALOGUE LOADING (v0.12.0)
+  // ===========================================================================
+  // Mirrors stage-designer: fetch the part data from jsDelivr at dialog-open
+  // time and overwrite the inline defaults. A part number change is then a pure
+  // data edit on data/videowall-creator/*.json - no code release, no tag, no
+  // loader re-pin. Every file is individually optional; a failed fetch leaves
+  // that section on its inline default rather than breaking the tool.
+  var REPO = "AdamYesEvents/HH-YES-Plugins";
+  var DATA_REF = "main";
+  var DATA_BASE = "https://cdn.jsdelivr.net/gh/" + REPO + "@" + DATA_REF + "/data/videowall-creator/";
+  var catalogueLoaded = false;
+
+  function getJson(file) {
+    // Cache-bust: jsDelivr edge-caches @main, so a unique query fetches current data.
+    return fetch(DATA_BASE + file + "?t=" + Date.now()).then(function (r) {
+      if (!r.ok) throw new Error(file + " " + r.status);
+      return r.json();
+    });
+  }
+
+  // Shallow-merge a fetched section over the inline default, one level deep per
+  // leaf object, so a JSON file that only overrides one part number keeps the
+  // rest of the defaults.
+  function mergeInto(target, src) {
+    if (!src || typeof src !== "object") return target;
+    Object.keys(src).forEach(function (k) {
+      if (k.charAt(0) === "_") return;                 // _comment / _note keys
+      var v = src[k];
+      if (v && typeof v === "object" && !Array.isArray(v) &&
+          target[k] && typeof target[k] === "object" && !Array.isArray(target[k])) {
+        mergeInto(target[k], v);
+      } else {
+        target[k] = v;
+      }
+    });
+    return target;
+  }
+
+  function loadCatalogue(cb) {
+    if (catalogueLoaded || typeof fetch !== "function") { cb(); return; }
+    Promise.all([
+      getJson("parts.json").catch(function () { return null; }),
+      getJson("ballast.json").catch(function () { return null; }),
+      getJson("bandwidth.json").catch(function () { return null; })
+    ]).then(function (res) {
+      if (res[0]) mergeInto(PARTS, res[0]);
+      if (res[1]) {
+        if (res[1].table) BALLAST = res[1].table;
+        if (res[1].minHeight) mergeInto(GROUND_MIN_H, res[1].minHeight);
+        if (typeof res[1].maxHeight === "number") BALLAST_MAX_H = res[1].maxHeight;
+      }
+      if (res[2] && res[2].table) BANDWIDTH = res[2].table;
+      catalogueLoaded = true;
+      cb();
+    }).catch(function () { cb(); });   // never block the dialog on a data failure
   }
 
   var DIALOG_ID = "hh-videowall-creator-dialog";
@@ -1210,7 +1344,8 @@
 
     var head = el("div", null, "padding:18px 22px;border-bottom:1px solid #eee;");
     head.innerHTML =
-      '<div style="font-size:18px;font-weight:600;color:#222;">Videowall Creator</div>' +
+      '<div style="font-size:18px;font-weight:600;color:#222;">Videowall Creator' +
+        '<span style="font-size:10px;font-weight:400;color:#aaa;margin-left:6px;">v' + TOOL_VERSION + '</span></div>' +
       '<div style="font-size:13px;color:#777;margin-top:2px;">Answer the baseline questions and we\'ll build the wall kit for this job.</div>';
     panel.appendChild(head);
 
@@ -1474,11 +1609,32 @@
       foot.appendChild(msg); foot.appendChild(no); foot.appendChild(yes);
     }
 
+    // Progress footer: spinner + status line + horizontal bar. Driven by
+    // addVideowallKit's onProgress callback. Matches stage-designer's footer.
+    function progressFoot(p) {
+      var label;
+      if (p.phase === "resolving")        label = "Looking up part numbers&hellip;";
+      else if (p.phase === "wall-folder") label = "Creating videowall folder&hellip;";
+      else if (p.phase === "subheading")  label = "Creating sub-heading: " + (p.category || "") + "&hellip;";
+      else if (p.phase === "item")        label = "Adding " + (p.category || "") + " (" + p.doneItems + "/" + p.totalItems + ")&hellip;";
+      else if (p.phase === "finalising")  label = "Finalising&hellip;";
+      else if (p.phase === "catalogue")   label = "Loading part catalogue&hellip;";
+      else                                label = "Adding to the job&hellip;";
+      var pct = p.totalItems ? Math.min(100, Math.round(100 * p.doneItems / p.totalItems)) : 0;
+      foot.innerHTML =
+        '<div style="flex:1;display:flex;flex-direction:column;gap:6px;">' +
+          '<div style="display:flex;align-items:center;gap:10px;font-size:13px;color:#555;">' +
+            '<span class="hh-vw-spin" style="width:16px;height:16px;border-width:2px;"></span>' +
+            '<span>' + label + '</span>' +
+          '</div>' +
+          '<div style="height:6px;background:#eee;border-radius:3px;overflow:hidden;">' +
+            '<div style="width:' + pct + '%;height:100%;background:#2563eb;transition:width .2s;"></div>' +
+          '</div>' +
+        '</div>';
+    }
+
     function doAdd() {
-      foot.innerHTML = "";
-      var busy = el("div", null, "flex:1;font-size:13px;color:#333;display:flex;align-items:center;gap:10px;");
-      busy.innerHTML = '<span class="hh-vw-spin"></span><span>Adding to the job&hellip;</span>';
-      foot.appendChild(busy);
+      progressFoot({ phase: "start", doneItems: 0, totalItems: state.items.length });
 
       addVideowallKit(inst, state.items, state.title, function (r) {
         foot.innerHTML = "";
@@ -1493,7 +1649,7 @@
         var ok = el("button", null, "padding:8px 16px;font-size:14px;background:#2563eb;color:#fff;border:none;border-radius:4px;cursor:pointer;");
         ok.textContent = "Close"; ok.addEventListener("click", close);
         foot.appendChild(msg); foot.appendChild(ok);
-      });
+      }, progressFoot);
 
       if (PDF_ENABLED) {
         buildVideowallPdf({ title: state.title, items: state.items, result: state.result }).catch(function () {});
@@ -1513,7 +1669,16 @@
     bkpSel       .addEventListener("change", render);
 
     document.body.appendChild(backdrop);
-    render();
+
+    // Show a loading bar in the footer while the part catalogue comes down from
+    // jsDelivr, then render. loadCatalogue never rejects - on a failed fetch it
+    // falls back to the inline defaults - so the dialog always reaches render().
+    progressFoot({ phase: "catalogue", doneItems: 0, totalItems: 0 });
+    kitBox.innerHTML = '<div style="font-size:12px;color:#888;">Loading part catalogue&hellip;</div>';
+    loadCatalogue(function () {
+      syncBitDepthOptions();
+      render();
+    });
   }
 
   function register() {
