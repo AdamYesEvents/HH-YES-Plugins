@@ -251,7 +251,45 @@ e.g. `Indoor Videowall 4w x 3h 3.9mm Flown-Sling MX30`.
 | v0.9.1 | **wiring rules** — no mixed panel sizes on a port, always left-to-right, one line per row. Replaced v0.9.0's serpentine packing. Loader v0.1.93 |
 | v0.10.0 | **processors + redundancy** — real port counts (MX30 10 / MX40 20), Q8 backup with both pairing schemes, computed processor quantity in the kit, upgrade hint, physical port numbers stamped on panels. Loader v0.1.94 |
 | v0.11.0 | **ballast + topper** — `YW-00259` 12.5kg weight plates auto-added per upright off the German exhibition table, both ground systems; `YW-04062` 30cm topper on every REM ground wall; ground-support minimum heights enforced. Loader v0.1.95 |
-| **v0.12.0** | **external catalogue + dialog polish** — parts/ballast/bandwidth moved to `data/videowall-creator/*.json` on jsDelivr (part changes are now a pure data edit); version in the dialog header; loading bar on catalogue fetch and on insert. Loader v0.1.96 |
+| v0.12.0 | **external catalogue + dialog polish** — parts/ballast/bandwidth moved to `data/videowall-creator/*.json` on jsDelivr (part changes are now a pure data edit); version in the dialog header; loading bar on catalogue fetch and on insert. Loader v0.1.96 |
+| v0.13.0 | **ground decomp cleanup + processor-link cables + overlays** — REM ground capped at 6m hard max, 1m LSU bars retired (all widths use 1.5m/2m only), inter-processor cables added per extra box, SVG previews get top rigging bar (flown) and base bar with upright dots (ground). Loader v0.1.97 |
+| **v0.14.0** | **starter cables** — one per line, primary + backup, `length = wall width + row top height`. REM uses banded Ethercon stock (5m `YW-00448` / 10m `YW-00434` / 20m `YW-00438`), Uniview uses fixed 15m `YW-04070`. Cable sub-heading now inserts on the job; preview shows per-line required + best-fit stock. Loader v0.1.98 |
+
+### Starter cables (v0.14.0) — the rule that finally landed
+
+**Length per line:** `wall width + row top height above the floor`, in metres. Adam,
+2026-08-27: *"backup needs to travel the length of the wall and the height of each row.
+same rule for the input."* The backup lands on the far end of the chain, which is what
+forces the full wall width in.
+
+**Quantity per line:** 1 primary. +1 backup if Q8 backup is running (`pairs` or `offset`).
+
+**REM (Chauvet):** BANDED Ethercon stock, pick the smallest that fits. Adam 2026-08-28:
+
+| Length | Code |
+|---|---|
+| 5m Ethercon | `YW-00448` |
+| 10m Ethercon | `YW-00434` |
+| 20m Ethercon | `YW-00438` |
+
+A required length above 20m emits a free-text row on the job — no longer stock exists
+yet. Common at wide/tall REM flown walls: a 16m × 5m wall's top row needs 21m.
+
+**Uniview:** FIXED 15m starter per line, `YW-04070`, width-insensitive. Different mode
+from REM (`"fixed"` vs `"banded"` in `parts.json`) — matches Adam's original spec that
+Uniview's cable is a starter, not a stock reel.
+
+**Row top height helper.** Rows are indexed from the top (r=0 is the top row). For a
+wall `H` metres high with `halfPerCol ∈ {0,1}`:
+
+```
+rowTopFromFloor(r=0)   = H
+rowTopFromFloor(r>=1)  = H - (halfPerCol ? 0.5 : 1) - (r - 1)
+```
+
+So a 3m wall's three rows sit at 3m / 2m / 1m; a 3.5m wall's four rows sit at 3.5m / 3m /
+2m / 1m. Adam's canonical 4×3 Uniview → three lines of 15m each (Uniview mode ignores the
+formula). Same wall REM → 5m + 10m + 10m (widths were 5m/6m/7m, round up to stock).
 
 ### External part catalogue (v0.12.0) — the stage-designer pattern, finally adopted
 
