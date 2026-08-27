@@ -195,13 +195,23 @@
  *     4.5m and 6.5m are now +1 LSU Set too. Preview dots sit at Adam's
  *     positions instead of at bar seams.
  *
- * STILL TBD after v0.17.0:
+ * v0.17.1 - REM UPRIGHT POSITION TWEAK (half-metre widths):
+ *   Second-to-last upright shifts 0.5m LEFT on half-metre widths (Adam,
+ *   2026-08-28: "5.5 the second dot from the right is 0.5m too far right,
+ *   same for all 6.5 + 7.5 and so on"). The tight 0.5m gap now sits between
+ *   the third-to-last and second-to-last uprights, not adjacent to the right
+ *   end. Applies uniformly to 3.5m, 4.5m, 5.5m, 6.5m, ..., 19.5m.
+ *   Positions before -> after (5.5m):
+ *     [0.5, 1.5, 2.5, 3.5, 4.5, 5.0]  ->  [0.5, 1.5, 2.5, 3.5, 4.0, 5.0]
+ *   Upright COUNT unchanged (still ceil(W)); only positions shift.
+ *
+ * STILL TBD after v0.17.1:
  *
  * PDF generation is TEMPORARILY BLOCKED - see PDF_ENABLED below. When ready,
  * flip the flag on and reformat buildVideowallPdf() to match the final layout
  * (do not delete the scaffolding).
  *
- * Version: 0.17.0
+ * Version: 0.17.1
  */
 
 (function () {
@@ -213,7 +223,7 @@
   var EPS = 1e-6;
   function isMult(v, step) { var q = v / step; return Math.abs(q - Math.round(q)) < EPS; }
 
-  var TOOL_VERSION = "0.17.0";  // shown in the dialog header; keep in sync with the banner above.
+  var TOOL_VERSION = "0.17.1";  // shown in the dialog header; keep in sync with the banner above.
 
   // ---------------------------------------------------------------------------
   // PART CATALOGUE (v0.12.0)
@@ -372,10 +382,24 @@
 
   function remUprightPositions(W) {
     var positions = [];
-    var wholeCount = Math.floor(W + EPS);
-    for (var i = 0; i < wholeCount; i++) positions.push(0.5 + i);
-    if (Math.abs((W * 2) - Math.round(W * 2)) < EPS && Math.round(W * 2) % 2 === 1) {
+    var isHalf = Math.abs((W * 2) - Math.round(W * 2)) < EPS &&
+                 Math.round(W * 2) % 2 === 1;
+    if (isHalf) {
+      // Half-metre widths: fill from the LEFT with 1m gaps up to W - 1.5, then
+      // second-to-last upright at W - 1.5 (creating the tight 0.5m gap here),
+      // then the LAST upright at W - 0.5. So the pattern is:
+      //   0.5, 1.5, ..., (W - 2.5), (W - 1.5), (W - 0.5)
+      // The tight 0.5m gap sits between the third-to-last and second-to-last
+      // uprights, NOT between the last two.
+      // Adam 2026-08-28 (v0.17.1): "5.5 the second dot from the right is 0.5m
+      // too far right. same for all 6.5 + 7.5 and so on."
+      for (var x = 0.5; x < W - 1.5 - EPS; x += 1) positions.push(x);
+      positions.push(W - 1.5);
       positions.push(W - 0.5);
+    } else {
+      // Whole widths: uniform 1m spacing from 0.5 to W - 0.5.
+      var wholeCount = Math.floor(W + EPS);
+      for (var i = 0; i < wholeCount; i++) positions.push(0.5 + i);
     }
     return positions;
   }

@@ -267,19 +267,26 @@ For half-metre widths, the last two uprights are 0.5m apart on the half-metre si
 old `bars + 1` formula. LSU Sets = `ceil(uprights / 2)`, so half-metre widths that flip
 across an odd upright count (4.5m, 6.5m, …) cost an extra LSU Set.
 
+**Half-metre positioning update (v0.17.1, Adam 2026-08-28):** the tight 0.5m gap sits
+between the **third-to-last** and **second-to-last** uprights, not between the last two.
+So 5.5m's second-from-right dot is at 4.0m (not 4.5m), 6.5m's at 5.0m (not 5.5m), etc.
+
 | Width | Uprights | LSU Sets | Positions (m) |
 |---|---|---|---|
 | 3.0m | 3 | 2 | 0.5, 1.5, 2.5 |
-| **3.5m** | **4** | 2 | 0.5, 1.5, 2.5, **3.0** |
+| **3.5m** | **4** | 2 | 0.5, 1.5, **2.0**, 3.0 |
 | 4.0m | 4 | 2 | 0.5, 1.5, 2.5, 3.5 |
-| **4.5m** | **5** | **3** | 0.5, 1.5, 2.5, 3.5, **4.0** |
+| **4.5m** | **5** | **3** | 0.5, 1.5, 2.5, **3.0**, 4.0 |
 | 5.0m | 5 | 3 | 0.5, 1.5, 2.5, 3.5, 4.5 |
-| **5.5m** | **6** | 3 | 0.5, 1.5, 2.5, 3.5, 4.5, **5.0** |
+| **5.5m** | **6** | 3 | 0.5, 1.5, 2.5, 3.5, **4.0**, 5.0 |
 | 6.0m | 6 | 3 | 0.5, 1.5, 2.5, 3.5, 4.5, 5.5 |
-| **6.5m** | **7** | **4** | 0.5, 1.5, 2.5, 3.5, 4.5, 5.5, **6.0** |
+| **6.5m** | **7** | **4** | 0.5, 1.5, 2.5, 3.5, 4.5, **5.0**, 6.0 |
+| **7.5m** | **8** | 4 | 0.5, 1.5, 2.5, 3.5, 4.5, 5.5, **6.0**, 7.0 |
 | 20.0m | 20 | 10 | 0.5, 1.5, …, 19.5 |
 
-Preview draws yellow dots at these exact positions instead of at bar seams.
+Preview draws yellow dots at these exact positions instead of at bar seams. **Upright
+count is unchanged** — only positions shift on half-metre widths, so ballast plates,
+toppers and LSU Set counts are the same as v0.17.0.
 
 ### Cable spares + Ethercon Joiner (v0.17.0)
 
