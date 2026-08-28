@@ -258,13 +258,34 @@
  *   Preview now labels the COLUMNS (1..cols) along the top and ROWS
  *   (A..) down the left side, with A = BOTTOM row (physical build order).
  *
- * STILL TBD after v0.19.0:
+ * v0.20.0 - REM GROUND OUTDOOR BLOCK + UNIVIEW FLOWN 0.5m CENTRED + MIRROR BACKUP:
+ *   - REM ground support is now REJECTED outdoors (Adam, 2026-08-28). The
+ *     dialog disables the Ground option in the Support dropdown when Outdoor +
+ *     REM is selected, and computeKit returns an error if forced via API.
+ *   - Uniview flown 0.5m rigging bar now sits in the wall MIDDLE (v0.19.0
+ *     shipped this fix for ground only; flown was still on the right edge).
+ *     Uses the same univiewGroundBarLayout helper.
+ *   - Backup rule extended (Adam, 2026-08-28): "if the second processor is
+ *     used it parallels the ports from P1". New MIRROR mode where a second
+ *     processor fully mirrors the first (both P1's 10/20 ports usable as
+ *     primaries, P2's 10/20 ports are the backups on matching port numbers).
+ *     Q8 Backup now has 4 options: None / Pairs (same box) / Offset (same
+ *     box) / Mirror (P2 mirrors P1).
+ *     AUTO-UPGRADE: if user picks pairs or offset and the wall needs more
+ *     lines than a single box's usable capacity (total / 2), the mode auto-
+ *     upgrades to Mirror. Adam's rule: "if a wall only needs 5 lines then
+ *     split to the same processor" - i.e. below the same-box limit, keep the
+ *     user's chosen scheme; only escalate to Mirror when unavoidable.
+ *     For very large walls that need > total lines, mirror uses 2N processors
+ *     (pairs of pairs) - primary boxes 1, 3, 5 ... mirrored by 2, 4, 6 ...
+ *
+ * STILL TBD after v0.20.0:
  *
  * PDF generation is TEMPORARILY BLOCKED - see PDF_ENABLED below. When ready,
  * flip the flag on and reformat buildVideowallPdf() to match the final layout
  * (do not delete the scaffolding).
  *
- * Version: 0.19.0
+ * Version: 0.20.0
  */
 
 (function () {
@@ -276,7 +297,7 @@
   var EPS = 1e-6;
   function isMult(v, step) { var q = v / step; return Math.abs(q - Math.round(q)) < EPS; }
 
-  var TOOL_VERSION = "0.19.0";  // shown in the dialog header; keep in sync with the banner above.
+  var TOOL_VERSION = "0.20.0";  // shown in the dialog header; keep in sync with the banner above.
 
   // ---------------------------------------------------------------------------
   // PART CATALOGUE (v0.12.0)
@@ -855,35 +876,91 @@
   //   "pairs"  - adjacent: 1&2, 3&4, 5&6 ...
   //   "offset" - half-offset: MX40 (20 ports) 1&11, 2&12 ...
   //                           MX30 (10 ports) 1&6,  2&7  ...
-  var BACKUP_MODES = ["none", "pairs", "offset"];
+  var BACKUP_MODES = ["none", "pairs", "offset", "mirror"];
 
   // Work out which physical port (and which processor) each data line lands on.
+  // Port allocation. Backup modes (Adam refined 2026-08-28):
+  //   none    - no backup. procs = ceil(lines / total).
+  //   pairs   - same-box pairing (1&2, 3&4 ...) IF the wall fits (lines <= total/2).
+  //             Otherwise auto-upgrades to MIRROR mode.
+  //   offset  - same-box half-offset (MX40 1&11 ...; MX30 1&6 ...) IF the wall
+  //             fits (lines <= total/2). Otherwise auto-upgrades to MIRROR.
+  //   mirror  - NEW: dedicated second processor mirrors the first. Every line
+  //             gets its primary on Pn and its backup on Pn+1 (same port
+  //             number). procs = 2 x ceil(lines / total).
+  //
+  // Adam's rule: "if the second processor is used it parrells the ports from P1.
+  // an MX30 gives 10 primary on P1 and 10 backup on P2. but if a wall only
+  // needs a 5 lines then split to the same processor." The auto-upgrade from
+  // pairs/offset to mirror when lines > total/2 is what implements this - the
+  // user picks a same-box scheme for small walls, mirror kicks in automatically
+  // when a second box is unavoidable.
   function allocatePorts(processorModel, backup, lines) {
     var total = processorPorts(processorModel);
     if (!total || !(lines > 0)) return null;
     var half = total / 2;
     var redundant = (backup && backup !== "none");
-    var perProcessor = redundant ? half : total;
+
+    // Auto-upgrade same-box modes to mirror when the wall exceeds a single box's
+    // usable capacity (total / 2 with backup).
+    var effectiveMode = backup;
+    if (redundant && backup !== "mirror" && lines > half) {
+      effectiveMode = "mirror";
+    }
 
     var assignments = [];
-    for (var i = 0; i < lines; i++) {
-      var slot = i % perProcessor;
-      var primary, back = null;
-      if (!redundant)              { primary = slot + 1; }
-      else if (backup === "pairs") { primary = slot * 2 + 1; back = slot * 2 + 2; }
-      else                         { primary = slot + 1;     back = slot + 1 + half; }
-      assignments.push({
-        processor: Math.floor(i / perProcessor) + 1,
-        primary: primary,
-        backup: back
-      });
+    var processors, perProcessor;
+
+    if (!redundant) {
+      perProcessor = total;
+      processors = Math.ceil(lines / total);
+      for (var i = 0; i < lines; i++) {
+        assignments.push({
+          processor: Math.floor(i / total) + 1,
+          primary: (i % total) + 1,
+          backup: null
+        });
+      }
+    } else if (effectiveMode === "mirror") {
+      // Pairs of processors: even index = primary, odd index = backup mirror.
+      perProcessor = total;
+      var procPairs = Math.ceil(lines / total);
+      processors = procPairs * 2;
+      for (var j = 0; j < lines; j++) {
+        var pairIdx = Math.floor(j / total);
+        var portIdx = (j % total) + 1;
+        assignments.push({
+          processor: pairIdx * 2 + 1,      // primary box: 1, 3, 5, ...
+          primary: portIdx,
+          backup: portIdx,                  // same port number, mirrored on next box
+          backupProcessor: pairIdx * 2 + 2  // mirror box: 2, 4, 6, ...
+        });
+      }
+    } else {
+      // Same-box pairs or offset - fits because lines <= half.
+      perProcessor = half;
+      processors = 1;
+      for (var k = 0; k < lines; k++) {
+        var slot = k;
+        var primary, back;
+        if (effectiveMode === "pairs") { primary = slot * 2 + 1; back = slot * 2 + 2; }
+        else                           { primary = slot + 1;     back = slot + 1 + half; }
+        assignments.push({
+          processor: 1,
+          primary: primary,
+          backup: back
+        });
+      }
     }
+
     return {
       assignments: assignments,
       totalPorts: total,
       perProcessor: perProcessor,
-      processors: Math.ceil(lines / perProcessor),
-      redundant: redundant
+      processors: processors,
+      redundant: redundant,
+      mode: effectiveMode,
+      autoUpgraded: (effectiveMode === "mirror" && backup !== "mirror")
     };
   }
 
@@ -994,6 +1071,9 @@
       return { ok: false, error: "Pitch must be 2.6mm or 3.9mm" };
     if (opts.pitch === "2.6mm" && opts.environment === "outdoor")
       return { ok: false, error: "2.6mm is indoor only" };
+    // REM ground support cannot be used outdoors (Adam, 2026-08-28).
+    if (opts.pitch === "3.9mm" && opts.environment === "outdoor" && opts.support === "ground")
+      return { ok: false, error: "Chauvet REM ground support cannot be used outdoors - fly it instead" };
 
     // Processor mode - drives the port bandwidth lookup.
     var procModel = (opts.processorModel === "mx40pro") ? "mx40pro" : "mx30";
@@ -1162,9 +1242,10 @@
     var alloc = allocatePorts(procModel, backup, portMap.portCount);
     portMap.ports.forEach(function (pt, i) {
       var a = alloc.assignments[i];
-      pt.processor   = a.processor;
-      pt.primaryPort = a.primary;
-      pt.backupPort  = a.backup;
+      pt.processor       = a.processor;
+      pt.primaryPort     = a.primary;
+      pt.backupPort      = a.backup;
+      pt.backupProcessor = a.backupProcessor || null;   // set only in mirror mode
       // What gets stamped on the panels: the physical port you actually plug.
       // Prefixed with the processor number only when there's more than one.
       pt.label = (alloc.processors > 1 ? a.processor + ":" : "") + a.primary;
@@ -1212,6 +1293,7 @@
       refresh: refresh, bitDepth: bitDepth, processorModel: procModel,
       // Processors + redundancy
       backup: backup, redundant: alloc.redundant,
+      backupMode: alloc.mode, backupAutoUpgraded: alloc.autoUpgraded,
       processorCount: alloc.processors, portsPerProcessor: alloc.perProcessor,
       totalPortsPerProcessor: alloc.totalPorts, upgradeSuggestion: upgrade,
       // Ballast (null when flown)
@@ -2013,7 +2095,12 @@
 
     // Q8 Backup - halves the usable ports, so it can change the processor count.
     var bkpWrap = field("Backup");
-    var bkpSel  = select([["none", "None"], ["pairs", "Pairs (1&2, 3&4)"], ["offset", "Offset (1&11, 2&12)"]]);
+    var bkpSel  = select([
+      ["none",   "None"],
+      ["pairs",  "Pairs (same box: 1&2, 3&4)"],
+      ["offset", "Offset (same box: 1&11, 2&12)"],
+      ["mirror", "Mirror (P2 mirrors P1)"]
+    ]);
     bkpWrap.appendChild(bkpSel); colControls.appendChild(bkpWrap);
 
     var kitBox = el("div", null, "font-size:13px;");
@@ -2041,6 +2128,19 @@
       rigWrap.style.display = (supSel.value === "flown" && pitchSel.value === "3.9mm") ? "" : "none";
     }
 
+    // REM ground cannot be used outdoors (Adam, 2026-08-28). Disable the Ground
+    // option in Support when REM + Outdoor is selected, and force Flown.
+    function syncSupportOptions() {
+      var groundOpt = Array.prototype.slice.call(supSel.options).filter(function (o) { return o.value === "ground"; })[0];
+      var isRemOutdoor = (pitchSel.value === "3.9mm" && envSel.value === "outdoor");
+      if (isRemOutdoor) {
+        groundOpt.disabled = true;
+        if (supSel.value === "ground") supSel.value = "flown";
+      } else {
+        groundOpt.disabled = false;
+      }
+    }
+
     // The MX30 has no 12bit mode - disable it and fall back to 10bit.
     function syncBitDepthOptions() {
       var allowed = bitDepthsFor(procModelSel.value);
@@ -2054,6 +2154,7 @@
 
     function render() {
       syncEnvOptions();
+      syncSupportOptions();
       syncRiggingVisibility();
       syncBitDepthOptions();
       var res = computeKit({
@@ -2088,7 +2189,14 @@
         var col = portColour(pt.port);
         var rowLbl = "row " + (res.rows - pt.row);   // label rows from the bottom up
         var portLbl = (res.processorCount > 1 ? "P" + pt.processor + " " : "") + "port " + pt.primaryPort;
-        var bkpLbl  = pt.backupPort ? '<span style="color:#0a7;">+' + pt.backupPort + '</span>' : '';
+        // Mirror backup lands on a different processor at the same port number;
+        // same-box backup lands on a different port on the same processor.
+        var bkpLbl = "";
+        if (pt.backupPort) {
+          bkpLbl = pt.backupProcessor
+            ? '<span style="color:#0a7;">+P' + pt.backupProcessor + ':' + pt.backupPort + '</span>'
+            : '<span style="color:#0a7;">+' + pt.backupPort + '</span>';
+        }
         portHtml += '<div style="display:flex;align-items:center;gap:8px;padding:2px 0;">' +
           '<span style="width:13px;height:13px;border-radius:3px;background:' + col + ';flex-shrink:0;"></span>' +
           '<span style="width:72px;color:#333;">' + portLbl + '</span>' +
@@ -2111,12 +2219,28 @@
       }
       // Processor / port budget.
       var procName = res.processorModel === "mx40pro" ? "MX40 Pro" : "MX30";
+      var isMirror = res.backupMode === "mirror";
+      var primaryProcs = isMirror ? (res.processorCount / 2) : res.processorCount;
+      // Total usable primary lines across the fleet:
+      //   same-box: procs * (total / 2)
+      //   mirror:   (procs / 2) * total  (each primary box uses ALL its ports)
+      //   none:     procs * total
+      var totalUsable = isMirror
+        ? primaryProcs * res.totalPortsPerProcessor
+        : res.processorCount * res.portsPerProcessor;
       portHtml += '<div style="margin-top:8px;font-size:12px;color:#333;">' +
         '<b>' + res.processorCount + ' x ' + procName + '</b> ' +
-        '<span style="color:#777;">&middot; ' + res.portsPerProcessor + ' usable port' +
-        (res.portsPerProcessor === 1 ? '' : 's') + ' each' +
-        (res.redundant ? ' (' + res.totalPortsPerProcessor + ' ports, halved for backup)' : '') +
-        ' &middot; ' + res.portCount + ' used of ' + (res.processorCount * res.portsPerProcessor) + '</span></div>';
+        '<span style="color:#777;">&middot; ' +
+        (isMirror
+          ? primaryProcs + ' primary + ' + primaryProcs + ' mirror backup (P2 mirrors P1)'
+          : res.portsPerProcessor + ' usable port' + (res.portsPerProcessor === 1 ? '' : 's') + ' each' +
+            (res.redundant ? ' (' + res.totalPortsPerProcessor + ' ports, halved for backup)' : '')) +
+        ' &middot; ' + res.portCount + ' used of ' + totalUsable + '</span></div>';
+      if (res.backupAutoUpgraded) {
+        portHtml += '<div style="margin-top:2px;font-size:11px;color:#0a7;">' +
+          '&#10132; ' + res.portCount + ' lines exceeds one-box capacity, auto-upgraded to Mirror mode ' +
+          '(P' + primaryProcs + ' primary + P' + res.processorCount + ' full backup).</div>';
+      }
       if (res.upgradeSuggestion) {
         portHtml += '<div style="margin-top:4px;font-size:11px;color:#b07b00;">' + res.upgradeSuggestion + '</div>';
       }
@@ -2177,16 +2301,22 @@
         // REM flown: no Adam-specific rule yet - dots fall back to bars+1 seams.
         var topPositions = null;
         var uprightsF;
+        var topFlatBars = null;
         if (pitch === "2.6mm") {
           topPositions = univiewUprightPositions(res.width);
           uprightsF = topPositions.length;
+          // Uniview flown: 0.5m rigging bar in the MIDDLE, same rule as Uniview
+          // ground (Adam, 2026-08-28 - v0.19.0 only fixed ground, this catches flown).
+          topFlatBars = univiewGroundBarLayout(f.bars_1 || 0, f.bars_05 || 0);
         } else {
           uprightsF = (f.bars_1 || 0) + (f.bars_05 || 0) + 1;
         }
         svgOpts.topBar = {
           label: (pitch === "2.6mm" ? "Uniview UR Pro" : "Chauvet REM") +
             " Rigging Bar (" + (pitch === "3.9mm" && rigSel.value === "clamp" ? "clamp" : "sling") + ")",
-          bars: barsFromCounts(0, 0, f.bars_1 || 0, f.bars_05 || 0),
+          // Uniview uses explicit flatBars (0.5m centred); REM keeps count-based bars.
+          bars: topFlatBars ? null : barsFromCounts(0, 0, f.bars_1 || 0, f.bars_05 || 0),
+          flatBars: topFlatBars,
           totalM: res.width,
           uprights: uprightsF,
           uprightPositions: topPositions

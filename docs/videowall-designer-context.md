@@ -259,7 +259,41 @@ e.g. `Indoor Videowall 4w x 3h 3.9mm Flown-Sling MX30`.
 | v0.17.0 | **Uniview cap fix + cable spares + joiner + REM upright rule** — Uniview WIDTH uncapped, HEIGHT capped 4m; cable spares; Ethercon Joiner `YW-00453` for REM lines >20m; REM upright count = `ceil(W)`. Loader v0.1.101 |
 | v0.17.1 | **REM upright position tweak** — tight 0.5m gap shifts one position IN from the right on half-metre widths. Loader v0.1.102 |
 | v0.18.0 | **Uniview upright rule** — dots at panel middles per Adam's per-width spec. Applies to flown top bar AND ground foot bar. Ground kits driven by uprights, ballast follows. Loader v0.1.103 |
-| **v0.19.0** | **Uniview refinement + 0.5m bar centred + axis labels** — new per-width upright specs for 3m, 4m, 4.5m; 0.5m Uniview ground bar moves to wall middle for half-metre widths; preview labels columns 1..N along top and rows A.. down left (A = bottom). Loader v0.1.104 |
+| v0.19.0 | **Uniview refinement + 0.5m bar centred + axis labels** — new per-width upright specs for 3m, 4m, 4.5m; 0.5m Uniview ground bar moves to wall middle; column/row axis labels. Loader v0.1.104 |
+| **v0.20.0** | **REM ground outdoor block + Uniview FLOWN 0.5m centred + Mirror backup** — REM ground rejected outdoors; Uniview flown 0.5m rigging bar now centred (v0.19.0 only fixed ground); new backup Mirror mode where P2 fully mirrors P1, auto-upgrades from pairs/offset when wall exceeds single-box capacity. Loader v0.1.105 |
+
+### REM ground outdoor block (v0.20.0)
+
+Chauvet REM 3.9mm ground support cannot be used outdoors (Adam, 2026-08-28). The dialog
+disables Ground in the Support dropdown when Outdoor + REM is selected; `computeKit`
+returns `"Chauvet REM ground support cannot be used outdoors - fly it instead"` if called
+directly with that combination. REM flown outdoors is still supported.
+
+### Backup rule (v0.20.0 — Adam refined)
+
+*"if the second processor is used it parallels the ports from P1. an MX30 gives 10 primary
+on P1 and 10 backup on P2. but if a wall only needs 5 lines then split to the same processor."*
+
+Q8 Backup now offers four options:
+
+| Mode | Placement |
+|---|---|
+| **None** | No backup. |
+| **Pairs** (same box) | Adjacent ports on one box: 1&2, 3&4, … Only fits `≤ total/2` lines. |
+| **Offset** (same box) | Half-offset on one box: MX40 1&11, 2&12 … / MX30 1&6, 2&7 …  Only fits `≤ total/2` lines. |
+| **Mirror** (second box) | Primary on Pn, backup on Pn+1 at the same port number. `procs = 2 × ceil(lines / total)`. |
+
+**Auto-upgrade** — if the user picks Pairs or Offset and the wall needs more lines than one
+box's same-box capacity (`total / 2` = 5 for MX30, 10 for MX40 Pro), the mode automatically
+upgrades to Mirror. The preview shows an amber note when this happens.
+
+**Very large walls** (`lines > total`) get pairs of pairs: primary boxes 1, 3, 5, … each
+mirrored by 2, 4, 6, … So an MX30 wall needing 12 lines allocates 4 boxes total —
+P1 primary (ports 1-10) + P2 backup, P3 primary (ports 1-2) + P4 backup.
+
+Port stamp on panels reads `Pn:port`. Backup label in the port list reads `+Pm:port` in
+Mirror mode (different processor, same port), or `+port` in same-box modes (same
+processor, different port).
 
 ### Uniview upright rule (v0.19.0 — authoritative refinement)
 
