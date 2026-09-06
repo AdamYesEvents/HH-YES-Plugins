@@ -279,13 +279,41 @@
  *     For very large walls that need > total lines, mirror uses 2N processors
  *     (pairs of pairs) - primary boxes 1, 3, 5 ... mirrored by 2, 4, 6 ...
  *
- * STILL TBD after v0.20.0:
+ * v0.21.0 - MAP TOGGLES (Adam, 2026-09-06):
+ *   Preview now shows ONE map at a time, picked via a Data / Rigging radio
+ *   above the SVG. Radio state (mapMode) is closure-scoped and drives which
+ *   layers buildWallSvg emits:
+ *     Data     - per-panel port colours + serpentine feed path + start badges,
+ *                no rigging overlays. (This is what the preview showed before.)
+ *     Rigging  - blank dark cells, no port colours, top/foot rigging bars +
+ *                upright dots + bar-length legend visible.
+ *   Frame, axes and W/H labels are the always-visible base regardless of mode.
+ *   Bottom summary (kit list, port list, cabling, processor info) is unchanged
+ *   and always visible - the toggle only affects the SVG preview + legend.
+ *
+ *   Wiring: previewInner (persistent div inside colPreview) receives the SVG
+ *   via innerHTML; the radio group above it survives re-renders. buildWallSvg
+ *   accepts opts.mapMode ("data" | "rigging"); it nulls out ports for rigging
+ *   mode and nulls out topBar/footBar for data mode. Existing cell-fill logic
+ *   already renders blank #1D1D3C when the port map is empty, so the mode
+ *   split is a two-variable gate at the top of the function.
+ *
+ *   Power and Port-vs-Data split are deferred. Adam picked "same view, rename
+ *   Port -> Data" for now, so there's one signal-oriented map; a separate Port
+ *   map (per-panel colouring distinct from cable/data run) can be added later
+ *   without touching the toggle infrastructure. Power map awaits per-panel
+ *   wattage in parts.json and a distro spec.
+ *
+ * STILL TBD after v0.21.0:
  *
  * PDF generation is TEMPORARILY BLOCKED - see PDF_ENABLED below. When ready,
  * flip the flag on and reformat buildVideowallPdf() to match the final layout
  * (do not delete the scaffolding).
  *
- * Version: 0.20.0
+ * Rear-scaff hardware (both ground systems) and its render on the Rigging map
+ * land in v0.22.0.
+ *
+ * Version: 0.21.0
  */
 
 (function () {
@@ -297,7 +325,7 @@
   var EPS = 1e-6;
   function isMult(v, step) { var q = v / step; return Math.abs(q - Math.round(q)) < EPS; }
 
-  var TOOL_VERSION = "0.20.0";  // shown in the dialog header; keep in sync with the banner above.
+  var TOOL_VERSION = "0.21.0";  // shown in the dialog header; keep in sync with the banner above.
 
   // ---------------------------------------------------------------------------
   // PART CATALOGUE (v0.12.0)
@@ -1333,14 +1361,22 @@
   // drawn over the top with a start marker on the first panel of each line.
   function buildWallSvg(cols, rows, opts) {
     opts = opts || {};
+    // Map mode (v0.21.0): the preview shows one map at a time. Data = current
+    // per-panel port colours + serpentine feed path + start badges. Rigging =
+    // blank dark cells + rigging bar overlays + upright dots (+ rear scaff from
+    // v0.22.0). The frame, axes and W/H labels are the always-visible base
+    // regardless of mode. Radio in the dialog drives this, defaulting to "data".
+    var mapMode = opts.mapMode || "data";
+    var isRigging = mapMode === "rigging";
+    var isData = !isRigging;
     var maxW = opts.maxW || 420, maxH = opts.maxH || 260, pad = 24;
     var height = opts.height || rows;                       // wall height in metres
     var trim = Math.max(0, rows - height);                  // 0 or 0.5 typically
-    // Hardware overlays draw outside the wall grid, so we need vertical head/foot
-    // room. topBar = flown rigging bar above the wall; footBar = ground base bar
-    // beneath. Their heights are the reserved gap in SVG pixels.
-    var topBar  = opts.topBar  || null;    // { label } or null (flown)
-    var footBar = opts.footBar || null;    // { label, uprights? } or null (ground)
+    // Hardware overlays only show on the Rigging map (v0.21.0). topBar = flown
+    // rigging bar above the wall; footBar = ground base bar beneath. Their
+    // heights are the reserved gap in SVG pixels.
+    var topBar  = isRigging ? (opts.topBar  || null) : null;
+    var footBar = isRigging ? (opts.footBar || null) : null;
     var extraTop  = topBar  ? 22 : 0;
     var extraFoot = footBar ? 26 : 0;
     // Column numbers on top + row letters on left (Adam v0.19.0).
@@ -1355,7 +1391,9 @@
     var W = panelW * cols, H = unit * height;
     var SW = W + pad * 2 + rowLabelGap, SH = H + pad * 2 + extraTop + extraFoot + colLabelGap;
     var ox = pad + rowLabelGap, oy = pad + extraTop + colLabelGap;
-    var ports = opts.ports || null;
+    // ports drive Data-map content (cell fills, port labels, feed path,
+    // start badges). Hidden on the Rigging map.
+    var ports = isData ? (opts.ports || null) : null;
 
     // The TOP row (r==0) is trimmed when height isn't a whole metre.
     function cellY(r) { return oy + (r === 0 ? 0 : (r - trim) * panelH); }
@@ -2033,6 +2071,32 @@
     body.appendChild(colPreview); body.appendChild(colKit); body.appendChild(colControls);
     panel.appendChild(body);
 
+    // v0.21.0 map toggle. Radio above the preview picks which map to render
+    // (Data / Rigging). One at a time. Persistent DOM so state survives the
+    // render() calls that swap previewInner.innerHTML. render() is hoisted so
+    // referencing it inside the change handler is safe.
+    var mapMode = "data";
+    var mapToggle = el("div", null, "display:flex;gap:14px;margin:0 0 8px;font-size:12px;color:#333;align-items:center;align-self:flex-start;");
+    var mapLbl = el("span", null, "font-size:11px;letter-spacing:.04em;color:#888;text-transform:uppercase;");
+    mapLbl.textContent = "Map";
+    mapToggle.appendChild(mapLbl);
+    function makeMapRadio(value, label) {
+      var wrap = el("label", null, "display:inline-flex;align-items:center;gap:4px;cursor:pointer;");
+      var r = el("input", { type: "radio", name: "vw-map-mode", value: value });
+      if (value === mapMode) r.checked = true;
+      r.addEventListener("change", function () {
+        if (r.checked) { mapMode = value; render(); }
+      });
+      var span = el("span"); span.textContent = label;
+      wrap.appendChild(r); wrap.appendChild(span);
+      return wrap;
+    }
+    mapToggle.appendChild(makeMapRadio("data",    "Data"));
+    mapToggle.appendChild(makeMapRadio("rigging", "Rigging"));
+    colPreview.appendChild(mapToggle);
+    var previewInner = el("div", null, "width:100%;display:flex;flex-direction:column;align-items:center;");
+    colPreview.appendChild(previewInner);
+
     function field(label) {
       var w = el("div", null, "margin-bottom:14px;");
       w.innerHTML = '<div style="font-size:11px;letter-spacing:.04em;color:#888;text-transform:uppercase;margin-bottom:4px;">' + label + '</div>';
@@ -2173,7 +2237,7 @@
       state.result = res;
 
       if (!res.ok) {
-        colPreview.innerHTML = "";
+        previewInner.innerHTML = "";
         kitBox.innerHTML = '<div style="color:#b00;font-size:13px;">' + res.error + '</div>';
         renderFooter(false, res.error);
         return;
@@ -2270,7 +2334,9 @@
       portHtml += '</div>';
 
       // Hardware overlays with coloured bar segments per physical length.
-      var svgOpts = { height: res.height, ports: res.ports };
+      // mapMode (v0.21.0) drives which layer buildWallSvg draws - Data shows
+      // ports + serpentine, Rigging shows bars + upright dots (+ scaff from v0.22.0).
+      var svgOpts = { height: res.height, ports: res.ports, mapMode: mapMode };
       var pitch = pitchSel.value;
       function barsFromCounts(c15, c2, c1, c05) {
         var out = [];
@@ -2348,22 +2414,26 @@
         }
       }
       // Legend: colour swatches for every distinct length actually in use.
-      var lenSet = {};
-      if (svgOpts.topBar && svgOpts.topBar.bars)  svgOpts.topBar.bars.forEach(function (b)  { lenSet[b.lengthM.toFixed(1)] = 1; });
-      if (svgOpts.footBar && svgOpts.footBar.bars) svgOpts.footBar.bars.forEach(function (b) { lenSet[b.lengthM.toFixed(1)] = 1; });
-      if (svgOpts.footBar && svgOpts.footBar.flatBars) svgOpts.footBar.flatBars.forEach(function (m) { lenSet[m.toFixed(1)] = 1; });
-      var lens = Object.keys(lenSet).sort();
+      // Only meaningful when the Rigging map is showing the bars (v0.21.0).
       var legend = "";
-      if (lens.length) {
-        legend = '<div style="margin-top:4px;font-size:11px;color:#777;display:flex;gap:12px;flex-wrap:wrap;">';
-        lens.forEach(function (lm) {
-          legend += '<span style="display:inline-flex;align-items:center;gap:4px;">' +
-            '<span style="width:12px;height:6px;border-radius:2px;background:' + (({"0.5":"#0d9488","1.0":"#2563eb","1.5":"#d97706","2.0":"#7c3aed"})[lm] || "#26215C") + ';"></span>' +
-            lm.replace(/\.0$/, "") + 'm</span>';
-        });
-        legend += '</div>';
+      if (mapMode === "rigging") {
+        var lenSet = {};
+        if (svgOpts.topBar && svgOpts.topBar.bars)  svgOpts.topBar.bars.forEach(function (b)  { lenSet[b.lengthM.toFixed(1)] = 1; });
+        if (svgOpts.footBar && svgOpts.footBar.bars) svgOpts.footBar.bars.forEach(function (b) { lenSet[b.lengthM.toFixed(1)] = 1; });
+        if (svgOpts.topBar && svgOpts.topBar.flatBars) svgOpts.topBar.flatBars.forEach(function (m) { lenSet[m.toFixed(1)] = 1; });
+        if (svgOpts.footBar && svgOpts.footBar.flatBars) svgOpts.footBar.flatBars.forEach(function (m) { lenSet[m.toFixed(1)] = 1; });
+        var lens = Object.keys(lenSet).sort();
+        if (lens.length) {
+          legend = '<div style="margin-top:4px;font-size:11px;color:#777;display:flex;gap:12px;flex-wrap:wrap;">';
+          lens.forEach(function (lm) {
+            legend += '<span style="display:inline-flex;align-items:center;gap:4px;">' +
+              '<span style="width:12px;height:6px;border-radius:2px;background:' + (({"0.5":"#0d9488","1.0":"#2563eb","1.5":"#d97706","2.0":"#7c3aed"})[lm] || "#26215C") + ';"></span>' +
+              lm.replace(/\.0$/, "") + 'm</span>';
+          });
+          legend += '</div>';
+        }
       }
-      colPreview.innerHTML = buildWallSvg(res.cols, res.rows, svgOpts) + legend + portHtml;
+      previewInner.innerHTML = buildWallSvg(res.cols, res.rows, svgOpts) + legend + portHtml;
 
       var byCat = {};
       res.items.forEach(function (it) { (byCat[it.category] = byCat[it.category] || []).push(it); });
