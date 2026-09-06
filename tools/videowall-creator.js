@@ -348,13 +348,30 @@
  *   one stock size fits. If he wants redundancy, swap pickLedgers for a
  *   double-tube pattern under some width threshold - no other code changes.
  *
- * STILL TBD after v0.22.0:
+ * v0.23.0 - STANDARDS + LEVEL RULE TWEAK (Adam, 2026-09-06):
+ *   Rigging map now draws the ground-support STANDARDS as red vertical lines
+ *   at each upright position, running from the floor (bottom of the wall) to
+ *   just above the top edge (LSU topper / Uniview equivalent extends slightly
+ *   past). Ground walls only; flown walls have no standards to draw. Reuses
+ *   scaff.uprightPositionsM so no new opts input. Drawn behind the dashed
+ *   scaff levels so the horizontals cross over the reds visually.
+ *
+ *   Level rule changed at Adam's request: firstLevelAboveFloorM 1.5 -> 1.0.
+ *   levelSpacingM unchanged at 1.5. New levels per wall height:
+ *     H=2m   -> 1 level  (1.0m)
+ *     H=3m   -> 2 levels (1.0m, 2.5m)   [was: 1.5m, 3.0m]
+ *     H=4.5m -> 3 levels (1.0m, 2.5m, 4.0m)
+ *     H=6m   -> 4 levels (1.0m, 2.5m, 4.0m, 5.5m)
+ *   Both constants live in PARTS.rearScaff, catalogue-editable without a
+ *   code release.
+ *
+ * STILL TBD after v0.23.0:
  *
  * PDF generation is TEMPORARILY BLOCKED - see PDF_ENABLED below. When ready,
  * flip the flag on and reformat buildVideowallPdf() to match the final layout
  * (do not delete the scaffolding).
  *
- * Version: 0.22.0
+ * Version: 0.23.0
  */
 
 (function () {
@@ -366,7 +383,7 @@
   var EPS = 1e-6;
   function isMult(v, step) { var q = v / step; return Math.abs(q - Math.round(q)) < EPS; }
 
-  var TOOL_VERSION = "0.22.0";  // shown in the dialog header; keep in sync with the banner above.
+  var TOOL_VERSION = "0.23.0";  // shown in the dialog header; keep in sync with the banner above.
 
   // ---------------------------------------------------------------------------
   // PART CATALOGUE (v0.12.0)
@@ -464,8 +481,8 @@
       ],
       clamp: { pn: "8231-B",   label: "500kg Truss Swivel Clamp Black" },
       leg:   { pn: "YW-00013", label: "1000mm Scaff Leg" },
-      firstLevelAboveFloorM: 1.5,
-      levelSpacingM: 1.5
+      firstLevelAboveFloorM: 1.0,     // Adam 2026-09-06: first horizontal at 1m
+      levelSpacingM: 1.5              // then every 1.5m up to wall height
     }
   };
   // Product family key for the catalogue: 2.6mm is Uniview, 3.9mm is Chauvet REM.
@@ -1757,13 +1774,28 @@
     if (topBar)  overlays += drawBar(oy - 10, 6, topBar, true);
     if (footBar) overlays += drawBar(oy + H + 6, 6, footBar, false);
 
-    // Rear scaffolding overlay (v0.22.0). Rigging map only. Ground walls only
-    // (opts.rearScaff is null on flown). Draws each level as a dashed horizontal
-    // line spanning the tube extent (with overhang past the outermost standards
-    // it covers), plus a small dot at every tube-to-standard crossing (which
-    // equals the clamp positions). Level height above the FLOOR is labelled at
-    // the left edge - floor = bottom of the wall grid.
+    // Standards + rear scaffolding overlay (v0.22.0 / v0.23.0 standards).
+    // Rigging map only. Ground walls only (opts.rearScaff is null on flown).
+    // Standards are the vertical uprights of the ground-support system; drawn
+    // as red vertical lines from the floor up to just above the top edge
+    // (LSU topper / Uniview equivalent extends slightly past). Reuses the
+    // upright positions carried on the scaff plan - no separate opts input.
+    // Drawn BEFORE the horizontal scaff lines so the dashed indigo runs cross
+    // over the red verticals visually.
     var scaff = isRigging ? (opts.rearScaff || null) : null;
+    var standardsSvg = "";
+    if (scaff && scaff.uprightPositionsM && scaff.uprightPositionsM.length) {
+      var stdCol = "#dc2626";
+      scaff.uprightPositionsM.forEach(function (m) {
+        var xc = (ox + m * unit).toFixed(1);
+        standardsSvg += '<line x1="' + xc + '" y1="' + (oy - 6).toFixed(1) +
+          '" x2="' + xc + '" y2="' + (oy + H).toFixed(1) +
+          '" stroke="' + stdCol + '" stroke-width="1.8" stroke-linecap="round" opacity="0.85"/>';
+      });
+    }
+    // Rear-scaff levels: dashed horizontal line at each level height with a
+    // dot at every tube-to-standard crossing (= clamp positions). Height
+    // labelled in the left gutter (floor = bottom of the wall grid).
     var scaffSvg = "";
     if (scaff && scaff.ok && scaff.levels > 0 && scaff.uprightPositionsM && scaff.uprightPositionsM.length >= 2) {
       var scaffCol = "#4f46e5";
@@ -1794,7 +1826,7 @@
     }
 
     return '<svg width="' + SW + '" height="' + SH + '" viewBox="0 0 ' + SW + ' ' + SH + '" xmlns="http://www.w3.org/2000/svg">' +
-      cells + nums + paths + overlays + scaffSvg + frame + wLbl + hLbl + axes + '</svg>';
+      cells + nums + paths + overlays + standardsSvg + scaffSvg + frame + wLbl + hLbl + axes + '</svg>';
   }
 
   // ===========================================================================

@@ -87,7 +87,7 @@
     ],
     "clamp": { "pn": "8231-B", "label": "500kg Truss Swivel Clamp Black" },
     "leg":   { "pn": "YW-00013", "label": "1000mm Scaff Leg" },
-    "firstLevelAboveFloorM": 1.5,
+    "firstLevelAboveFloorM": 1.0,
     "levelSpacingM": 1.5
   }
 }
