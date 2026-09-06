@@ -73,5 +73,21 @@
       "mode": "fixed",
       "fixed": { "lengthM": 15, "pn": "YW-04070", "label": "15m Uniview Starter Cable" }
     }
+  },
+
+  "_rearScaffNote": "Ground-supported walls only, both REM and Uniview (Adam, 2026-09-06). Horizontal scaff runs link the uprights (standards) together at the back for stability. LEVELS: first run at firstLevelAboveFloorM (1.5m), then every levelSpacingM (1.5m) up to wall height. TUBE CHOICE per level: smallest stock STRICTLY GREATER than the span it must cover - standards are 1m apart on REM (or as close as 0.5m on some Uniview widths) and a tube equal to the span lands exactly on the outer standards, leaving no bite for the clamps. Greedy chain: pick the longest single tube that fits from the current start standard, then start the next tube at the last standard the previous tube covered (tubes overlap at that shared standard). CLAMPS: 1 per tube-to-standard crossing. LEG (YW-00013) is NOT a ledger tube - it is a vertical scaff leg, listed here for catalogue completeness.",
+  "rearScaff": {
+    "stock": [
+      { "lengthM": 0.8, "pn": "YW-00026", "label": "800mm Scaff Bar" },
+      { "lengthM": 1.5, "pn": "YW-00012", "label": "1.5m Scaff Bar" },
+      { "lengthM": 2.0, "pn": "YW-00020", "label": "2m Scaff Bar" },
+      { "lengthM": 3.0, "pn": "YW-00022", "label": "3m Scaff Bar" },
+      { "lengthM": 3.5, "pn": "YW-01301", "label": "3.5m Scaff Bar" },
+      { "lengthM": 4.0, "pn": "YW-00024", "label": "4m Scaff Bar" }
+    ],
+    "clamp": { "pn": "8231-B", "label": "500kg Truss Swivel Clamp Black" },
+    "leg":   { "pn": "YW-00013", "label": "1000mm Scaff Leg" },
+    "firstLevelAboveFloorM": 1.5,
+    "levelSpacingM": 1.5
   }
 }

@@ -304,16 +304,57 @@
  *   without touching the toggle infrastructure. Power map awaits per-panel
  *   wattage in parts.json and a distro spec.
  *
- * STILL TBD after v0.21.0:
+ * v0.22.0 - REAR SCAFFOLDING (Adam, 2026-09-06):
+ *   Ground-supported walls (BOTH REM and Uniview) now include horizontal
+ *   scaff runs at the back linking the uprights (standards) together. Kit
+ *   lines appear under Rigging; visual overlay draws on the Rigging map only.
+ *
+ *   STOCK (all fetched from PARTS.rearScaff, catalogue-editable):
+ *     0.8m YW-00026, 1.5m YW-00012, 2m YW-00020, 3m YW-00022, 3.5m YW-01301,
+ *     4m YW-00024. Clamp: 8231-B (500kg Truss Swivel Clamp Black - supplier
+ *     code, not a YW). 1m Scaff Leg YW-00013 is in the catalogue for future
+ *     vertical use; NOT a ledger tube (won't get picked for horizontal runs).
+ *
+ *   LEVELS: firstLevelAboveFloorM = 1.5, levelSpacingM = 1.5, so a 3m wall
+ *   gets 2 levels (at 1.5m and 3.0m), 4.5m gets 3, 6m gets 4. Configurable in
+ *   PARTS.rearScaff.
+ *
+ *   TUBE PICKING (pickLedgers): greedy per level. From the leftmost standard,
+ *   try each subsequent standard as the tube's right end and pick the smallest
+ *   stock STRICTLY GREATER than the span. Keep extending until no stock covers
+ *   the next span, then emit that tube and continue from the last standard it
+ *   covered (tubes overlap at that shared standard). The strict-greater rule
+ *   is Adam's "use the next size up" for the clamp bite - standards are 1m
+ *   apart on REM (0.5m on some Uniview widths); a tube equal to the span
+ *   would land exactly on the outer standards with no bite left for the clamp.
+ *
+ *   CLAMPS: 1 per tube-to-standard crossing (Adam, 2026-09-06). Two tubes
+ *   sharing an overlap standard each contribute their own clamp there.
+ *
+ *   PREVIEW: on the Rigging map, each level draws as a dashed indigo line at
+ *   its height above the floor, with a small dot at every clamp crossing. The
+ *   level height labels sit in the left gutter. A summary block below the wall
+ *   lists tube counts by pn + total clamps + level count.
+ *
+ *   Sample outputs (verify against the running tool):
+ *     REM 3m  -> 1x 3m per level, 3 clamps/level
+ *     REM 5m  -> 1x 3.5m + 1x 1.5m per level, 6 clamps/level (overlap at 3.5m)
+ *     REM 20m -> 6x 3.5m + 1x 1.5m per level, 26 clamps/level
+ *     Uniview 1m -> 1x 0.8m per level, 2 clamps/level (0.5m span, next up)
+ *     Uniview 3m -> 1x 3m per level, 4 clamps/level (4 standards)
+ *
+ *   FUTURE: Adam may prefer double-tube redundancy on narrow walls (2 lighter
+ *   tubes overlapping vs 1 long tube). Current algo picks 1 long tube where
+ *   one stock size fits. If he wants redundancy, swap pickLedgers for a
+ *   double-tube pattern under some width threshold - no other code changes.
+ *
+ * STILL TBD after v0.22.0:
  *
  * PDF generation is TEMPORARILY BLOCKED - see PDF_ENABLED below. When ready,
  * flip the flag on and reformat buildVideowallPdf() to match the final layout
  * (do not delete the scaffolding).
  *
- * Rear-scaff hardware (both ground systems) and its render on the Rigging map
- * land in v0.22.0.
- *
- * Version: 0.21.0
+ * Version: 0.22.0
  */
 
 (function () {
@@ -325,7 +366,7 @@
   var EPS = 1e-6;
   function isMult(v, step) { var q = v / step; return Math.abs(q - Math.round(q)) < EPS; }
 
-  var TOOL_VERSION = "0.21.0";  // shown in the dialog header; keep in sync with the banner above.
+  var TOOL_VERSION = "0.22.0";  // shown in the dialog header; keep in sync with the banner above.
 
   // ---------------------------------------------------------------------------
   // PART CATALOGUE (v0.12.0)
@@ -406,6 +447,25 @@
         mode: "fixed",
         fixed: { lengthM: 15, pn: "YW-04070", label: "15m Uniview Starter Cable" }
       }
+    },
+    // Rear scaffolding for ground-supported walls (v0.22.0, Adam 2026-09-06).
+    // See _rearScaffNote in data/videowall-creator/parts.json for the picking
+    // rule and clamp count. Applies to BOTH ground systems (REM + Uniview);
+    // flown walls do not use rear scaff. `leg` (YW-00013) is not a ledger -
+    // it is a vertical scaff leg, listed here for catalogue completeness.
+    rearScaff: {
+      stock: [
+        { lengthM: 0.8, pn: "YW-00026", label: "800mm Scaff Bar" },
+        { lengthM: 1.5, pn: "YW-00012", label: "1.5m Scaff Bar" },
+        { lengthM: 2.0, pn: "YW-00020", label: "2m Scaff Bar" },
+        { lengthM: 3.0, pn: "YW-00022", label: "3m Scaff Bar" },
+        { lengthM: 3.5, pn: "YW-01301", label: "3.5m Scaff Bar" },
+        { lengthM: 4.0, pn: "YW-00024", label: "4m Scaff Bar" }
+      ],
+      clamp: { pn: "8231-B",   label: "500kg Truss Swivel Clamp Black" },
+      leg:   { pn: "YW-00013", label: "1000mm Scaff Leg" },
+      firstLevelAboveFloorM: 1.5,
+      levelSpacingM: 1.5
     }
   };
   // Product family key for the catalogue: 2.6mm is Uniview, 3.9mm is Chauvet REM.
@@ -843,6 +903,122 @@
     return rem === 0 ? caseSize : (caseSize - rem);
   }
 
+  // ---------------------------------------------------------------------------
+  // REAR SCAFFOLDING (v0.22.0)
+  // ---------------------------------------------------------------------------
+  // Ground-supported walls only, both REM and Uniview (Adam, 2026-09-06).
+  // Horizontal scaff runs link the uprights (standards) together at the back.
+  //
+  // LEVELS: first run at 1.5m above the floor, then every 1.5m up to wall
+  // height. levels = floor(H / firstLevelAboveFloorM) when spacing equals the
+  // first-level height (as it does today - both are 1.5m).
+  //
+  // TUBE CHOICE per level (pickLedgers): greedy. Starting at the leftmost
+  // standard, try each subsequent standard as the tube's right-hand end and
+  // find the smallest stock STRICTLY GREATER than the span. Keep advancing
+  // until either the next span exceeds every stock or we hit the last
+  // standard. Emit that tube, then start the next tube AT the standard the
+  // previous one ended on (so tubes overlap at that shared standard).
+  //
+  // Why "strictly greater": standards on REM are 1m apart (0.5m on tight-gap
+  // Uniview widths). A tube exactly equal to the span lands with its ends on
+  // the outer standards - no bite left for the clamp fitting. Next size up
+  // is what Adam wants.
+  //
+  // CLAMPS: 1 per tube-to-standard crossing (Adam, 2026-09-06). Two tubes
+  // sharing an overlap standard each contribute their own clamp there.
+  //
+  // Uncoverable spans (a single bay wider than 4m - shouldn't happen with the
+  // upright rules today) drop to a null tube; the caller emits a free-text row.
+  function pickLedgers(standards, stock) {
+    if (!standards || standards.length < 2) return [];
+    var sorted = stock.slice().sort(function (a, b) { return a.lengthM - b.lengthM; });
+    function smallestStrictlyGreater(spanM) {
+      for (var i = 0; i < sorted.length; i++) {
+        if (sorted[i].lengthM > spanM + EPS) return sorted[i];
+      }
+      return null;
+    }
+    var out = [];
+    var i = 0;
+    while (i < standards.length - 1) {
+      var startPos = standards[i];
+      var lastJ = -1, chosen = null;
+      for (var j = i + 1; j < standards.length; j++) {
+        var span = standards[j] - startPos;
+        var tube = smallestStrictlyGreater(span);
+        if (!tube) break;
+        lastJ = j; chosen = tube;
+      }
+      if (chosen === null) {
+        // Single bay bigger than the biggest tube - emit a null-tube marker
+        // so the caller can flag it. Advance one standard so we don't loop.
+        out.push({ tube: null, coversStandardsIdx: [i, i + 1], spanM: standards[i + 1] - startPos });
+        i = i + 1;
+        continue;
+      }
+      var covers = [];
+      for (var k = i; k <= lastJ; k++) covers.push(k);
+      out.push({ tube: chosen, coversStandardsIdx: covers, spanM: standards[lastJ] - startPos });
+      i = lastJ;
+    }
+    return out;
+  }
+
+  // Wall-level scaff plan.
+  //   H                wall height in metres
+  //   uprightPositions array of standard x-positions in metres, left-to-right
+  //   catalogue        PARTS.rearScaff (or the loaded JSON equivalent)
+  // Returns { levels, levelHeightsM, ledgersPerLevel, tubesByPn, totalClamps,
+  //           oversizeSpans } or { ok: false, error } if the catalogue is missing.
+  function rearScaffKit(H, uprightPositions, catalogue) {
+    if (!catalogue || !catalogue.stock) return { ok: false, error: "rearScaff catalogue missing" };
+    if (!(H > 0)) return { ok: false, error: "Height must be positive" };
+    if (!uprightPositions || uprightPositions.length < 2) {
+      // A single upright can't take a horizontal ledger. Emit an empty plan
+      // rather than erroring - the wall is still valid (e.g. Uniview 0.5m).
+      return { ok: true, levels: 0, levelHeightsM: [], ledgersPerLevel: [],
+        tubesByPn: {}, totalClamps: 0, oversizeSpans: [] };
+    }
+    var firstH  = catalogue.firstLevelAboveFloorM;
+    var spacing = catalogue.levelSpacingM;
+    var levelHeightsM = [];
+    for (var h = firstH; h <= H + EPS; h += spacing) levelHeightsM.push(+h.toFixed(3));
+    var levels = levelHeightsM.length;
+    if (levels === 0) {
+      return { ok: true, levels: 0, levelHeightsM: [], ledgersPerLevel: [],
+        tubesByPn: {}, totalClamps: 0, oversizeSpans: [] };
+    }
+
+    var ledgers = pickLedgers(uprightPositions, catalogue.stock);
+    var tubesByPn = {};
+    var clampsPerLevel = 0;
+    var oversizeSpans = [];
+    ledgers.forEach(function (l) {
+      if (!l.tube) { oversizeSpans.push(l.spanM); return; }
+      var key = l.tube.pn;
+      if (!tubesByPn[key]) tubesByPn[key] = { pn: l.tube.pn, label: l.tube.label, lengthM: l.tube.lengthM, qty: 0 };
+      tubesByPn[key].qty += levels;               // one tube per level
+      clampsPerLevel += l.coversStandardsIdx.length;
+    });
+
+    return {
+      ok: true,
+      levels: levels,
+      levelHeightsM: levelHeightsM,
+      // ledgers share the SAME layout at every level; caller draws them at each
+      // levelHeightsM row.
+      ledgersPerLevel: ledgers,
+      // Kept alongside so the preview can look up x-positions without also
+      // having to pass the raw uprights list. Copy, not reference.
+      uprightPositionsM: uprightPositions.slice(),
+      tubesByPn: tubesByPn,
+      clampsPerLevel: clampsPerLevel,
+      totalClamps: clampsPerLevel * levels,
+      oversizeSpans: oversizeSpans
+    };
+  }
+
   // ===========================================================================
   // PORT BANDWIDTH + PORT MAPPING (v0.9.0)
   // ===========================================================================
@@ -1136,6 +1312,7 @@
 
     var items = [];
     var ballast = null;                 // set only on ground-supported walls
+    var rearScaffPlan = null;           // set only on ground-supported walls (v0.22.0)
 
     // Panels branch by pitch (product family).
     //   3.9mm - Chauvet REM (indoor OR outdoor):  YW-00341 1000x500, YW-00342 500x500
@@ -1233,6 +1410,38 @@
         partNumber: PARTS.ballastPlate.pn,
         qty: ballast.totalPlates
       });
+
+      // Rear scaffolding (v0.22.0, Adam 2026-09-06): horizontal ledgers tying
+      // the standards together at the back. One run every 1.5m of height,
+      // starting 1.5m above the floor. Tubes chosen "next size up" from the
+      // span they must cover (standards are 1m apart on REM, sometimes 0.5m
+      // on Uniview; a tube equal to the span leaves no bite for the clamp).
+      // Both ground systems share the same catalogue (PARTS.rearScaff).
+      var uprightPositions = isUniview ? g26.uprightPositions : g39.uprightPositions;
+      rearScaffPlan = rearScaffKit(H, uprightPositions, PARTS.rearScaff);
+      if (rearScaffPlan.ok && rearScaffPlan.levels > 0) {
+        // Sort tubes shortest to longest for a readable line-item order.
+        var tubePns = Object.keys(rearScaffPlan.tubesByPn).sort(function (a, b) {
+          return rearScaffPlan.tubesByPn[a].lengthM - rearScaffPlan.tubesByPn[b].lengthM;
+        });
+        tubePns.forEach(function (pn) {
+          var t = rearScaffPlan.tubesByPn[pn];
+          items.push({ category: "Rigging",
+            label: t.label + " (rear scaff)",
+            partNumber: pn, qty: t.qty });
+        });
+        if (rearScaffPlan.totalClamps > 0) {
+          items.push({ category: "Rigging",
+            label: PARTS.rearScaff.clamp.label + " (rear scaff, 1 per tube-to-standard crossing)",
+            partNumber: PARTS.rearScaff.clamp.pn,
+            qty: rearScaffPlan.totalClamps });
+        }
+        rearScaffPlan.oversizeSpans.forEach(function (spanM) {
+          items.push({ category: "Rigging",
+            label: "Rear scaff bay " + spanM.toFixed(2) + "m exceeds 4m stock - spec extension tube manually",
+            partNumber: null, qty: 1 });
+        });
+      }
     }
 
     // ---- Processor -----------------------------------------------------------
@@ -1332,7 +1541,10 @@
       // that actually built the bars; other branches leave it null.
       barsFlown: (opts.support === "flown") ? (typeof rig !== "undefined" ? rig : null) : null,
       barsGround26: (opts.support === "ground" && isUniview) ? (typeof g26 !== "undefined" ? g26 : null) : null,
-      barsGround39: (opts.support === "ground" && !isUniview) ? (typeof g39 !== "undefined" ? g39 : null) : null
+      barsGround39: (opts.support === "ground" && !isUniview) ? (typeof g39 !== "undefined" ? g39 : null) : null,
+      // Rear scaff plan for the Rigging map preview (v0.22.0). Null when flown
+      // or when the wall has fewer than 2 standards (nothing to link).
+      rearScaff: rearScaffPlan
     };
   }
 
@@ -1545,8 +1757,44 @@
     if (topBar)  overlays += drawBar(oy - 10, 6, topBar, true);
     if (footBar) overlays += drawBar(oy + H + 6, 6, footBar, false);
 
+    // Rear scaffolding overlay (v0.22.0). Rigging map only. Ground walls only
+    // (opts.rearScaff is null on flown). Draws each level as a dashed horizontal
+    // line spanning the tube extent (with overhang past the outermost standards
+    // it covers), plus a small dot at every tube-to-standard crossing (which
+    // equals the clamp positions). Level height above the FLOOR is labelled at
+    // the left edge - floor = bottom of the wall grid.
+    var scaff = isRigging ? (opts.rearScaff || null) : null;
+    var scaffSvg = "";
+    if (scaff && scaff.ok && scaff.levels > 0 && scaff.uprightPositionsM && scaff.uprightPositionsM.length >= 2) {
+      var scaffCol = "#4f46e5";
+      var scaffOp  = 0.9;
+      var uPos = scaff.uprightPositionsM;
+      scaff.levelHeightsM.forEach(function (levelH) {
+        var y = (oy + H - levelH * unit).toFixed(1);
+        scaff.ledgersPerLevel.forEach(function (l) {
+          if (!l.tube) return;
+          var firstIdx = l.coversStandardsIdx[0];
+          var lastIdx  = l.coversStandardsIdx[l.coversStandardsIdx.length - 1];
+          var mid    = (uPos[firstIdx] + uPos[lastIdx]) / 2;
+          var half   = l.tube.lengthM / 2;
+          var x0 = (ox + Math.max(0, mid - half) * unit).toFixed(1);
+          var x1 = (ox + Math.min(cols * 0.5, mid + half) * unit).toFixed(1);
+          scaffSvg += '<line x1="' + x0 + '" y1="' + y + '" x2="' + x1 + '" y2="' + y +
+            '" stroke="' + scaffCol + '" stroke-width="1.7" stroke-dasharray="5,3" opacity="' + scaffOp + '"/>';
+          l.coversStandardsIdx.forEach(function (idx) {
+            var xc = (ox + uPos[idx] * unit).toFixed(1);
+            scaffSvg += '<circle cx="' + xc + '" cy="' + y + '" r="2.5" fill="' + scaffCol + '" opacity="' + scaffOp + '"/>';
+          });
+        });
+        // Level height label at left edge (inside the row-letter gutter).
+        scaffSvg += '<text x="' + (ox - 22) + '" y="' + y +
+          '" font-family="Arial,Helvetica,sans-serif" font-size="9" fill="' + scaffCol +
+          '" text-anchor="end" dominant-baseline="central">' + levelH + 'm</text>';
+      });
+    }
+
     return '<svg width="' + SW + '" height="' + SH + '" viewBox="0 0 ' + SW + ' ' + SH + '" xmlns="http://www.w3.org/2000/svg">' +
-      cells + nums + paths + overlays + frame + wLbl + hLbl + axes + '</svg>';
+      cells + nums + paths + overlays + scaffSvg + frame + wLbl + hLbl + axes + '</svg>';
   }
 
   // ===========================================================================
@@ -2335,8 +2583,8 @@
 
       // Hardware overlays with coloured bar segments per physical length.
       // mapMode (v0.21.0) drives which layer buildWallSvg draws - Data shows
-      // ports + serpentine, Rigging shows bars + upright dots (+ scaff from v0.22.0).
-      var svgOpts = { height: res.height, ports: res.ports, mapMode: mapMode };
+      // ports + serpentine, Rigging shows bars + upright dots + rear scaff (v0.22.0).
+      var svgOpts = { height: res.height, ports: res.ports, mapMode: mapMode, rearScaff: res.rearScaff || null };
       var pitch = pitchSel.value;
       function barsFromCounts(c15, c2, c1, c05) {
         var out = [];
@@ -2415,6 +2663,7 @@
       }
       // Legend: colour swatches for every distinct length actually in use.
       // Only meaningful when the Rigging map is showing the bars (v0.21.0).
+      // Rear scaff summary (v0.22.0) hangs off the legend when there's a plan.
       var legend = "";
       if (mapMode === "rigging") {
         var lenSet = {};
@@ -2431,6 +2680,33 @@
               lm.replace(/\.0$/, "") + 'm</span>';
           });
           legend += '</div>';
+        }
+        // Rear-scaff summary (ground only; null on flown, empty on tiny walls).
+        var scaff = res.rearScaff;
+        if (scaff && scaff.ok && scaff.levels > 0) {
+          var tubePns = Object.keys(scaff.tubesByPn).sort(function (a, b) {
+            return scaff.tubesByPn[a].lengthM - scaff.tubesByPn[b].lengthM;
+          });
+          legend += '<div style="margin-top:8px;font-size:12px;color:#333;">' +
+            '<b><span style="display:inline-block;width:14px;height:0;border-top:2px dashed #4f46e5;vertical-align:middle;margin-right:6px;"></span>Rear scaff</b> ' +
+            '<span style="color:#777;font-size:11px;">' + scaff.levels + ' level' + (scaff.levels === 1 ? '' : 's') +
+            ' &middot; ' + scaff.clampsPerLevel + ' clamps/level</span></div>';
+          tubePns.forEach(function (pn) {
+            var t = scaff.tubesByPn[pn];
+            legend += '<div style="margin-top:2px;font-size:12px;color:#333;">' +
+              '<span style="color:#666;font-size:11px;margin-right:6px;">' + pn + '</span>' +
+              t.label + ' <span style="color:#111;font-weight:500;">x ' + t.qty + '</span></div>';
+          });
+          if (scaff.totalClamps > 0 && PARTS.rearScaff && PARTS.rearScaff.clamp) {
+            legend += '<div style="margin-top:2px;font-size:12px;color:#333;">' +
+              '<span style="color:#666;font-size:11px;margin-right:6px;">' + PARTS.rearScaff.clamp.pn + '</span>' +
+              PARTS.rearScaff.clamp.label + ' <span style="color:#111;font-weight:500;">x ' + scaff.totalClamps + '</span></div>';
+          }
+          if (scaff.oversizeSpans && scaff.oversizeSpans.length) {
+            scaff.oversizeSpans.forEach(function (s) {
+              legend += '<div style="margin-top:2px;font-size:11px;color:#b07b00;">Bay ' + s.toFixed(2) + 'm exceeds 4m stock &mdash; spec extension manually</div>';
+            });
+          }
         }
       }
       previewInner.innerHTML = buildWallSvg(res.cols, res.rows, svgOpts) + legend + portHtml;
