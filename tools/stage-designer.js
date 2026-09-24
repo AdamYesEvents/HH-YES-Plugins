@@ -8,7 +8,7 @@
  * Catalogue: data/stage-designer/decks.json + legs.json.
  * Fascia, trim and carpet come later (fascia will match the chosen height).
  *
- * Version: 0.31.15
+ * Version: 0.32.0
  */
 
 (function () {
@@ -250,19 +250,30 @@
     return { available: true, items: items, placements: placements, meterage: meterage, finishCost: fi.finishCost, rate: fi.rate, finishLabel: fi.finishLabel, finishColour: o.finishColour };
   }
 
+  // Per-edge metric mount rule: at most one 1.5m mount per edge, rest 1m;
+  // 0.5m only used when the edge is exactly 0.5m. Imperial uses fasciaKitImperial.
+  function pickEdgeMounts(len, mountLens) {
+    var byLen = {}; mountLens.forEach(function (m) { byLen[m.len] = m; });
+    var out = [];
+    if (Math.abs(len - 0.5) < 1e-9) { if (byLen[0.5]) out.push(byLen[0.5]); return out; }
+    var whole = Math.floor(len + 1e-9);
+    var half = (len - whole) > 0.4;
+    if (half && byLen[1.5]) { out.push(byLen[1.5]); whole -= 1; }
+    for (var i = 0; i < whole; i++) if (byLen[1]) out.push(byLen[1]);
+    return out;
+  }
+
   // Small-stage fascia builder: given a hardcoded per-edge rule (see SMALL_STAGE_RULES),
   // place one panel per edge + a mount per panel length + a finish line for the perimeter.
   function fasciaKitSmall(o, rule, byLen, mounts, finishes) {
-    var mountLens = mounts.filter(function (m) { return m.system === o.system; }).sort(function (a, b) { return b.len - a.len; });
+    var mountLens = mounts.filter(function (m) { return m.system === o.system; });
     var agg = {}, order = [], placements = [], meterage = 0;
     function add(code, label) { if (!agg[code]) { agg[code] = { label: label, partNumber: code, qty: 0 }; order.push(code); } agg[code].qty++; }
     rule.forEach(function (r) {
       var b = byLen[r.len], code = r.type === "corner" ? b.corner : b.standard;
       add(code, r.len + "m fascia panel (" + r.type + ")");
       placements.push({ edge: r.edge, offset: 0, length: r.len, type: r.type });
-      // mounts along this edge
-      var rem = r.len;
-      mountLens.forEach(function (m) { while (rem >= m.len - 1e-9) { add(m.partNumber, m.len + "m fascia mount"); rem -= m.len; } });
+      pickEdgeMounts(r.len, mountLens).forEach(function (m) { add(m.partNumber, m.len + "m fascia mount"); });
       meterage += r.len;
     });
     meterage = +meterage.toFixed(3);
@@ -335,7 +346,7 @@
       if (ok) return fasciaKitSmall(o, rule, byLen, mounts, finishes);
     }
     var lengths = avail.map(function (b) { return b.len; });
-    var mountLens = mounts.filter(function (m) { return m.system === o.system; }).sort(function (a, b) { return b.len - a.len; });
+    var mountLens = mounts.filter(function (m) { return m.system === o.system; });
 
     var W = o.width, D = o.depth, s = o.sides;
     var hasFront = s >= 2, hasLeft = s >= 2, hasRight = s >= 3, hasBack = s >= 4;
@@ -365,8 +376,7 @@
         placements.push({ edge: e.edge, offset: offset, length: plen, type: isCorner ? "corner" : "standard" });
         offset += plen;
       });
-      var rem = e.len;
-      mountLens.forEach(function (m) { while (rem >= m.len - 1e-9) { add(m.partNumber, m.len + "m fascia mount"); rem -= m.len; } });
+      pickEdgeMounts(e.len, mountLens).forEach(function (m) { add(m.partNumber, m.len + "m fascia mount"); });
       meterage += e.len;
     });
     meterage = +meterage.toFixed(3);
@@ -542,7 +552,7 @@
   // ===========================================================================
   if (typeof window === "undefined") return;
 
-  var TOOL_VERSION = "0.31.15"; // shown in the panel header top-left; keep in sync with the header banner above.
+  var TOOL_VERSION = "0.32.0"; // shown in the panel header top-left; keep in sync with the header banner above.
   var REPO = "AdamYesEvents/HH-YES-Plugins";
   // Load data from this tool's own release tag (immutable + served instantly by
   // jsDelivr) rather than @main, which edge-caches and can lag / throttle purges.
