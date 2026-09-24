@@ -1,8 +1,9 @@
 {
   "schema": "stage-designer/fascia",
-  "dataVersion": "0.3.0",
+  "dataVersion": "0.4.0",
   "_note": "Panels are colour-independent (structural), by height + length (real SFB codes). Mounts are the fascia support fixings with wing bolt set (SFBS). The finish (Felt/HIPS/Print) is a separate per-metre line priced on total fascia meterage; finish part code generated FASC-{type}-{height}-{colourAbbr}.",
   "mounts": [
+    { "system": "metric", "len": 1.5, "partNumber": "SFBS1500" },
     { "system": "metric", "len": 1,   "partNumber": "SFBS1000" },
     { "system": "metric", "len": 0.5, "partNumber": "SFBS500" },
     { "system": "imperial", "len": 4, "partNumber": "SFBS-1200" }
