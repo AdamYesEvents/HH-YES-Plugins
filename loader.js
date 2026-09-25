@@ -9,7 +9,7 @@
  * and will not execute). Pin the loader to a release tag, e.g.:
  *   https://cdn.jsdelivr.net/gh/AdamYesEvents/HH-YES-Plugins@v0.1.108/loader.js
  *
- * Version: 0.1.110
+ * Version: 0.1.111
  */
 
 (function () {
