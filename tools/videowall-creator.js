@@ -400,7 +400,16 @@
  *     "Generated kit" preview panel. Still written into the HireHop kit from
  *     res.items on Add - purely a visual trim of the dialog preview.
  *
- * STILL TBD after v0.24.1:
+ * v0.24.2 - LONGER FEEDS + SPIDER MICRO (Adam 2026-10-04):
+ *   - Feed length dropdown gets 30m, 40m, 50m options (was 10/20m only).
+ *     Feeds that exceed the longest stock emit a TBD row flagging the shortage
+ *     (32A 3ph tops out at 20m until a longer SKU is catalogued).
+ *   - Soca approach now adds 1.5m TRUE1 (YW-00459) extensions off the spider
+ *     fan rather than 5m - the fan sits at the center top of the screen so
+ *     short hops reach each line. Non-soca distros still use 5m extensions
+ *     from distro-behind-screen.
+ *
+ * STILL TBD after v0.24.2:
  *
  * PDF generation is TEMPORARILY BLOCKED - see PDF_ENABLED below. When ready,
  * flip the flag on and reformat buildVideowallPdf() to match the final layout
@@ -408,7 +417,7 @@
  *
  * Z-wire + feed-cable path drawn on the Rigging map (v0.25.0).
  *
- * Version: 0.24.1
+ * Version: 0.24.2
  */
 
 (function () {
@@ -420,7 +429,7 @@
   var EPS = 1e-6;
   function isMult(v, step) { var q = v / step; return Math.abs(q - Math.round(q)) < EPS; }
 
-  var TOOL_VERSION = "0.24.1";  // shown in the dialog header; keep in sync with the banner above.
+  var TOOL_VERSION = "0.24.2";  // shown in the dialog header; keep in sync with the banner above.
 
   // ---------------------------------------------------------------------------
   // PART CATALOGUE (v0.12.0)
@@ -1077,29 +1086,40 @@
       items.push({ category: "Power", label: label, partNumber: pn, qty: qty });
     }
 
+    // Feed cable: pick the stock that fits, OR emit a TBD row if the required
+    // length exceeds the longest stock (Adam 2026-10-04: 30/40/50m options
+    // added to the dropdown; 32A 3ph only stocks up to 20m so the extra lengths
+    // need a manual spec).
+    function addFeed(stock, requiredM, labelLead, qty) {
+      var fit = pickCableStock(stock, requiredM);
+      if (fit) {
+        addPower(fit.label + " " + labelLead, fit.pn, qty);
+        return fit.pn;
+      }
+      var longest = stock[stock.length - 1];
+      addPower(requiredM + "m " + (longest.label.replace(/^\d+(\.\d+)?m\s*/, "")) +
+        " " + labelLead + " - exceeds " + longest.lengthM + "m stock, spec manually",
+        null, qty);
+      return null;
+    }
+
     if (approach === "direct-13a") {
-      var t1feed = pickCableStock(pw.cables.true1, feedM) || pw.cables.true1[pw.cables.true1.length - 1];
-      addPower(t1feed.label + " (feed from 13A socket)", t1feed.pn, 1);
-      feedPn = t1feed.pn;
+      feedPn = addFeed(pw.cables.true1, feedM, "(feed from 13A socket)", 1);
     } else if (approach === "direct-16a") {
-      var c16feed = pickCableStock(pw.cables.cee16, feedM) || pw.cables.cee16[pw.cables.cee16.length - 1];
-      addPower(c16feed.label + " (feed from 16A outlet)", c16feed.pn, 1);
-      feedPn = c16feed.pn;
+      feedPn = addFeed(pw.cables.cee16, feedM, "(feed from 16A outlet)", 1);
       // 16A->TRUE1 adaptor is auto-pulled by HireHop per 10 panels; no line item.
     } else if (approach === "distro-1ph") {
       var d1 = pw.distros["distro32-1ph"];
       addPower(d1.label, d1.pn, 1);
       distroCount = 1; distroPn = d1.pn;
-      addPower("32A 1ph Feed Cable " + feedM + "m (feed to distro)", null, 1);
+      addPower("32A 1ph Feed Cable " + feedM + "m (feed to distro) - stock TBD", null, 1);
       addPower(pickTrue1Short(pw).label + " (extension to each line)", pickTrue1Short(pw).pn, circuits);
     } else if (approach === "distro-3ph") {
       var d3 = pw.distros["distro32-3ph"];
       distroCount = Math.ceil(circuits / d3.outputs);
       addPower(d3.label, d3.pn, distroCount);
       distroPn = d3.pn;
-      var c32 = pickCableStock(pw.cables["cee32-3ph"], feedM) || pw.cables["cee32-3ph"][pw.cables["cee32-3ph"].length - 1];
-      addPower(c32.label + " (feed to distro)", c32.pn, distroCount);
-      feedPn = c32.pn;
+      feedPn = addFeed(pw.cables["cee32-3ph"], feedM, "(feed to distro)", distroCount);
       var t1x = pickTrue1Short(pw);
       addPower(t1x.label + " (extension to each line)", t1x.pn, circuits);
     } else if (approach === "soca") {
@@ -1113,18 +1133,17 @@
       // stock in HireHop if the screen is taller.
       var socaLen = pickCableStock(pw.cables.soca, 10) || pw.cables.soca[0];
       addPower(socaLen.label + (isFlown ? " (distro to top of screen)" : " (distro to wall header)"), socaLen.pn, waysUsed);
-      addPower(pw.socaFanout.label, pw.socaFanout.pn, waysUsed);
+      addPower(pw.socaFanout.label + " (center-top spider)", pw.socaFanout.pn, waysUsed);
       // Source feed cable - 32A 3ph has stock; 63A/125A still TBD.
       if (supply.value === "32a-3ph") {
-        var fc32 = pickCableStock(pw.cables["cee32-3ph"], feedM) || pw.cables["cee32-3ph"][pw.cables["cee32-3ph"].length - 1];
-        addPower(fc32.label + " (feed to distro)", fc32.pn, 1);
-        feedPn = fc32.pn;
+        feedPn = addFeed(pw.cables["cee32-3ph"], feedM, "(feed to distro)", 1);
       } else {
-        addPower(supply.label + " Feed Cable " + feedM + "m (feed to distro)", null, 1);
+        addPower(supply.label + " Feed Cable " + feedM + "m (feed to distro) - stock TBD", null, 1);
       }
-      // TRUE1 extensions behind screen - one per line, short default.
-      var t1s = pickTrue1Short(pw);
-      addPower(t1s.label + " (extension to each line)", t1s.pn, circuits);
+      // TRUE1 extensions off the fan - 1.5m each, since the fan sits at the
+      // center top of the screen (Adam 2026-10-04). Short hops to each line.
+      var t1micro = pickTrue1Micro(pw);
+      addPower(t1micro.label + " (fan to each line)", t1micro.pn, circuits);
     }
 
     // Processor power: 16A->4-way per distro (Adam 2026-10-04).
@@ -1153,6 +1172,15 @@
       if (stock[i].lengthM >= 4.9) return stock[i];
     }
     return stock[stock.length - 1];
+  }
+  // Pick the 1.5m TRUE1 for soca spider short-hops. Fan sits at center top so
+  // 1.5m reaches each line (Adam 2026-10-04).
+  function pickTrue1Micro(pw) {
+    var stock = pw.cables.true1 || [];
+    for (var i = 0; i < stock.length; i++) {
+      if (stock[i].lengthM >= 1.4 && stock[i].lengthM < 2.5) return stock[i];
+    }
+    return stock[0];
   }
 
   // Spare panels come cased - one leftover partial case worth, OR a whole
@@ -2752,7 +2780,7 @@
     // Feed length (source to distro, or source to screen for direct). Default
     // 20m per Adam's "20-40m to source" assumption.
     var feedWrap = field("Feed cable length (source to distro)");
-    var feedSel  = select([["10", "10m"], ["20", "20m"]]);
+    var feedSel  = select([["10", "10m"], ["20", "20m"], ["30", "30m"], ["40", "40m"], ["50", "50m"]]);
     feedSel.value = "20";
     feedWrap.appendChild(feedSel); page3.appendChild(feedWrap);
 
