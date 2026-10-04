@@ -75,6 +75,52 @@
     }
   },
 
+  "_powerNote": "Power distribution. 1 x 16A circuit carries up to 9 panels (REM and Uniview, same rule - Adam 2026-10-04). <=8 panels total: 13A direct, no distro, TRUE1 adaptor auto-pulled by HireHop. 1 x 16A direct: 9 panels, TRUE1 adaptor auto. Multi-circuit floor: regular 16A-outlet distros up to 8 circuits, then socapex. Multi-circuit flown: regular distros up to 3 circuits, then socapex top-down. Each distro gets a 16A->4-way for processor power. Supplies that are too small warn with a suggested right-size (not a hard block). All cable stock lengths listed; feed length to source assumed 20-40m by default. 125A 3ph not yet spec'd. panelsPer16A, maxPanels13A, maxCircuitsFloorNoSoca, maxCircuitsFlownNoSoca are catalogue-editable.",
+  "power": {
+    "panelsPer16A": 9,
+    "maxPanels13A": 8,
+    "maxCircuitsFloorNoSoca": 8,
+    "maxCircuitsFlownNoSoca": 3,
+    "supplies": [
+      { "value": "13a",      "label": "13A single phase",   "phases": 1, "ampsPerPhase": 13,  "maxCircuits": 1  },
+      { "value": "16a",      "label": "16A single phase",   "phases": 1, "ampsPerPhase": 16,  "maxCircuits": 1  },
+      { "value": "32a-1ph",  "label": "32A single phase",   "phases": 1, "ampsPerPhase": 32,  "maxCircuits": 2,  "distro": "distro32-1ph" },
+      { "value": "32a-3ph",  "label": "32A 3-phase",        "phases": 3, "ampsPerPhase": 32,  "maxCircuits": 12, "distro": "distro32-3ph", "socaDistro": "socaDistro32" },
+      { "value": "63a-3ph",  "label": "63A 3-phase",        "phases": 3, "ampsPerPhase": 63,  "maxCircuits": 18, "socaDistro": "socaDistro63" },
+      { "value": "125a-3ph", "label": "125A 3-phase",       "phases": 3, "ampsPerPhase": 125, "maxCircuits": 36 }
+    ],
+    "distros": {
+      "distro32-1ph":  { "pn": "YW-00230", "label": "32A 1ph Distro (2 x 16A outputs)",         "outputs": 2  },
+      "distro32-3ph":  { "pn": "YW-00235", "label": "DISTRO32-10 (32A 3ph to 6 x 16A outputs)", "outputs": 6  },
+      "socaDistro32":  { "pn": "YW-00254", "label": "32A 3ph to 2-way Socapex Distro",          "outputs": 12, "socaWays": 2 },
+      "socaDistro63":  { "pn": "YW-03972", "label": "63A 3ph to 3-way Socapex Distro",          "outputs": 18, "socaWays": 3 }
+    },
+    "procAdaptor":   { "pn": "YW-00372", "label": "16A to 4-way (processor power)" },
+    "true1Adaptor":  { "pn": "YW-00362", "label": "13A to TRUE1 Adaptor (HireHop auto-pulls 1 per 10 panels)" },
+    "socaFanout":    { "pn": "YW-04047", "label": "Socapex to TRUE1 Fanout (6 x 16A)" },
+    "cables": {
+      "true1": [
+        { "lengthM": 1.5, "pn": "YW-00459", "label": "1.5m TRUE1 Cable" },
+        { "lengthM": 5,   "pn": "YW-00473", "label": "5m TRUE1 Cable" },
+        { "lengthM": 10,  "pn": "YW-00461", "label": "10m TRUE1 Cable" },
+        { "lengthM": 20,  "pn": "YW-00467", "label": "20m TRUE1 Cable" }
+      ],
+      "cee16": [
+        { "lengthM": 5,  "pn": "YW-00389", "label": "5m 16A Cable" },
+        { "lengthM": 10, "pn": "YW-00369", "label": "10m 16A Cable" },
+        { "lengthM": 20, "pn": "YW-00383", "label": "20m 16A Cable" }
+      ],
+      "cee32-3ph": [
+        { "lengthM": 10, "pn": "YW-00391", "label": "10m 32A 3ph Cable" },
+        { "lengthM": 20, "pn": "YW-00393", "label": "20m 32A 3ph Cable" }
+      ],
+      "soca": [
+        { "lengthM": 10, "pn": "YW-00246", "label": "10m 2.5mm Socapex Cable" },
+        { "lengthM": 20, "pn": "YW-00250", "label": "20m 2.5mm Socapex Cable" }
+      ]
+    }
+  },
+
   "_rearScaffNote": "Ground-supported walls only, both REM and Uniview (Adam, 2026-09-06). Horizontal scaff runs link the uprights (standards) together at the back for stability. LEVELS: first run at firstLevelAboveFloorM (1.5m), then every levelSpacingM (1.5m) up to wall height. TUBE CHOICE per level: smallest stock STRICTLY GREATER than the span it must cover - standards are 1m apart on REM (or as close as 0.5m on some Uniview widths) and a tube equal to the span lands exactly on the outer standards, leaving no bite for the clamps. Greedy chain: pick the longest single tube that fits from the current start standard, then start the next tube at the last standard the previous tube covered (tubes overlap at that shared standard). CLAMPS: 1 per tube-to-standard crossing. LEG (YW-00013) is NOT a ledger tube - it is a vertical scaff leg, listed here for catalogue completeness.",
   "rearScaff": {
     "stock": [

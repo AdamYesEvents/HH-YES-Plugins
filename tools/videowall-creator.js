@@ -365,13 +365,45 @@
  *   Both constants live in PARTS.rearScaff, catalogue-editable without a
  *   code release.
  *
- * STILL TBD after v0.23.0:
+ * v0.24.0 - 3-PAGE WIZARD + POWER (Adam 2026-10-04):
+ *   - Dialog restructured into 3 pages (same panel, same preview, same kit box).
+ *     Page 1 Screen (pitch, environment, support, rigging, size), Page 2 Signal
+ *     (processor location, model, refresh, bit depth, backup), Page 3 Power
+ *     (new). Back/Next footer, state preserved on both sides, preview + kit
+ *     render as you go.
+ *   - Page 3 Power: skip toggle (power calculated separately on some jobs,
+ *     leaves no power items in the kit), Venue supply dropdown (13A / 16A /
+ *     32A 1ph / 32A 3ph / 63A 3ph / 125A 3ph), Feed cable length (source to
+ *     distro). All power rules + part numbers from Adam.
+ *   - Power rules:
+ *       * 1 x 16A circuit carries up to 9 panels - REM AND Uniview, same rule.
+ *       * <=8 panels total: 13A direct, no distro, YW-00362 TRUE1 adaptor is
+ *         auto-pulled by HireHop (1 per 10 panels).
+ *       * 9 panels: 16A direct, 16A-TRUE1 adaptor auto-pulled.
+ *       * >=10 panels floor: DISTRO32-10 (YW-00235, 32A 3ph > 6 x 16A), scale
+ *         to >1 distro at 7-8 circuits, soca above 8 circuits.
+ *       * Flown soca kicks in at >3 circuits (top-down feed).
+ *       * 63A/125A supplies always soca - YW-03972 (63A 3ph > 3-way soca).
+ *       * Each distro gets a YW-00372 16A-4-way for processor power.
+ *       * Supply mismatch (circuits > supply.maxCircuits, or >8 panels on 13A)
+ *         warns with a right-size suggestion - not a hard block.
+ *   - New part catalogue block PARTS.power (and data/videowall-creator/parts.json
+ *     "_powerNote" + "power"). All SKUs (TRUE1 1.5/5/10/20m, 16A commando
+ *     5/10/20m, 32A 3ph 10/20m, soca 10/20m, distros, procAdaptor, socaFanout).
+ *     Catalogue-editable: supplies list, panelsPer16A, maxPanels13A, soca
+ *     thresholds.
+ *   - Z-wire cable path on the Rigging map is deferred to v0.25.0; the compute
+ *     and kit list are complete without it.
+ *
+ * STILL TBD after v0.24.0:
  *
  * PDF generation is TEMPORARILY BLOCKED - see PDF_ENABLED below. When ready,
  * flip the flag on and reformat buildVideowallPdf() to match the final layout
  * (do not delete the scaffolding).
  *
- * Version: 0.23.0
+ * Z-wire + feed-cable path drawn on the Rigging map (v0.25.0).
+ *
+ * Version: 0.24.0
  */
 
 (function () {
@@ -383,7 +415,7 @@
   var EPS = 1e-6;
   function isMult(v, step) { var q = v / step; return Math.abs(q - Math.round(q)) < EPS; }
 
-  var TOOL_VERSION = "0.23.0";  // shown in the dialog header; keep in sync with the banner above.
+  var TOOL_VERSION = "0.24.0";  // shown in the dialog header; keep in sync with the banner above.
 
   // ---------------------------------------------------------------------------
   // PART CATALOGUE (v0.12.0)
@@ -483,6 +515,57 @@
       leg:   { pn: "YW-00013", label: "1000mm Scaff Leg" },
       firstLevelAboveFloorM: 1.0,     // Adam 2026-09-06: first horizontal at 1m
       levelSpacingM: 1.5              // then every 1.5m up to wall height
+    },
+    // Power distribution (v0.24.0, Adam 2026-10-04). 1 x 16A circuit carries up
+    // to 9 panels (REM AND Uniview, same rule). <=8 panels total runs direct
+    // off a 13A socket, no distro, with the 13A-TRUE1 adaptor auto-pulled by
+    // HireHop. 9 panels can run direct off a 16A. More circuits => a distro
+    // behind the screen; soca above 8 circuits on the floor or 3 circuits
+    // when flown (top-down feed). Every distro adds a 16A->4-way for processor
+    // power. See _powerNote in data/videowall-creator/parts.json.
+    power: {
+      panelsPer16A: 9,
+      maxPanels13A: 8,
+      maxCircuitsFloorNoSoca: 8,
+      maxCircuitsFlownNoSoca: 3,
+      supplies: [
+        { value: "13a",      label: "13A single phase", phases: 1, ampsPerPhase: 13,  maxCircuits: 1  },
+        { value: "16a",      label: "16A single phase", phases: 1, ampsPerPhase: 16,  maxCircuits: 1  },
+        { value: "32a-1ph",  label: "32A single phase", phases: 1, ampsPerPhase: 32,  maxCircuits: 2,  distro: "distro32-1ph" },
+        { value: "32a-3ph",  label: "32A 3-phase",      phases: 3, ampsPerPhase: 32,  maxCircuits: 12, distro: "distro32-3ph", socaDistro: "socaDistro32" },
+        { value: "63a-3ph",  label: "63A 3-phase",      phases: 3, ampsPerPhase: 63,  maxCircuits: 18, socaDistro: "socaDistro63" },
+        { value: "125a-3ph", label: "125A 3-phase",     phases: 3, ampsPerPhase: 125, maxCircuits: 36 }
+      ],
+      distros: {
+        "distro32-1ph":  { pn: "YW-00230", label: "32A 1ph Distro (2 x 16A outputs)",         outputs: 2 },
+        "distro32-3ph":  { pn: "YW-00235", label: "DISTRO32-10 (32A 3ph to 6 x 16A outputs)", outputs: 6 },
+        "socaDistro32":  { pn: "YW-00254", label: "32A 3ph to 2-way Socapex Distro",          outputs: 12, socaWays: 2 },
+        "socaDistro63":  { pn: "YW-03972", label: "63A 3ph to 3-way Socapex Distro",          outputs: 18, socaWays: 3 }
+      },
+      procAdaptor:  { pn: "YW-00372", label: "16A to 4-way (processor power)" },
+      true1Adaptor: { pn: "YW-00362", label: "13A to TRUE1 Adaptor (HireHop auto-pulls 1 per 10 panels)" },
+      socaFanout:   { pn: "YW-04047", label: "Socapex to TRUE1 Fanout (6 x 16A)" },
+      cables: {
+        true1: [
+          { lengthM: 1.5, pn: "YW-00459", label: "1.5m TRUE1 Cable" },
+          { lengthM: 5,   pn: "YW-00473", label: "5m TRUE1 Cable" },
+          { lengthM: 10,  pn: "YW-00461", label: "10m TRUE1 Cable" },
+          { lengthM: 20,  pn: "YW-00467", label: "20m TRUE1 Cable" }
+        ],
+        cee16: [
+          { lengthM: 5,  pn: "YW-00389", label: "5m 16A Cable" },
+          { lengthM: 10, pn: "YW-00369", label: "10m 16A Cable" },
+          { lengthM: 20, pn: "YW-00383", label: "20m 16A Cable" }
+        ],
+        "cee32-3ph": [
+          { lengthM: 10, pn: "YW-00391", label: "10m 32A 3ph Cable" },
+          { lengthM: 20, pn: "YW-00393", label: "20m 32A 3ph Cable" }
+        ],
+        soca: [
+          { lengthM: 10, pn: "YW-00246", label: "10m 2.5mm Socapex Cable" },
+          { lengthM: 20, pn: "YW-00250", label: "20m 2.5mm Socapex Cable" }
+        ]
+      }
     }
   };
   // Product family key for the catalogue: 2.6mm is Uniview, 3.9mm is Chauvet REM.
@@ -908,6 +991,163 @@
       });
     }
     return { items: items, perLine: perLine, oversize: oversize, joinerCount: joinerCount };
+  }
+
+  // Power kit for a wall (v0.24.0, Adam 2026-10-04). Panel count drives circuits,
+  // support type decides when soca kicks in, supply type decides the distro
+  // family. Returns null when power is skipped.
+  //   panels           - total panel count
+  //   support          - "flown" or "ground"
+  //   supply           - supply value (e.g. "32a-3ph"); must exist in PARTS.power.supplies
+  //   feedLengthM      - distance from source to distro (or source to screen if direct)
+  //   catalogue        - PARTS.power
+  // Returns { ok, items, circuits, approach, distroCount, distroPn, feedPn, warning }.
+  function pickPowerKit(opts) {
+    var pw = opts.catalogue;
+    if (!pw || !pw.supplies) return { ok: false, error: "power catalogue missing" };
+    var panels   = opts.panels;
+    var isFlown  = opts.support === "flown";
+    var feedM    = +opts.feedLengthM || 20;
+    var supply   = null;
+    for (var i = 0; i < pw.supplies.length; i++) {
+      if (pw.supplies[i].value === opts.supply) { supply = pw.supplies[i]; break; }
+    }
+    if (!supply) return { ok: false, error: "unknown supply: " + opts.supply };
+
+    // 9 panels per 16A circuit (REM and Uniview, Adam 2026-10-04). <=8 panels
+    // fits a single 13A direct - no distro.
+    var circuits;
+    if (panels <= pw.maxPanels13A) circuits = 1;
+    else circuits = Math.ceil(panels / pw.panelsPer16A);
+
+    // Supply mismatch warning (not a hard block, Adam 2026-10-04: warn + suggest).
+    // Two kinds of overload:
+    //   1. Too many circuits for the supply (e.g. 3 circuits on a 2-way 32A 1ph).
+    //   2. Too many panels for a 13A direct supply (hard-capped at 8 panels
+    //      even though it technically "has 1 circuit"), Adam's rule.
+    var warning = null;
+    var over = (circuits > supply.maxCircuits);
+    var over13a = (supply.value === "13a" && panels > pw.maxPanels13A);
+    if (over || over13a) {
+      // Suggest the smallest supply that satisfies BOTH caps.
+      var suggestion = null;
+      for (var j = 0; j < pw.supplies.length; j++) {
+        var cand = pw.supplies[j];
+        if (cand.maxCircuits >= circuits && (cand.value !== "13a" || panels <= pw.maxPanels13A)) {
+          suggestion = cand; break;
+        }
+      }
+      warning = over13a
+        ? panels + " panels exceeds the 13A cap of " + pw.maxPanels13A + "." +
+          (suggestion ? " Use " + suggestion.label + "." : " Spec a bigger supply manually.")
+        : circuits + " circuit" + (circuits === 1 ? "" : "s") + " needed - " +
+          supply.label + " supplies only " + supply.maxCircuits + "." +
+          (suggestion ? " Use " + suggestion.label + "." : " Spec a bigger supply manually.");
+    }
+
+    // Pick approach. 13A/16A supplies run direct (no distro) up to one circuit;
+    // 32A/63A/125A always go via a distro. Soca kicks in above the per-support
+    // threshold on 32A 3ph, and 63A/125A always use soca (there's no non-soca
+    // 63A distro in the catalogue).
+    var socaThreshold = isFlown ? pw.maxCircuitsFlownNoSoca : pw.maxCircuitsFloorNoSoca;
+    var approach;
+    if (supply.ampsPerPhase <= 16 && circuits === 1) {
+      approach = (supply.value === "13a") ? "direct-13a" : "direct-16a";
+    } else if (supply.value === "32a-1ph") {
+      approach = "distro-1ph";
+    } else if (supply.value === "32a-3ph" && circuits > socaThreshold) {
+      approach = "soca";
+    } else if (supply.value === "63a-3ph" || supply.value === "125a-3ph") {
+      approach = "soca";
+    } else {
+      approach = (supply.phases === 3) ? "distro-3ph" : "direct-16a";
+    }
+
+    var items = [];
+    var distroCount = 0;
+    var distroPn = null;
+    var feedPn = null;
+
+    function addPower(label, pn, qty) {
+      items.push({ category: "Power", label: label, partNumber: pn, qty: qty });
+    }
+
+    if (approach === "direct-13a") {
+      var t1feed = pickCableStock(pw.cables.true1, feedM) || pw.cables.true1[pw.cables.true1.length - 1];
+      addPower(t1feed.label + " (feed from 13A socket)", t1feed.pn, 1);
+      feedPn = t1feed.pn;
+    } else if (approach === "direct-16a") {
+      var c16feed = pickCableStock(pw.cables.cee16, feedM) || pw.cables.cee16[pw.cables.cee16.length - 1];
+      addPower(c16feed.label + " (feed from 16A outlet)", c16feed.pn, 1);
+      feedPn = c16feed.pn;
+      // 16A->TRUE1 adaptor is auto-pulled by HireHop per 10 panels; no line item.
+    } else if (approach === "distro-1ph") {
+      var d1 = pw.distros["distro32-1ph"];
+      addPower(d1.label, d1.pn, 1);
+      distroCount = 1; distroPn = d1.pn;
+      addPower("32A 1ph Feed Cable " + feedM + "m (feed to distro)", null, 1);
+      addPower(pickTrue1Short(pw).label + " (extension to each line)", pickTrue1Short(pw).pn, circuits);
+    } else if (approach === "distro-3ph") {
+      var d3 = pw.distros["distro32-3ph"];
+      distroCount = Math.ceil(circuits / d3.outputs);
+      addPower(d3.label, d3.pn, distroCount);
+      distroPn = d3.pn;
+      var c32 = pickCableStock(pw.cables["cee32-3ph"], feedM) || pw.cables["cee32-3ph"][pw.cables["cee32-3ph"].length - 1];
+      addPower(c32.label + " (feed to distro)", c32.pn, distroCount);
+      feedPn = c32.pn;
+      var t1x = pickTrue1Short(pw);
+      addPower(t1x.label + " (extension to each line)", t1x.pn, circuits);
+    } else if (approach === "soca") {
+      var isBigSupply = (supply.value === "63a-3ph" || supply.value === "125a-3ph");
+      var socaDist = isBigSupply ? pw.distros.socaDistro63 : pw.distros.socaDistro32;
+      addPower(socaDist.label, socaDist.pn, 1);
+      distroCount = 1; distroPn = socaDist.pn;
+      var waysUsed = Math.min(socaDist.socaWays, Math.ceil(circuits / 6));
+      // Soca cable from distro-behind-screen to the top of the screen. Fixed
+      // default 10m - plenty for anything up to a 6m wall, user can bump the
+      // stock in HireHop if the screen is taller.
+      var socaLen = pickCableStock(pw.cables.soca, 10) || pw.cables.soca[0];
+      addPower(socaLen.label + (isFlown ? " (distro to top of screen)" : " (distro to wall header)"), socaLen.pn, waysUsed);
+      addPower(pw.socaFanout.label, pw.socaFanout.pn, waysUsed);
+      // Source feed cable - 32A 3ph has stock; 63A/125A still TBD.
+      if (supply.value === "32a-3ph") {
+        var fc32 = pickCableStock(pw.cables["cee32-3ph"], feedM) || pw.cables["cee32-3ph"][pw.cables["cee32-3ph"].length - 1];
+        addPower(fc32.label + " (feed to distro)", fc32.pn, 1);
+        feedPn = fc32.pn;
+      } else {
+        addPower(supply.label + " Feed Cable " + feedM + "m (feed to distro)", null, 1);
+      }
+      // TRUE1 extensions behind screen - one per line, short default.
+      var t1s = pickTrue1Short(pw);
+      addPower(t1s.label + " (extension to each line)", t1s.pn, circuits);
+    }
+
+    // Processor power: 16A->4-way per distro (Adam 2026-10-04).
+    if (distroCount > 0 && pw.procAdaptor) {
+      addPower(pw.procAdaptor.label, pw.procAdaptor.pn, distroCount);
+    }
+
+    return {
+      ok: true,
+      items: items,
+      circuits: circuits,
+      approach: approach,
+      distroCount: distroCount,
+      distroPn: distroPn,
+      feedPn: feedPn,
+      supply: supply,
+      warning: warning
+    };
+  }
+
+  // Pick the 5m TRUE1 by default for behind-screen extensions. Fall back to
+  // whatever stock exists if 5m isn't catalogued.
+  function pickTrue1Short(pw) {
+    var stock = pw.cables.true1 || [];
+    for (var i = 0; i < stock.length; i++) {
+      if (stock[i].lengthM >= 4.9) return stock[i];
+    }
+    return stock[stock.length - 1];
   }
 
   // Spare panels come cased - one leftover partial case worth, OR a whole
@@ -1518,6 +1758,24 @@
     var cableRes = cablesForWall(portMap.ports, halfPerCol, H, W, alloc.redundant, fam, PARTS.cables && PARTS.cables[fam]);
     cableRes.items.forEach(function (it) { items.push(it); });
 
+    // ---- Power ---------------------------------------------------------------
+    // Skipped entirely if opts.skipPower (calculated separately per Adam
+    // 2026-10-04). Otherwise sizes circuits + distro + feed cable from the
+    // panel count, support type and venue supply type.
+    var powerRes = null;
+    if (!opts.skipPower && opts.supply && PARTS.power) {
+      powerRes = pickPowerKit({
+        panels: panels,
+        support: opts.support,
+        supply: opts.supply,
+        feedLengthM: opts.feedLengthM,
+        catalogue: PARTS.power
+      });
+      if (powerRes.ok) {
+        powerRes.items.forEach(function (it) { items.push(it); });
+      }
+    }
+
     // Would a bigger processor do it in fewer boxes? Worth saying out loud -
     // with backup running, an MX30 only offers 5 primaries, so walls spill onto
     // a second box quickly and an MX40 Pro (10 primaries) often collapses it
@@ -1561,7 +1819,10 @@
       barsGround39: (opts.support === "ground" && !isUniview) ? (typeof g39 !== "undefined" ? g39 : null) : null,
       // Rear scaff plan for the Rigging map preview (v0.22.0). Null when flown
       // or when the wall has fewer than 2 standards (nothing to link).
-      rearScaff: rearScaffPlan
+      rearScaff: rearScaffPlan,
+      // Power plan (v0.24.0). null when skipped or no supply chosen; shape is
+      // { ok, items, circuits, approach, distroCount, distroPn, feedPn, supply, warning }.
+      power: powerRes
     };
   }
 
@@ -1888,7 +2149,7 @@
   // Sub-heading order in HireHop. "Spares" is always created empty for now -
   // a placeholder for manual entry until spare-count logic is designed.
   // Processor + Cable intentionally omitted this release.
-  var INSERT_ORDER  = ["Screen", "Spares", "Processor", "Rigging", "Cable"];
+  var INSERT_ORDER  = ["Screen", "Spares", "Processor", "Rigging", "Cable", "Power"];
   var ALWAYS_CREATE = { Spares: true };
 
   function resolvePart(inst, partNumber, qty) {
@@ -2388,54 +2649,71 @@
       return s;
     }
 
+    // Three-page wizard (v0.24.0). All fields live in persistent DOM so
+    // render() reads values across pages regardless of which page is visible.
+    // Page 1 Screen: pitch/env/support/rigging/size.
+    // Page 2 Signal: processor location/model, refresh, bit depth, backup.
+    // Page 3 Power: skip toggle + supply + feed length (new in v0.24.0).
+    var currentPage = 1;
+    var pageTitles = ["Screen", "Signal", "Power"];
+    var pageHeader = el("div", null, "margin-bottom:14px;display:flex;align-items:center;justify-content:space-between;");
+    var pageHeaderTitle = el("div", null, "font-size:13px;font-weight:600;color:#222;");
+    var pageHeaderStep  = el("div", null, "font-size:11px;letter-spacing:.04em;color:#888;text-transform:uppercase;");
+    pageHeader.appendChild(pageHeaderTitle); pageHeader.appendChild(pageHeaderStep);
+    colControls.appendChild(pageHeader);
+    var page1 = el("div"); var page2 = el("div"); var page3 = el("div");
+    colControls.appendChild(page1); colControls.appendChild(page2); colControls.appendChild(page3);
+
+    // ---- Page 1 Screen -------------------------------------------------------
     // Q0 Pitch
     var pitchWrap = field("Pitch");
     var pitchSel  = select([["2.6mm", "2.6mm (indoor only)"], ["3.9mm", "3.9mm (indoor or outdoor)"]]);
-    pitchWrap.appendChild(pitchSel); colControls.appendChild(pitchWrap);
+    pitchWrap.appendChild(pitchSel); page1.appendChild(pitchWrap);
 
     // Q1 Environment (options depend on pitch)
     var envWrap = field("Environment");
     var envSel  = select([["indoor", "Indoor"], ["outdoor", "Outdoor"]]);
-    envWrap.appendChild(envSel); colControls.appendChild(envWrap);
+    envWrap.appendChild(envSel); page1.appendChild(envWrap);
 
     // Q2 Support
     var supWrap = field("Support");
     var supSel  = select([["ground", "Ground supported"], ["flown", "Flown"]]);
-    supWrap.appendChild(supSel); colControls.appendChild(supWrap);
+    supWrap.appendChild(supSel); page1.appendChild(supWrap);
 
     // Q2.5 Rigging - ONLY for Outdoor + Flown
     var rigWrap = field("Rigging");
     var rigSel  = select([["clamp", "Clamp"], ["sling", "Sling"]]);
-    rigWrap.appendChild(rigSel); colControls.appendChild(rigWrap);
+    rigWrap.appendChild(rigSel); page1.appendChild(rigWrap);
 
     // Q3 W / H (0.5m increments)
     var wWrap = field("Width (m)");
     var wIn = el("input", { type: "number", min: "0.5", step: "0.5" }, "width:100%;padding:8px;font-size:14px;");
-    wIn.value = "4"; wWrap.appendChild(wIn); colControls.appendChild(wWrap);
+    wIn.value = "4"; wWrap.appendChild(wIn); page1.appendChild(wWrap);
 
     var hWrap = field("Height (m)");
     var hIn = el("input", { type: "number", min: "1", step: "0.5" }, "width:100%;padding:8px;font-size:14px;");
-    hIn.value = "3"; hWrap.appendChild(hIn); colControls.appendChild(hWrap);
+    hIn.value = "3"; hWrap.appendChild(hIn); page1.appendChild(hWrap);
 
+    // ---- Page 2 Signal -------------------------------------------------------
     // Q4 Processor location
     var procWrap = field("Processor location");
     var procSel  = select([["behind", "Behind screen"], ["far", "Within 70m distance"]]);
-    procWrap.appendChild(procSel); colControls.appendChild(procWrap);
+    procWrap.appendChild(procSel); page2.appendChild(procWrap);
 
     // Q5 Processor model (Novastar)
     var procModelWrap = field("Processor model");
     var procModelSel  = select([["mx30", "Novastar MX30"], ["mx40pro", "Novastar MX40 Pro"]]);
-    procModelWrap.appendChild(procModelSel); colControls.appendChild(procModelWrap);
+    procModelWrap.appendChild(procModelSel); page2.appendChild(procModelWrap);
 
     // Q6 Refresh rate - drives the per-port bandwidth lookup.
     var refreshWrap = field("Refresh rate");
     var refreshSel  = select([["60", "60 Hz"], ["50", "50 Hz"], ["25", "25 Hz"]]);
-    refreshWrap.appendChild(refreshSel); colControls.appendChild(refreshWrap);
+    refreshWrap.appendChild(refreshSel); page2.appendChild(refreshWrap);
 
     // Q7 Bit depth - options depend on the processor (MX30 is 8/10bit only).
     var bitWrap = field("Bit depth");
     var bitSel  = select([["8", "8 bit"], ["10", "10 bit"], ["12", "12 bit"]]);
-    bitWrap.appendChild(bitSel); colControls.appendChild(bitWrap);
+    bitWrap.appendChild(bitSel); page2.appendChild(bitWrap);
 
     // Q8 Backup - halves the usable ports, so it can change the processor count.
     var bkpWrap = field("Backup");
@@ -2445,7 +2723,33 @@
       ["offset", "Offset (same box: 1&11, 2&12)"],
       ["mirror", "Mirror (P2 mirrors P1)"]
     ]);
-    bkpWrap.appendChild(bkpSel); colControls.appendChild(bkpWrap);
+    bkpWrap.appendChild(bkpSel); page2.appendChild(bkpWrap);
+
+    // ---- Page 3 Power (v0.24.0) ---------------------------------------------
+    // Skip toggle at the top: when ticked, power is omitted from the kit list
+    // entirely (Adam: "calculated separately" on some jobs).
+    var skipWrap = el("div", null, "margin-bottom:14px;");
+    var skipLbl = el("label", null, "display:flex;align-items:center;gap:8px;font-size:13px;color:#333;cursor:pointer;");
+    var skipIn  = el("input", { type: "checkbox" });
+    var skipTxt = el("span"); skipTxt.textContent = "Skip power (calculated separately)";
+    skipLbl.appendChild(skipIn); skipLbl.appendChild(skipTxt);
+    skipWrap.appendChild(skipLbl); page3.appendChild(skipWrap);
+
+    // Supply dropdown pulled from PARTS.power.supplies (catalogue-editable).
+    var supplyWrap = field("Venue supply");
+    var supplyOpts = (PARTS.power && PARTS.power.supplies ? PARTS.power.supplies : [])
+      .map(function (s) { return [s.value, s.label]; });
+    if (!supplyOpts.length) supplyOpts = [["32a-3ph", "32A 3-phase"]];
+    var supplySel = select(supplyOpts);
+    supplySel.value = "32a-3ph";
+    supplyWrap.appendChild(supplySel); page3.appendChild(supplyWrap);
+
+    // Feed length (source to distro, or source to screen for direct). Default
+    // 20m per Adam's "20-40m to source" assumption.
+    var feedWrap = field("Feed cable length (source to distro)");
+    var feedSel  = select([["10", "10m"], ["20", "20m"]]);
+    feedSel.value = "20";
+    feedWrap.appendChild(feedSel); page3.appendChild(feedWrap);
 
     var kitBox = el("div", null, "font-size:13px;");
     colKit.appendChild(kitBox);
@@ -2496,11 +2800,25 @@
       }
     }
 
+    // Show the current page, hide the others, update header + footer buttons.
+    function syncPage() {
+      page1.style.display = currentPage === 1 ? "" : "none";
+      page2.style.display = currentPage === 2 ? "" : "none";
+      page3.style.display = currentPage === 3 ? "" : "none";
+      pageHeaderTitle.textContent = pageTitles[currentPage - 1];
+      pageHeaderStep.textContent  = "Step " + currentPage + " of 3";
+      // Page 3 field visibility: supply + feed hide when skip is ticked.
+      var skipped = skipIn.checked;
+      supplyWrap.style.display = skipped ? "none" : "";
+      feedWrap.style.display   = skipped ? "none" : "";
+    }
+
     function render() {
       syncEnvOptions();
       syncSupportOptions();
       syncRiggingVisibility();
       syncBitDepthOptions();
+      syncPage();
       var res = computeKit({
         pitch:          pitchSel.value,
         environment:    envSel.value,
@@ -2512,7 +2830,10 @@
         processorModel: procModelSel.value,
         refresh:        parseInt(refreshSel.value, 10),
         bitDepth:       parseInt(bitSel.value, 10),
-        backup:         bkpSel.value
+        backup:         bkpSel.value,
+        skipPower:      skipIn.checked,
+        supply:         supplySel.value,
+        feedLengthM:    parseFloat(feedSel.value)
       });
       state.result = res;
 
@@ -2747,7 +3068,7 @@
       res.items.forEach(function (it) { (byCat[it.category] = byCat[it.category] || []).push(it); });
       // Display order matches the sub-headings we'll create in HireHop: Screen,
       // Spares (always empty for now - manual add reminder), Rigging.
-      var order = ["Screen", "Spares", "Processor", "Rigging", "Cable"];
+      var order = ["Screen", "Spares", "Processor", "Rigging", "Cable", "Power"];
       var html = '<div style="font-size:11px;letter-spacing:.04em;color:#888;text-transform:uppercase;margin-bottom:6px;">Generated kit</div>';
       order.forEach(function (cat) {
         var arr = byCat[cat] || [];
@@ -2776,6 +3097,25 @@
           'm, ' + res.ballast.moment.toFixed(2) + ' kNm, safety factor 1.5 already applied' +
           (res.ballast.clamped ? ' &middot; clamped up from ' + res.height + 'm' : '') + '</div>';
       }
+      // Power summary (v0.24.0). Shows circuits + distro + warning when power is
+      // not skipped and a supply has been chosen.
+      if (res.power && res.power.ok) {
+        var p = res.power;
+        var approachLabel = ({
+          "direct-13a":  "13A direct, no distro",
+          "direct-16a":  "16A direct, no distro",
+          "distro-1ph":  "32A 1ph distro",
+          "distro-3ph":  p.distroCount + " x DISTRO32-10 (32A 3ph > 6 x 16A)",
+          "soca":        "Socapex distro"
+        })[p.approach] || p.approach;
+        html += '<div style="margin-top:8px;font-size:12px;color:#333;"><b>Power:</b> ' +
+          p.circuits + ' circuit' + (p.circuits === 1 ? '' : 's') + ' &middot; ' + approachLabel + '</div>';
+        if (p.warning) {
+          html += '<div style="margin-top:2px;font-size:11px;color:#b07b00;">' + p.warning + '</div>';
+        }
+      } else if (skipIn.checked) {
+        html += '<div style="margin-top:8px;font-size:12px;color:#777;"><b>Power:</b> skipped (calculated separately)</div>';
+      }
       kitBox.innerHTML = html;
 
       var envLabel = envSel.value === "outdoor" ? "Outdoor" : "Indoor";
@@ -2803,11 +3143,27 @@
       foot.innerHTML = "";
       var cancel = el("button", null, "padding:8px 16px;font-size:14px;cursor:pointer;");
       cancel.textContent = "Close"; cancel.addEventListener("click", close);
-      var add = el("button", canAdd ? null : { disabled: "disabled", title: disabledReason },
-        "padding:8px 16px;font-size:14px;background:#2563eb;color:#fff;border:none;border-radius:4px;cursor:" + (canAdd ? "pointer" : "not-allowed") + ";opacity:" + (canAdd ? "1" : ".5") + ";");
-      add.textContent = "Add videowall kit";
-      if (canAdd) add.addEventListener("click", confirmAdd);
-      foot.appendChild(cancel); foot.appendChild(add);
+      foot.appendChild(cancel);
+      // Fill horizontal space so Back/Next/Add sit on the right.
+      foot.appendChild(el("div", null, "flex:1;"));
+      if (currentPage > 1) {
+        var back = el("button", null, "padding:8px 16px;font-size:14px;cursor:pointer;");
+        back.textContent = "< Back";
+        back.addEventListener("click", function () { currentPage -= 1; render(); });
+        foot.appendChild(back);
+      }
+      if (currentPage < 3) {
+        var next = el("button", null, "padding:8px 16px;font-size:14px;background:#2563eb;color:#fff;border:none;border-radius:4px;cursor:pointer;");
+        next.textContent = "Next >";
+        next.addEventListener("click", function () { currentPage += 1; render(); });
+        foot.appendChild(next);
+      } else {
+        var add = el("button", canAdd ? null : { disabled: "disabled", title: disabledReason },
+          "padding:8px 16px;font-size:14px;background:#2563eb;color:#fff;border:none;border-radius:4px;cursor:" + (canAdd ? "pointer" : "not-allowed") + ";opacity:" + (canAdd ? "1" : ".5") + ";");
+        add.textContent = "Add videowall kit";
+        if (canAdd) add.addEventListener("click", confirmAdd);
+        foot.appendChild(add);
+      }
     }
 
     function confirmAdd() {
@@ -2879,6 +3235,9 @@
     refreshSel   .addEventListener("change", render);
     bitSel       .addEventListener("change", render);
     bkpSel       .addEventListener("change", render);
+    skipIn       .addEventListener("change", render);
+    supplySel    .addEventListener("change", render);
+    feedSel      .addEventListener("change", render);
 
     document.body.appendChild(backdrop);
 
