@@ -409,7 +409,15 @@
  *     short hops reach each line. Non-soca distros still use 5m extensions
  *     from distro-behind-screen.
  *
- * STILL TBD after v0.24.2:
+ * v0.24.3 - COMPOSE FEEDS FROM STOCK (Adam 2026-10-04):
+ *   - When the requested feed length has no matching stock, compose from the
+ *     stock catalogue largest-first instead of flagging TBD. 30m 32A 3ph feed
+ *     = 1x20m + 1x10m, 40m = 2x20m, 50m = 2x20m + 1x10m. Multiplied by
+ *     distroCount when more than one distro. Keep pickCableStock-style
+ *     single-piece fit for short runs. composeFeed() helper lives alongside
+ *     pickCableStock.
+ *
+ * STILL TBD after v0.24.3:
  *
  * PDF generation is TEMPORARILY BLOCKED - see PDF_ENABLED below. When ready,
  * flip the flag on and reformat buildVideowallPdf() to match the final layout
@@ -417,7 +425,7 @@
  *
  * Z-wire + feed-cable path drawn on the Rigging map (v0.25.0).
  *
- * Version: 0.24.2
+ * Version: 0.24.3
  */
 
 (function () {
@@ -429,7 +437,7 @@
   var EPS = 1e-6;
   function isMult(v, step) { var q = v / step; return Math.abs(q - Math.round(q)) < EPS; }
 
-  var TOOL_VERSION = "0.24.2";  // shown in the dialog header; keep in sync with the banner above.
+  var TOOL_VERSION = "0.24.3";  // shown in the dialog header; keep in sync with the banner above.
 
   // ---------------------------------------------------------------------------
   // PART CATALOGUE (v0.12.0)
@@ -1086,21 +1094,18 @@
       items.push({ category: "Power", label: label, partNumber: pn, qty: qty });
     }
 
-    // Feed cable: pick the stock that fits, OR emit a TBD row if the required
-    // length exceeds the longest stock (Adam 2026-10-04: 30/40/50m options
-    // added to the dropdown; 32A 3ph only stocks up to 20m so the extra lengths
-    // need a manual spec).
+    // Feed cable: compose from available stock lengths largest-first (Adam
+    // 2026-10-04: "a 30m cable would be a 10 and a 20"). 30m on 32A 3ph stock
+    // [10,20] yields 1x20 + 1x10, 40m yields 2x20, 50m yields 2x20 + 1x10, and
+    // short runs still pick the one-piece fit via pickCableStock's semantics.
+    // qty is per-distro and multiplies every piece.
     function addFeed(stock, requiredM, labelLead, qty) {
-      var fit = pickCableStock(stock, requiredM);
-      if (fit) {
-        addPower(fit.label + " " + labelLead, fit.pn, qty);
-        return fit.pn;
-      }
-      var longest = stock[stock.length - 1];
-      addPower(requiredM + "m " + (longest.label.replace(/^\d+(\.\d+)?m\s*/, "")) +
-        " " + labelLead + " - exceeds " + longest.lengthM + "m stock, spec manually",
-        null, qty);
-      return null;
+      var picks = composeFeed(stock, requiredM);
+      picks.forEach(function (p) {
+        addPower(p.stock.label + " " + labelLead, p.stock.pn, p.qty * qty);
+      });
+      // feedPn is informational only - return the largest piece's PN.
+      return picks.length ? picks[0].stock.pn : null;
     }
 
     if (approach === "direct-13a") {
@@ -1162,6 +1167,34 @@
       supply: supply,
       warning: warning
     };
+  }
+
+  // Build up a cable run from the stock catalogue, largest-first. Returns a
+  // list of { stock, qty } entries that together sum to >= requiredM. Adam's
+  // rule 2026-10-04: a 30m feed = 1x20m + 1x10m when no 30m stock exists.
+  // Any shortfall after greedy largest-first is covered by one of the smallest
+  // stock piece. Returns [] only if stock is empty.
+  function composeFeed(stock, requiredM) {
+    if (!stock || !stock.length) return [];
+    var sorted = stock.slice().sort(function (a, b) { return b.lengthM - a.lengthM; });
+    var remaining = Math.max(0, requiredM);
+    var picks = [];
+    sorted.forEach(function (s) {
+      if (remaining <= EPS) return;
+      var n = Math.floor(remaining / s.lengthM);
+      if (n > 0) {
+        picks.push({ stock: s, qty: n });
+        remaining -= n * s.lengthM;
+      }
+    });
+    if (remaining > EPS) {
+      var smallest = sorted[sorted.length - 1];
+      var tail = picks[picks.length - 1];
+      if (tail && tail.stock === smallest) tail.qty += 1;
+      else picks.push({ stock: smallest, qty: 1 });
+    }
+    if (!picks.length) picks.push({ stock: sorted[sorted.length - 1], qty: 1 });
+    return picks;
   }
 
   // Pick the 5m TRUE1 by default for behind-screen extensions. Fall back to
