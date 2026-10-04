@@ -395,7 +395,12 @@
  *   - Z-wire cable path on the Rigging map is deferred to v0.25.0; the compute
  *     and kit list are complete without it.
  *
- * STILL TBD after v0.24.0:
+ * v0.24.1 - KIT PREVIEW TRIM (Adam 2026-10-04):
+ *   - Hide Spares sub-heading, ballast plates and rear-scaff items from the
+ *     "Generated kit" preview panel. Still written into the HireHop kit from
+ *     res.items on Add - purely a visual trim of the dialog preview.
+ *
+ * STILL TBD after v0.24.1:
  *
  * PDF generation is TEMPORARILY BLOCKED - see PDF_ENABLED below. When ready,
  * flip the flag on and reformat buildVideowallPdf() to match the final layout
@@ -403,7 +408,7 @@
  *
  * Z-wire + feed-cable path drawn on the Rigging map (v0.25.0).
  *
- * Version: 0.24.0
+ * Version: 0.24.1
  */
 
 (function () {
@@ -415,7 +420,7 @@
   var EPS = 1e-6;
   function isMult(v, step) { var q = v / step; return Math.abs(q - Math.round(q)) < EPS; }
 
-  var TOOL_VERSION = "0.24.0";  // shown in the dialog header; keep in sync with the banner above.
+  var TOOL_VERSION = "0.24.1";  // shown in the dialog header; keep in sync with the banner above.
 
   // ---------------------------------------------------------------------------
   // PART CATALOGUE (v0.12.0)
@@ -3066,15 +3071,21 @@
 
       var byCat = {};
       res.items.forEach(function (it) { (byCat[it.category] = byCat[it.category] || []).push(it); });
-      // Display order matches the sub-headings we'll create in HireHop: Screen,
-      // Spares (always empty for now - manual add reminder), Rigging.
-      var order = ["Screen", "Spares", "Processor", "Rigging", "Cable", "Power"];
+      // Kit list visually trimmed (v0.24.1, Adam 2026-10-04): Spares, ballast
+      // plates and rear-scaff lines are HIDDEN from the preview only - they
+      // still get written into the HireHop kit from res.items.
+      var order = ["Screen", "Processor", "Rigging", "Cable", "Power"];
       var html = '<div style="font-size:11px;letter-spacing:.04em;color:#888;text-transform:uppercase;margin-bottom:6px;">Generated kit</div>';
       order.forEach(function (cat) {
-        var arr = byCat[cat] || [];
-        html += '<div style="font-size:11px;letter-spacing:.04em;color:#888;text-transform:uppercase;margin:10px 0 4px;">' + cat +
-          (cat === "Spares" ? ' <span style="color:#0a7;text-transform:none;letter-spacing:0;font-weight:400;">(100% applied)</span>' : '') +
-          '</div>';
+        var arr = (byCat[cat] || []).filter(function (it) {
+          if (cat === "Rigging") {
+            // Hide rear-scaff tubes/clamps and ballast plates from the preview.
+            if (/rear scaff/i.test(it.label)) return false;
+            if (it.partNumber === (PARTS.ballastPlate && PARTS.ballastPlate.pn)) return false;
+          }
+          return true;
+        });
+        html += '<div style="font-size:11px;letter-spacing:.04em;color:#888;text-transform:uppercase;margin:10px 0 4px;">' + cat + '</div>';
         if (!arr.length) {
           html += '<div style="font-size:12px;color:#b07b00;padding:3px 0;">Empty sub-heading - add manually per job.</div>';
           return;
@@ -3089,14 +3100,6 @@
         });
       });
       html += '<div style="margin-top:10px;font-size:12px;color:#777;">' + res.panels + ' panels &middot; ' + res.width + ' &times; ' + res.height + ' m</div>';
-      if (res.ballast) {
-        html += '<div style="margin-top:6px;font-size:12px;color:#777;">Ballast: <b style="color:#111;">' +
-          res.ballast.kgPerUpright + 'kg per upright</b> &times; ' + res.ballast.uprights + ' uprights &middot; ' +
-          res.ballast.totalPlates + ' plates (' + res.ballast.totalKg + 'kg)</div>';
-        html += '<div style="margin-top:2px;font-size:11px;color:#999;">Table @ ' + res.ballast.lookupH.toFixed(1) +
-          'm, ' + res.ballast.moment.toFixed(2) + ' kNm, safety factor 1.5 already applied' +
-          (res.ballast.clamped ? ' &middot; clamped up from ' + res.height + 'm' : '') + '</div>';
-      }
       // Power summary (v0.24.0). Shows circuits + distro + warning when power is
       // not skipped and a supply has been chosen.
       if (res.power && res.power.ok) {
