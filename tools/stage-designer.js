@@ -8,7 +8,7 @@
  * Catalogue: data/stage-designer/decks.json + legs.json.
  * Fascia, trim and carpet come later (fascia will match the chosen height).
  *
- * Version: 0.32.0
+ * Version: 0.33.0
  */
 
 (function () {
@@ -235,19 +235,32 @@
       { edge: "front", len: o.width, corner: true }, { edge: "back", len: o.width, corner: true },
       { edge: "left", len: o.depth, corner: false }, { edge: "right", len: o.depth, corner: false }
     ];
-    var agg = {}, order = [], placements = [], perimFt = 0;
+    var agg = {}, order = [], placements = [], perimFt = 0, mountCount = 0;
     function add(code, label) { if (!agg[code]) { agg[code] = { label: label, partNumber: code, qty: 0 }; order.push(code); } agg[code].qty++; }
     edges.forEach(function (e) {
       add(e.corner ? panel.corner : panel.standard, o.width + "ft fascia board (" + (e.corner ? "2x corner" : "standard") + ")");
-      if (mount) add(mount.partNumber, o.width + "ft fascia support fixing");
+      if (mount) { add(mount.partNumber, o.width + "ft fascia support fixing"); mountCount++; }
       placements.push({ edge: e.edge, offset: 0, length: e.len, type: e.corner ? "corner" : "standard" });
       perimFt += e.len;
     });
     var items = order.map(function (k) { return agg[k]; });
+    var spare = spareWingBolts(mountCount); if (spare) items.push(spare);
     var meterage = Math.ceil(perimFt * 0.3048); // perimeter in metres, up to next metre
     var fi = fasciaFinishInfo(finishes, o, meterage);
     if (fi.item) items.push(fi.item);
     return { available: true, items: items, placements: placements, meterage: meterage, finishCost: fi.finishCost, rate: fi.rate, finishLabel: fi.finishLabel, finishColour: o.finishColour };
+  }
+
+  // Spare wing bolts: HireHop auto-pulls 2 wing bolts per SFBS mount; we add
+  // 10% of that total as a spare parts line under Fascia (floor 1 when any
+  // mount is present, so very small stages still get at least one spare).
+  var WING_BOLT_PN = "SFBS-50WING";
+  var WING_BOLTS_PER_MOUNT = 2;
+  var WING_BOLT_SPARE_PCT = 0.10;
+  function spareWingBolts(mountCount) {
+    if (!mountCount) return null;
+    var qty = Math.max(1, Math.ceil(mountCount * WING_BOLTS_PER_MOUNT * WING_BOLT_SPARE_PCT));
+    return { label: "Wing bolt (10% spare)", partNumber: WING_BOLT_PN, qty: qty };
   }
 
   // Per-edge metric mount rule: at most one 1.5m mount per edge, rest 1m;
@@ -267,17 +280,20 @@
   // place one panel per edge + a mount per panel length + a finish line for the perimeter.
   function fasciaKitSmall(o, rule, byLen, mounts, finishes) {
     var mountLens = mounts.filter(function (m) { return m.system === o.system; });
-    var agg = {}, order = [], placements = [], meterage = 0;
+    var agg = {}, order = [], placements = [], meterage = 0, mountCount = 0;
     function add(code, label) { if (!agg[code]) { agg[code] = { label: label, partNumber: code, qty: 0 }; order.push(code); } agg[code].qty++; }
     rule.forEach(function (r) {
       var b = byLen[r.len], code = r.type === "corner" ? b.corner : b.standard;
       add(code, r.len + "m fascia panel (" + r.type + ")");
       placements.push({ edge: r.edge, offset: 0, length: r.len, type: r.type });
-      pickEdgeMounts(r.len, mountLens).forEach(function (m) { add(m.partNumber, m.len + "m fascia mount"); });
+      var ms = pickEdgeMounts(r.len, mountLens);
+      ms.forEach(function (m) { add(m.partNumber, m.len + "m fascia mount"); });
+      mountCount += ms.length;
       meterage += r.len;
     });
     meterage = +meterage.toFixed(3);
     var items = order.map(function (k) { return agg[k]; });
+    var spare = spareWingBolts(mountCount); if (spare) items.push(spare);
     var fi = fasciaFinishInfo(finishes, o, meterage);
     if (fi.item) items.push(fi.item);
     return { available: true, items: items, placements: placements, meterage: meterage, finishCost: fi.finishCost, rate: fi.rate, finishLabel: fi.finishLabel, finishColour: o.finishColour };
@@ -356,7 +372,7 @@
     if (hasLeft) edges.push({ edge: "left", len: D, cFirst: false, cLast: false });
     if (hasRight) edges.push({ edge: "right", len: D, cFirst: false, cLast: false });
 
-    var agg = {}, order = [], placements = [], meterage = 0;
+    var agg = {}, order = [], placements = [], meterage = 0, mountCount = 0;
     function add(code, label) { if (!agg[code]) { agg[code] = { label: label, partNumber: code, qty: 0 }; order.push(code); } agg[code].qty++; }
 
     edges.forEach(function (e) {
@@ -376,12 +392,15 @@
         placements.push({ edge: e.edge, offset: offset, length: plen, type: isCorner ? "corner" : "standard" });
         offset += plen;
       });
-      pickEdgeMounts(e.len, mountLens).forEach(function (m) { add(m.partNumber, m.len + "m fascia mount"); });
+      var ms = pickEdgeMounts(e.len, mountLens);
+      ms.forEach(function (m) { add(m.partNumber, m.len + "m fascia mount"); });
+      mountCount += ms.length;
       meterage += e.len;
     });
     meterage = +meterage.toFixed(3);
 
     var items = order.map(function (k) { return agg[k]; });
+    var spare = spareWingBolts(mountCount); if (spare) items.push(spare);
     var fi = fasciaFinishInfo(finishes, o, meterage);
     if (fi.item) items.push(fi.item);
     return { available: true, items: items, placements: placements, meterage: meterage, finishCost: fi.finishCost, rate: fi.rate, finishLabel: fi.finishLabel, finishColour: o.finishColour };
@@ -552,7 +571,7 @@
   // ===========================================================================
   if (typeof window === "undefined") return;
 
-  var TOOL_VERSION = "0.32.0"; // shown in the panel header top-left; keep in sync with the header banner above.
+  var TOOL_VERSION = "0.33.0"; // shown in the panel header top-left; keep in sync with the header banner above.
   var REPO = "AdamYesEvents/HH-YES-Plugins";
   // Load data from this tool's own release tag (immutable + served instantly by
   // jsDelivr) rather than @main, which edge-caches and can lag / throttle purges.
