@@ -8,7 +8,7 @@
  * Catalogue: data/stage-designer/decks.json + legs.json.
  * Fascia, trim and carpet come later (fascia will match the chosen height).
  *
- * Version: 0.33.0
+ * Version: 0.33.1
  */
 
 (function () {
@@ -254,7 +254,7 @@
   // Spare wing bolts: HireHop auto-pulls 2 wing bolts per SFBS mount; we add
   // 10% of that total as a spare parts line under Fascia (floor 1 when any
   // mount is present, so very small stages still get at least one spare).
-  var WING_BOLT_PN = "SFBS-50WING";
+  var WING_BOLT_PN = "YW-04093";
   var WING_BOLTS_PER_MOUNT = 2;
   var WING_BOLT_SPARE_PCT = 0.10;
   function spareWingBolts(mountCount) {
@@ -571,7 +571,7 @@
   // ===========================================================================
   if (typeof window === "undefined") return;
 
-  var TOOL_VERSION = "0.33.0"; // shown in the panel header top-left; keep in sync with the header banner above.
+  var TOOL_VERSION = "0.33.1"; // shown in the panel header top-left; keep in sync with the header banner above.
   var REPO = "AdamYesEvents/HH-YES-Plugins";
   // Load data from this tool's own release tag (immutable + served instantly by
   // jsDelivr) rather than @main, which edge-caches and can lag / throttle purges.
