@@ -3,7 +3,7 @@
  * Injects a <style> on load that hides specific UI controls we don't want
  * users to touch. Bucket for future additions — add selectors to CSS below.
  *
- * Version: 0.1.5
+ * Version: 0.1.6
  *
  * Currently hides:
  *   Job page (#job_delivery_address):
@@ -14,7 +14,7 @@
  *     - "Use at address" tab
  *     - "Copy company and address to delivery address" button
  *     - "Add to address book" button (title variant)
- *   New job dialog (#new_job_dialog):
+ *   New job dialog (#new_job_dialog) / New project dialog (#new_proj_dialog):
  *     - "Add to address book" button (person-icon / no-title variant)
  *   New project dialog (#new_proj_dialog):
  *     - "Collection address" tab
@@ -37,7 +37,8 @@
     '#new_job_dialog button[title="Add to address book"],',
     '#new_job_dialog button:has(.ui-icon-person),',
     '#new_proj_dialog .label.address-switcher-unselected.collection,',
-    '#new_proj_dialog .label.address-switcher-unselected.use_at',
+    '#new_proj_dialog .label.address-switcher-unselected.use_at,',
+    '#new_proj_dialog button:has(.ui-icon-person)',
     '{ display: none !important; }'
   ].join("\n");
   document.head.appendChild(s);
