@@ -3,7 +3,7 @@
  * Injects a <style> on load that hides specific UI controls we don't want
  * users to touch. Bucket for future additions — add selectors to CSS below.
  *
- * Version: 0.1.1
+ * Version: 0.1.2
  *
  * Currently hides:
  *   Job page (#job_delivery_address):
@@ -14,6 +14,9 @@
  *     - "Use at address" tab
  *     - "Copy company and address to delivery address" button
  *     - "Add to address book" button
+ *   New job dialog (#new_job_dialog):
+ *     - "Collection address" tab
+ *     - "Use at address" tab
  */
 (function () {
   if (document.getElementById("hhtool_hide_ui_elements")) return;
@@ -25,7 +28,9 @@
     '#edit_dialog .label.address-switcher-unselected.collection,',
     '#edit_dialog .label.address-switcher-unselected.use_at,',
     '#edit_dialog button[title="Copy company and address to delivery address"],',
-    '#edit_dialog button[title="Add to address book"]',
+    '#edit_dialog button[title="Add to address book"],',
+    '#new_job_dialog .label.address-switcher-unselected.collection,',
+    '#new_job_dialog .label.address-switcher-unselected.use_at',
     '{ display: none !important; }'
   ].join("\n");
   document.head.appendChild(s);
