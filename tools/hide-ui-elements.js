@@ -3,18 +3,18 @@
  * Injects a <style> on load that hides specific UI controls we don't want
  * users to touch. Bucket for future additions — add selectors to CSS below.
  *
- * Version: 0.1.3
+ * Version: 0.1.4
  *
  * Currently hides:
  *   Job page (#job_delivery_address):
  *     - "Collection address" tab
  *     - "Use at address" tab
- *   Job edit dialog (#edit_dialog):
+ *   Job edit dialog (#edit_dialog) / New job dialog (#new_job_dialog):
  *     - "Collection address" tab
  *     - "Use at address" tab
  *     - "Copy company and address to delivery address" button
  *     - "Add to address book" button
- *   New job dialog (#new_job_dialog) / New project dialog (#new_proj_dialog):
+ *   New project dialog (#new_proj_dialog):
  *     - "Collection address" tab
  *     - "Use at address" tab
  */
@@ -31,6 +31,8 @@
     '#edit_dialog button[title="Add to address book"],',
     '#new_job_dialog .label.address-switcher-unselected.collection,',
     '#new_job_dialog .label.address-switcher-unselected.use_at,',
+    '#new_job_dialog button[title="Copy company and address to delivery address"],',
+    '#new_job_dialog button[title="Add to address book"],',
     '#new_proj_dialog .label.address-switcher-unselected.collection,',
     '#new_proj_dialog .label.address-switcher-unselected.use_at',
     '{ display: none !important; }'
