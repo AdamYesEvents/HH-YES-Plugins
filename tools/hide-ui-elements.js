@@ -3,13 +3,7 @@
  * Injects a <style> on load that hides specific UI controls we don't want
  * users to touch. Bucket for future additions — add selectors to CSS below.
  *
- * Version: 0.1.8
- *
- * Currently locks (read-only, greyed — view but not edit), settings.php only:
- *   Settings page (settings.php) Profile section:
- *     - Name, Job description, Telephone, Login email inputs
- *       (mouse editing blocked via pointer-events; keyboard Tab still reaches
- *        them; values stay visible & still submit)
+ * Version: 0.1.6
  *
  * Currently hides:
  *   Job page (#job_delivery_address):
@@ -30,7 +24,7 @@
   if (document.getElementById("hhtool_hide_ui_elements")) return;
   var s = document.createElement("style");
   s.id = "hhtool_hide_ui_elements";
-  var css = [
+  s.textContent = [
     '#job_delivery_address .lang.label.collection.address-switcher-unselected,',
     '#job_delivery_address .lang.label.use_at.address-switcher-unselected,',
     '#edit_dialog .label.address-switcher-unselected.collection,',
@@ -46,19 +40,6 @@
     '#new_proj_dialog .label.address-switcher-unselected.use_at,',
     '#new_proj_dialog button:has(.ui-icon-person)',
     '{ display: none !important; }'
-  ];
-  // settings.php Profile only: make name/job/telephone/email read-only (view-only, greyed).
-  // Guarded by pathname so these common field names are not locked on other HireHop pages.
-  // .hh-v2-input also excludes the second (non-profile) EMAIL input on the settings page.
-  if (/\/settings\.php/.test(location.pathname)) {
-    css.push(
-      'input.hh-v2-input[name="NAME"],',
-      'input.hh-v2-input[name="JOB"],',
-      'input.hh-v2-input[name="TELEPHONE"],',
-      'input.hh-v2-input[name="EMAIL"]',
-      '{ pointer-events: none !important; color: #999 !important; background-color: #f0f0f0 !important; }'
-    );
-  }
-  s.textContent = css.join("\n");
+  ].join("\n");
   document.head.appendChild(s);
 })();
