@@ -54,6 +54,21 @@ After editing the loader, cut a new loader release and update the HireHop URL's 
   ignores `?v=` query strings — to refresh a `main` ref quickly, purge it:
   `https://purge.jsdelivr.net/gh/AdamYesEvents/HH-YES-Plugins@main/tools/<tool>.js`
 
+## Releasing (auto-bumps the shared loader version)
+
+Don't hand-pick the next `v0.1.N` — parallel sessions guess the same number and
+collide. After editing a tool file (bump its own `Version:` header) and
+repointing the tool's `ref` in `loader.js`, run:
+
+```
+scripts/release.sh <tool-id>      # e.g. stage-designer
+```
+
+It reads the tool's version for the tool tag, derives the next loader version
+from the **remote** `v0.1.*` tags, bumps `loader.js`, commits, tags both, and
+pushes atomically. If another session released first the push is rejected and it
+tells you to `git pull --ff-only` and re-run (which picks the next free number).
+
 ## Writing a new tool
 
 Create `tools/<id>.js` that registers itself once the loader is present:
