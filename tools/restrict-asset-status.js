@@ -1,75 +1,87 @@
 /*!
  * HireHop Tool: Restrict Asset Status
- * Limits which asset STATUS values certain permission groups may switch to,
- * in the stock module's asset Edit dialog (select[name="STATUS"]).
- * Client-side UI restriction only (hides disallowed options) — NOT server-enforced.
+ * For configured permission groups, limits the asset STATUS control in the stock
+ * module's asset Edit dialog (select[name="STATUS"]):
+ *   - from an "active" status the only change allowed is to Lost;
+ *   - for any other (terminal) status the whole Status field is hidden.
+ * Client-side UI restriction only (hides options / the field) — NOT server-enforced.
  *
- * Version: 0.1.2
+ * Version: 0.1.3
  *
  * Asset statuses: 0 In stock, 1 Flagged, 2 In repair, 3 Write off, 4 Sold,
  *                 5 Stolen, 6 Lost, 7 Erased.
+ * HireHop pre-selects the <select> value only for "active" statuses (In stock,
+ * Flagged, In repair give value 0/1/2 with all 8 options); for disposed ones
+ * (Write off/Sold/Stolen/Lost/Erased) it blanks the value and offers only revert
+ * targets. So a current status we don't allow is detected either by its value
+ * being in ALLOW_FROM or not (NaN for the blanked ones -> not allowed -> hidden).
  *
- * Rule (restricted groups only): the dropdown keeps the CURRENT status plus the
- * targets allowed for that current status; every other option is removed. So a
- * status with no allowed targets (e.g. In repair) is effectively locked.
- *   - default allowed target:  Lost (6)      -- "the only one they may change to"
- *   - In repair (2):           none          -- cannot change
- *   - Lost (6):                In stock (0)   -- may revert
- * Configure RESTRICTED_GROUPS + OVERRIDES below. Runs on the main account only;
- * PERMISSION_GROUP ids are specific to that account.
+ * Rule for restricted groups:
+ *   - current status in ALLOW_FROM -> keep it, allow only -> Lost, remove the rest
+ *   - any other current status      -> hide the whole Status field (label + control)
  */
 (function () {
   // ---- CONFIG ---------------------------------------------------------------
-  var RESTRICTED_GROUPS = [2, 9];      // user.PERMISSION_GROUP ids to restrict: 2 = Office, 9 = WarehouseManager
-  var DEFAULT_ALLOWED   = [6];         // Lost — allowed target from any status unless overridden
-  var OVERRIDES = { 2: [], 6: [0] };   // status 2 In repair -> no change; 6 Lost -> revert to 0 In stock
+  var RESTRICTED_GROUPS = [2, 9];   // user.PERMISSION_GROUP ids: 2 = Office, 9 = WarehouseManager
+  var ALLOW_FROM = [0, 1];          // statuses a change is allowed from: In stock, Flagged
+  var ALLOW_TARGET = 6;             // the only status they may change TO: Lost
+  // Any status not in ALLOW_FROM (In repair, Write off, Sold, Stolen, Lost, Erased) -> field hidden.
   // ---------------------------------------------------------------------------
-
-  // Allowed status values a restricted user may select, given the current one.
-  function allowedTargets(current) {
-    var extra = OVERRIDES.hasOwnProperty(current) ? OVERRIDES[current] : DEFAULT_ALLOWED;
-    return [current].concat(extra);
-  }
-
-  // self-check (silent unless broken)
-  console.assert(allowedTargets(0).join() === "0,6", "in stock -> + lost");
-  console.assert(allowedTargets(2).join() === "2",   "in repair -> locked");
-  console.assert(allowedTargets(6).join() === "6,0", "lost -> + in stock");
 
   function restricted() {
     return typeof user !== "undefined" && user &&
            RESTRICTED_GROUPS.indexOf(user.PERMISSION_GROUP) >= 0;
   }
 
-  // The asset-status select, told apart from the item-status select (both name="STATUS")
-  // by its 8 options including 6=Lost.
+  // The asset-status <select> (has a "Lost" option), told apart from the
+  // item-status one (Active/Hidden/Deleted, no "Lost").
   function isAssetStatus(sel) {
-    return sel.name === "STATUS" && sel.options.length >= 8 &&
-      Array.prototype.some.call(sel.options, function (o) {
-        return o.value === "6" && /lost/i.test(o.text);
-      });
+    return sel.name === "STATUS" &&
+      Array.prototype.some.call(sel.options, function (o) { return o.value === "6" && /lost/i.test(o.text); });
   }
 
   function apply(sel) {
-    sel.dataset.hhAsr = "1";
     if (!restricted()) return;
-    var allow = allowedTargets(parseInt(sel.value, 10));
-    Array.prototype.slice.call(sel.options).forEach(function (o) {
-      if (allow.indexOf(parseInt(o.value, 10)) < 0) o.remove();
-    });
+    var tr = sel.closest("tr");
+    var cur = parseInt(sel.value, 10);           // NaN for HireHop's blanked (terminal) statuses
+    if (ALLOW_FROM.indexOf(cur) >= 0) {
+      if (tr) tr.style.display = "";             // active & allowed: show field + prune to {cur, Lost}
+      Array.prototype.slice.call(sel.options).forEach(function (o) {
+        var v = parseInt(o.value, 10);
+        if (v !== cur && v !== ALLOW_TARGET) o.remove();
+      });
+    } else if (tr) {
+      tr.style.display = "none";                 // terminal / disallowed: hide the whole field
+    }
   }
 
-  // The Edit dialog is rebuilt each time it opens, so poll (same style as loader.js).
-  // Only touch a select once it is visible, by which point its value is populated.
+  // self-check (silent unless broken): which action each current status triggers
+  (function () {
+    function action(v) { return ALLOW_FROM.indexOf(parseInt(v, 10)) >= 0 ? "prune" : "hide"; }
+    console.assert(action("0") === "prune", "in stock -> prune");
+    console.assert(action("1") === "prune", "flagged -> prune");
+    console.assert(action("2") === "hide",  "in repair -> hide");
+    console.assert(action("3") === "hide",  "write off -> hide");
+    console.assert(action("")  === "hide",  "blanked terminal -> hide");
+  })();
+
+  // The Edit dialog's DOM is reused across assets and repopulated on each open, so
+  // re-apply whenever a select's state (value + option count) changes, not just once.
+  // Gate on the dialog FORM's visibility, not the select's: once we hide the Status
+  // row the select itself has no layout, but we still must re-show it for the next
+  // (active) asset in the reused dialog.
   function scan() {
-    var list = document.querySelectorAll('select[name="STATUS"]:not([data-hh-asr])');
-    Array.prototype.forEach.call(list, function (sel) {
-      if (!isAssetStatus(sel)) { sel.dataset.hhAsr = "1"; return; } // not ours; ignore
-      if (!sel.offsetParent) return;                                // dialog not shown yet; retry
+    Array.prototype.forEach.call(document.querySelectorAll('select[name="STATUS"]'), function (sel) {
+      if (!isAssetStatus(sel)) return;
+      var form = sel.closest("form");
+      if (!form || form.getClientRects().length === 0) return;   // Edit dialog not open
+      var sig = sel.value + "|" + sel.options.length;
+      if (sel.__hhAsrSig === sig) return;
+      sel.__hhAsrSig = sig;
       apply(sel);
     });
   }
 
-  setInterval(scan, 750);
+  setInterval(scan, 500);
   scan();
 })();
