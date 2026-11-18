@@ -8,7 +8,7 @@
  * Catalogue: data/stage-designer/decks.json + legs.json.
  * Fascia, trim and carpet come later (fascia will match the chosen height).
  *
- * Version: 0.33.1
+ * Version: 0.33.2
  */
 
 (function () {
@@ -158,6 +158,49 @@
     if (!result || !result.ok) return 0;
     return result.totals.panels * (legsPerDeck || 0);
   }
+
+  // Post-insert validation. Compare the live Supplying tree against what the
+  // insert intended to add, so a silently-dropped line (legs, the Deck Tool Kit)
+  // or a sub-heading that never got created (seen when HireHop's rate limit bites
+  // mid-insert) is reported instead of the dialog closing as "done".
+  // Pure: flat = jstree get_json("#",{flat:true}); mainId = stage folder heading
+  // id; expectedByCat = {category: intended line count}. Returns a list of
+  // problems (empty = everything landed). Only flags shortfalls — extra nodes
+  // (HireHop's autopulled boltset) are fine.
+  // shortcut: assumes one tree line per intended stock key / custom row; if
+  // HireHop ever merges or splits stock lines, switch to a stage-folder total.
+  function diffStageTree(flat, mainId, expectedByCat) {
+    var mainNodeId = "a" + mainId, problems = [], subByTitle = {}, countByParent = {};
+    (flat || []).forEach(function (n) {
+      if (!n.data) return;
+      if (n.parent === mainNodeId && n.data.kind == 0) subByTitle[n.data.title] = n.id;
+      if (n.data.kind != 0) countByParent[n.parent] = (countByParent[n.parent] || 0) + 1;
+    });
+    Object.keys(expectedByCat).forEach(function (cat) {
+      var expected = expectedByCat[cat];
+      if (!expected) return;
+      var subId = subByTitle[cat];
+      if (!subId) { problems.push({ category: cat, reason: "sub-heading missing", missing: expected }); return; }
+      var got = countByParent[subId] || 0;
+      if (got < expected) problems.push({ category: cat, reason: "items missing", missing: expected - got, expected: expected, got: got });
+    });
+    return problems;
+  }
+  // self-check (runs once at load; logs only on failure): Deck short by one item,
+  // Fascia heading absent entirely.
+  (function () {
+    var flat = [
+      { id: "a1", parent: "#", data: { kind: 0, title: "Stage", ID: 1 } },
+      { id: "a2", parent: "a1", data: { kind: 0, title: "Deck", ID: 2 } },
+      { id: "i1", parent: "a2", data: { kind: 1, ID: 11 } },
+      { id: "i2", parent: "a2", data: { kind: 1, ID: 12 } }
+    ];
+    var d = diffStageTree(flat, 1, { Deck: 3, Fascia: 2 });
+    var ok = d.length === 2 &&
+      d.some(function (p) { return p.category === "Deck" && p.reason === "items missing" && p.missing === 1; }) &&
+      d.some(function (p) { return p.category === "Fascia" && p.reason === "sub-heading missing"; });
+    if (!ok) { try { console.error("[stage-designer] diffStageTree self-check FAILED", d); } catch (e) { } }
+  })();
 
   // Tile a run of length L from board lengths (descending) using the FEWEST
   // boards; among fewest-board options prefer no 0.5 m slivers, then uniform,
@@ -563,7 +606,7 @@
   // NODE EXPORT (no-op in the browser)
   // ===========================================================================
   if (typeof module !== "undefined" && module.exports) {
-    module.exports = { packStage: packStage, buildGridSvg: buildGridSvg, fillFor: fillFor, isRealPart: isRealPart, legCount: legCount, fasciaKit: fasciaKit, symTile: symTile, trimKit: trimKit, carpetKit: carpetKit, coverWidth: coverWidth, treadsKit: treadsKit };
+    module.exports = { packStage: packStage, buildGridSvg: buildGridSvg, fillFor: fillFor, isRealPart: isRealPart, legCount: legCount, diffStageTree: diffStageTree, fasciaKit: fasciaKit, symTile: symTile, trimKit: trimKit, carpetKit: carpetKit, coverWidth: coverWidth, treadsKit: treadsKit };
   }
 
   // ===========================================================================
@@ -571,7 +614,7 @@
   // ===========================================================================
   if (typeof window === "undefined") return;
 
-  var TOOL_VERSION = "0.33.1"; // shown in the panel header top-left; keep in sync with the header banner above.
+  var TOOL_VERSION = "0.33.2"; // shown in the panel header top-left; keep in sync with the header banner above.
   var REPO = "AdamYesEvents/HH-YES-Plugins";
   // Load data from this tool's own release tag (immutable + served instantly by
   // jsDelivr) rather than @main, which edge-caches and can lag / throttle purges.
@@ -935,6 +978,21 @@
     }
   }
 
+  // Read the live Supplying tree and diff it against what resolveAllByCategory
+  // intended to add (one stock line per resolved key + one line per custom row).
+  // Returns {ok, problems} or null when the tree can't be read (don't cry wolf).
+  function verifyInserted(inst, mainId, grouped, res) {
+    var flat;
+    try { flat = inst.items_to_supply_tree.jstree(true).get_json("#", { flat: true }) || []; } catch (e) { return null; }
+    if (!flat.length || !flat.some(function (n) { return n.id === "a" + mainId; })) return null;
+    var expectedByCat = {};
+    grouped.order.forEach(function (cat) {
+      expectedByCat[cat] = Object.keys(res.shoppingByCat[cat] || {}).length + (res.customsByCat[cat] || []).length;
+    });
+    var problems = diffStageTree(flat, mainId, expectedByCat);
+    return { ok: problems.length === 0, problems: problems };
+  }
+
   // Build a tree under an optional user-selected folder:
   //   parentSel (optional) -> "Stage ..." main heading -> "Deck" / "Fascia" / ... sub-headings -> items
   function addStageKit(inst, items, title, onDone, description, memo, parentHeadingId, onProgress, onSetup) {
@@ -1002,9 +1060,13 @@
             // it directly - back-to-back refreshes doubled the tree reload
             // (23s + 23s on large jobs) and held up the available column.
             dismissAutopullThen(function () {
+              // Read back the tree BEFORE clickSupplyingRefresh wipes it for the
+              // async reload — while the jstree still holds every node HireHop
+              // accepted during the insert.
+              var verify = verifyInserted(inst, mainId, grouped, res);
               restore();
               clickSupplyingRefresh(inst);
-              onDone({ ok: true, headingId: mainId, parts: parts, customs: customs });
+              onDone({ ok: true, headingId: mainId, parts: parts, customs: customs, verify: verify });
             });
             return;
           }
@@ -1702,6 +1764,22 @@
           '</div>';
       };
 
+      // Partial-insert report: list every sub-heading/line that didn't land so
+      // the user can add the few missing items by hand. Dialog stays open.
+      function showVerifyWarning(verify) {
+        foot.innerHTML = "";
+        var lines = verify.problems.map(function (p) {
+          if (p.reason === "sub-heading missing") return "&bull; " + p.category + ": section missing" + (p.missing ? " (" + p.missing + " item" + (p.missing > 1 ? "s" : "") + ")" : "");
+          if (p.reason === "items missing") return "&bull; " + p.category + ": " + p.missing + " of " + p.expected + " item" + (p.expected > 1 ? "s" : "") + " missing";
+          return "&bull; " + p.category + ": " + p.reason;
+        }).join("<br>");
+        var warn = el("div", null, "flex:1;font-size:12px;color:#b00;line-height:1.5;");
+        warn.innerHTML = '<div style="font-weight:600;margin-bottom:4px;">Added, but some lines didn\'t take — check the job and add these by hand:</div>' + lines;
+        var closeBtn = el("button", null, "padding:8px 16px;font-size:14px;cursor:pointer;");
+        closeBtn.textContent = "Close"; closeBtn.addEventListener("click", close);
+        foot.appendChild(warn); foot.appendChild(closeBtn);
+      }
+
       function doAdd() {
         busyFoot("Building the PDF&hellip;");
         var code = genCode();
@@ -1713,7 +1791,13 @@
           busyFoot("Adding to the job&hellip;");
           addStageKit(inst, state.items, state.title, function (r) {
             activeInsertRestore = null; // addStageKit already ran restore before onDone
-            if (r.ok) { if (built) uploadPdf(built.pdf, built.fileName); close(); }
+            if (r.ok) {
+              if (built) uploadPdf(built.pdf, built.fileName);
+              // Partial insert: some lines didn't take. Keep the dialog open with
+              // the exact shortfall so nothing gets silently missed.
+              if (r.verify && !r.verify.ok) { showVerifyWarning(r.verify); return; }
+              close();
+            }
             else {
               foot.innerHTML = "";
               var err = el("div", null, "flex:1;font-size:13px;color:#b00;");
