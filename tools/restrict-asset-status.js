@@ -4,7 +4,7 @@
  * in the stock module's asset Edit dialog (select[name="STATUS"]).
  * Client-side UI restriction only (hides disallowed options) — NOT server-enforced.
  *
- * Version: 0.1.1
+ * Version: 0.1.2
  *
  * Asset statuses: 0 In stock, 1 Flagged, 2 In repair, 3 Write off, 4 Sold,
  *                 5 Stolen, 6 Lost, 7 Erased.
@@ -15,17 +15,12 @@
  *   - default allowed target:  Lost (6)      -- "the only one they may change to"
  *   - In repair (2):           none          -- cannot change
  *   - Lost (6):                In stock (0)   -- may revert
- * Configure RESTRICTED_BY_COMPANY + OVERRIDES below. Groups are keyed by
- * HireHop company (user.COMPANY_ID) because PERMISSION_GROUP numbering differs
- * per account; any company not listed is inert.
+ * Configure RESTRICTED_GROUPS + OVERRIDES below. Runs on the main account only;
+ * PERMISSION_GROUP ids are specific to that account.
  */
 (function () {
   // ---- CONFIG ---------------------------------------------------------------
-  // PERMISSION_GROUP ids to restrict, per HireHop company (user.COMPANY_ID).
-  // Numbering is account-specific, so list each company separately; others = inert.
-  var RESTRICTED_BY_COMPANY = {
-    5949: [2, 9]                       // Yes Events Ltd (main): 2 = Office, 9 = WarehouseManager
-  };
+  var RESTRICTED_GROUPS = [2, 9];      // user.PERMISSION_GROUP ids to restrict: 2 = Office, 9 = WarehouseManager
   var DEFAULT_ALLOWED   = [6];         // Lost — allowed target from any status unless overridden
   var OVERRIDES = { 2: [], 6: [0] };   // status 2 In repair -> no change; 6 Lost -> revert to 0 In stock
   // ---------------------------------------------------------------------------
@@ -42,9 +37,8 @@
   console.assert(allowedTargets(6).join() === "6,0", "lost -> + in stock");
 
   function restricted() {
-    if (typeof user === "undefined" || !user) return false;
-    var groups = RESTRICTED_BY_COMPANY[user.COMPANY_ID] || [];
-    return groups.indexOf(user.PERMISSION_GROUP) >= 0;
+    return typeof user !== "undefined" && user &&
+           RESTRICTED_GROUPS.indexOf(user.PERMISSION_GROUP) >= 0;
   }
 
   // The asset-status select, told apart from the item-status select (both name="STATUS")
