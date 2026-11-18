@@ -9,7 +9,7 @@
  * and will not execute). Pin the loader to a release tag, e.g.:
  *   https://cdn.jsdelivr.net/gh/AdamYesEvents/HH-YES-Plugins@v0.1.108/loader.js
  *
- * Version: 0.1.130
+ * Version: 0.1.131
  */
 
 (function () {
@@ -27,7 +27,8 @@
   var TOOLS = {
     "stage-designer":    { on: true, ref: "stage-designer-v0.33.2" },
     "videowall-creator": { on: true, ref: "videowall-creator-v0.24.3" },
-    "hide-ui-elements":  { on: true, ref: "hide-ui-elements-v0.1.6" }
+    "hide-ui-elements":  { on: true, ref: "hide-ui-elements-v0.1.6" },
+    "restrict-asset-status": { on: true, ref: "restrict-asset-status-v0.1.0" }
   };
 
   // ---------------------------------------------------------------------------
