@@ -8,7 +8,7 @@
  * Catalogue: data/stage-designer/decks.json + legs.json.
  * Fascia, trim and carpet come later (fascia will match the chosen height).
  *
- * Version: 0.33.2
+ * Version: 0.33.3
  */
 
 (function () {
@@ -614,7 +614,7 @@
   // ===========================================================================
   if (typeof window === "undefined") return;
 
-  var TOOL_VERSION = "0.33.2"; // shown in the panel header top-left; keep in sync with the header banner above.
+  var TOOL_VERSION = "0.33.3"; // shown in the panel header top-left; keep in sync with the header banner above.
   var REPO = "AdamYesEvents/HH-YES-Plugins";
   // Load data from this tool's own release tag (immutable + served instantly by
   // jsDelivr) rather than @main, which edge-caches and can lag / throttle purges.
@@ -1050,26 +1050,50 @@
       reportPhase("stage-folder", null, null);
       createHeading(inst, title, description, memo, parentHeadingId, 5 /* Grouped */).then(function (mainId) {
         if (!mainId) { onDone({ ok: false, error: "Could not create the stage folder" }); return; }
-        var i = 0, parts = 0, customs = 0;
-        function nextCategory() {
-          if (i >= grouped.order.length) {
-            reportPhase("finalising", null, null);
-            // Final autopull sweep, THEN restore the tree.refresh we suppressed
-            // and click HireHop's Supplying refresh button. clickSupplyingRefresh
-            // triggers the same tree.refresh internally, so we do NOT also call
-            // it directly - back-to-back refreshes doubled the tree reload
-            // (23s + 23s on large jobs) and held up the available column.
-            dismissAutopullThen(function () {
-              // Read back the tree BEFORE clickSupplyingRefresh wipes it for the
-              // async reload — while the jstree still holds every node HireHop
-              // accepted during the insert.
-              var verify = verifyInserted(inst, mainId, grouped, res);
-              restore();
-              clickSupplyingRefresh(inst);
-              onDone({ ok: true, headingId: mainId, parts: parts, customs: customs, verify: verify });
+        var i = 0, parts = 0, customs = 0, repaired = false;
+        // Re-add any WHOLE sub-heading the read-back found missing (heading never
+        // created, so its items dropped with it - the Deck section with the legs
+        // + Tool Kit is the usual victim when HireHop's rate limit bites). Safe to
+        // recreate because nothing of that category is in the tree, so no dupes.
+        // One pass only (repaired flag) - if a heading still won't take, it goes
+        // to the manual report rather than looping. Partial shortfalls under an
+        // existing heading aren't auto-added: the count alone can't say which
+        // lines dropped, so re-adding could double up a line on a live quote.
+        function repairThen(fixable, done) {
+          var j = 0;
+          (function nextFix() {
+            if (j >= fixable.length) { done(); return; }
+            var cat = fixable[j++].category;
+            reportPhase("repair", cat, null);
+            createHeading(inst, cat, "", "", mainId).then(function (subId) {
+              if (!subId) { nextFix(); return; } // still failing; verify will flag it
+              insertOneCategory(inst, subId, res.shoppingByCat[cat], res.customsByCat[cat], cat === "Deck", nextFix, function (item) {
+                doneItems++; reportPhase("item", cat, item);
+              });
             });
-            return;
-          }
+          })();
+        }
+        // Final autopull sweep, read the tree back, auto-repair whole-missing
+        // sections once, then restore the suppressed refresh and click HireHop's
+        // Supplying refresh (which runs tree.refresh internally - we don't also
+        // call it directly, back-to-back refreshes doubled the reload on big jobs).
+        function finalise() {
+          reportPhase("finalising", null, null);
+          dismissAutopullThen(function () {
+            // Read back BEFORE clickSupplyingRefresh wipes the tree for its async
+            // reload, while the jstree still holds every node HireHop accepted.
+            var verify = verifyInserted(inst, mainId, grouped, res);
+            if (verify && !verify.ok && !repaired) {
+              var fixable = verify.problems.filter(function (p) { return p.reason === "sub-heading missing"; });
+              if (fixable.length) { repaired = true; repairThen(fixable, finalise); return; }
+            }
+            restore();
+            clickSupplyingRefresh(inst);
+            onDone({ ok: true, headingId: mainId, parts: parts, customs: customs, verify: verify });
+          });
+        }
+        function nextCategory() {
+          if (i >= grouped.order.length) { finalise(); return; }
           var cat = grouped.order[i++];
           var shopping = res.shoppingByCat[cat], customList = res.customsByCat[cat];
           if (!Object.keys(shopping).length && !customList.length) { nextCategory(); return; }
@@ -1748,6 +1772,7 @@
         var label;
         if (p.phase === "stage-folder") label = "Creating stage folder&hellip;";
         else if (p.phase === "subheading") label = "Creating sub-heading: " + (p.category || "") + "&hellip;";
+        else if (p.phase === "repair") label = "Re-adding missing section: " + (p.category || "") + "&hellip;";
         else if (p.phase === "item") label = "Adding " + (p.category || "") + " (" + p.doneItems + "/" + p.totalItems + ")&hellip;";
         else if (p.phase === "finalising") label = "Finalising&hellip;";
         else label = "Adding to the job&hellip;";
@@ -1774,7 +1799,7 @@
           return "&bull; " + p.category + ": " + p.reason;
         }).join("<br>");
         var warn = el("div", null, "flex:1;font-size:12px;color:#b00;line-height:1.5;");
-        warn.innerHTML = '<div style="font-weight:600;margin-bottom:4px;">Added, but some lines didn\'t take — check the job and add these by hand:</div>' + lines;
+        warn.innerHTML = '<div style="font-weight:600;margin-bottom:4px;">Added (and auto-retried), but these still didn\'t take — check the job and add them by hand:</div>' + lines;
         var closeBtn = el("button", null, "padding:8px 16px;font-size:14px;cursor:pointer;");
         closeBtn.textContent = "Close"; closeBtn.addEventListener("click", close);
         foot.appendChild(warn); foot.appendChild(closeBtn);
