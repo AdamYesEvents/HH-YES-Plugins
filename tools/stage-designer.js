@@ -8,7 +8,7 @@
  * Catalogue: data/stage-designer/decks.json + legs.json.
  * Fascia, trim and carpet come later (fascia will match the chosen height).
  *
- * Version: 0.33.3
+ * Version: 0.33.4
  */
 
 (function () {
@@ -200,6 +200,27 @@
       d.some(function (p) { return p.category === "Deck" && p.reason === "items missing" && p.missing === 1; }) &&
       d.some(function (p) { return p.category === "Fascia" && p.reason === "sub-heading missing"; });
     if (!ok) { try { console.error("[stage-designer] diffStageTree self-check FAILED", d); } catch (e) { } }
+  })();
+
+  // Which intended custom lines are NOT already under a sub-heading, so the
+  // partial-insert repair re-adds only the dropped ones. Custom lines are saved
+  // as "[part-number] label", so a line is "present" if any existing child text
+  // contains its "[part-number]" token - matching the token (not the whole name)
+  // stays robust to any qty text HireHop prepends/appends. Duplicate-safe: a line
+  // already there is never re-added.
+  function missingCustoms(intendedCustoms, existingTexts) {
+    return (intendedCustoms || []).filter(function (c) {
+      var token = "[" + c.partNumber + "]";
+      return !(existingTexts || []).some(function (t) { return String(t).indexOf(token) >= 0; });
+    });
+  }
+  // self-check (runs once at load; logs only on failure): TK-001 already present
+  // (even with a qty prefix) -> skip; YW-00018 absent -> re-add.
+  (function () {
+    var intended = [{ partNumber: "TK-001", label: "Deck - Tool Kit" }, { partNumber: "YW-00018", label: "200mm Scaff Legs" }];
+    var m = missingCustoms(intended, ["2 x [TK-001] Deck - Tool Kit"]);
+    var ok = m.length === 1 && m[0].partNumber === "YW-00018";
+    if (!ok) { try { console.error("[stage-designer] missingCustoms self-check FAILED", m); } catch (e) { } }
   })();
 
   // Tile a run of length L from board lengths (descending) using the FEWEST
@@ -606,7 +627,7 @@
   // NODE EXPORT (no-op in the browser)
   // ===========================================================================
   if (typeof module !== "undefined" && module.exports) {
-    module.exports = { packStage: packStage, buildGridSvg: buildGridSvg, fillFor: fillFor, isRealPart: isRealPart, legCount: legCount, diffStageTree: diffStageTree, fasciaKit: fasciaKit, symTile: symTile, trimKit: trimKit, carpetKit: carpetKit, coverWidth: coverWidth, treadsKit: treadsKit };
+    module.exports = { packStage: packStage, buildGridSvg: buildGridSvg, fillFor: fillFor, isRealPart: isRealPart, legCount: legCount, diffStageTree: diffStageTree, missingCustoms: missingCustoms, fasciaKit: fasciaKit, symTile: symTile, trimKit: trimKit, carpetKit: carpetKit, coverWidth: coverWidth, treadsKit: treadsKit };
   }
 
   // ===========================================================================
@@ -614,7 +635,7 @@
   // ===========================================================================
   if (typeof window === "undefined") return;
 
-  var TOOL_VERSION = "0.33.3"; // shown in the panel header top-left; keep in sync with the header banner above.
+  var TOOL_VERSION = "0.33.4"; // shown in the panel header top-left; keep in sync with the header banner above.
   var REPO = "AdamYesEvents/HH-YES-Plugins";
   // Load data from this tool's own release tag (immutable + served instantly by
   // jsDelivr) rather than @main, which edge-caches and can lag / throttle purges.
@@ -1051,26 +1072,45 @@
       createHeading(inst, title, description, memo, parentHeadingId, 5 /* Grouped */).then(function (mainId) {
         if (!mainId) { onDone({ ok: false, error: "Could not create the stage folder" }); return; }
         var i = 0, parts = 0, customs = 0, repaired = false;
-        // Re-add any WHOLE sub-heading the read-back found missing (heading never
-        // created, so its items dropped with it - the Deck section with the legs
-        // + Tool Kit is the usual victim when HireHop's rate limit bites). Safe to
-        // recreate because nothing of that category is in the tree, so no dupes.
-        // One pass only (repaired flag) - if a heading still won't take, it goes
-        // to the manual report rather than looping. Partial shortfalls under an
-        // existing heading aren't auto-added: the count alone can't say which
-        // lines dropped, so re-adding could double up a line on a live quote.
-        function repairThen(fixable, done) {
+        // Find a sub-heading of the stage folder by title; return its numeric id
+        // plus the display texts of its current child lines (so the partial repair
+        // can see which intended custom lines are absent).
+        function subInfo(cat) {
+          var flat;
+          try { flat = inst.items_to_supply_tree.jstree(true).get_json("#", { flat: true }) || []; } catch (e) { return null; }
+          var sub = flat.filter(function (n) { return n.parent === "a" + mainId && n.data && n.data.kind == 0 && n.data.title === cat; })[0];
+          if (!sub) return null;
+          var texts = flat.filter(function (n) { return n.parent === sub.id && n.data && n.data.kind != 0; }).map(function (n) { return n.text || ""; });
+          return { subId: parseInt(sub.data.ID), texts: texts };
+        }
+        // Re-add what the read-back found missing. One pass only (repaired flag);
+        // anything still short after it goes to the manual report rather than loop.
+        //  - "sub-heading missing": recreate the heading and insert its full set
+        //    (the Deck section with the legs + Tool Kit is the usual casualty when
+        //    HireHop's rate limit bites). No dupes - nothing of it is in the tree.
+        //  - "items missing": top up only the intended CUSTOM lines whose
+        //    "[part-number]" token is absent (missingCustoms; duplicate-safe). A
+        //    stock-line shortfall can't be fingerprinted client-side, so it's left
+        //    for the report rather than risk doubling a charge on a live quote.
+        function repairThen(problems, done) {
           var j = 0;
           (function nextFix() {
-            if (j >= fixable.length) { done(); return; }
-            var cat = fixable[j++].category;
+            if (j >= problems.length) { done(); return; }
+            var p = problems[j++], cat = p.category;
             reportPhase("repair", cat, null);
-            createHeading(inst, cat, "", "", mainId).then(function (subId) {
-              if (!subId) { nextFix(); return; } // still failing; verify will flag it
-              insertOneCategory(inst, subId, res.shoppingByCat[cat], res.customsByCat[cat], cat === "Deck", nextFix, function (item) {
-                doneItems++; reportPhase("item", cat, item);
+            function tick(item) { doneItems++; reportPhase("item", cat, item); }
+            if (p.reason === "sub-heading missing") {
+              createHeading(inst, cat, "", "", mainId).then(function (subId) {
+                if (!subId) { nextFix(); return; } // still failing; verify will flag it
+                insertOneCategory(inst, subId, res.shoppingByCat[cat], res.customsByCat[cat], cat === "Deck", nextFix, tick);
               });
-            });
+              return;
+            }
+            var info = subInfo(cat);
+            if (!info) { nextFix(); return; } // heading not found now; re-verify will report
+            var missing = missingCustoms(res.customsByCat[cat], info.texts);
+            if (!missing.length) { nextFix(); return; } // shortfall is stock -> report
+            insertCustoms(inst, info.subId, missing, nextFix, tick);
           })();
         }
         // Final autopull sweep, read the tree back, auto-repair whole-missing
@@ -1084,7 +1124,7 @@
             // reload, while the jstree still holds every node HireHop accepted.
             var verify = verifyInserted(inst, mainId, grouped, res);
             if (verify && !verify.ok && !repaired) {
-              var fixable = verify.problems.filter(function (p) { return p.reason === "sub-heading missing"; });
+              var fixable = verify.problems.filter(function (p) { return p.reason === "sub-heading missing" || p.reason === "items missing"; });
               if (fixable.length) { repaired = true; repairThen(fixable, finalise); return; }
             }
             restore();
