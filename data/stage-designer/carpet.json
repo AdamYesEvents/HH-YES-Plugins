@@ -1,6 +1,6 @@
 {
   "schema": "stage-designer/carpet",
-  "dataVersion": "0.2.0",
+  "dataVersion": "0.3.0",
   "overhang": 1,
   "carpet": [
     { "system": "metric", "colour": "black", "width": 1, "partNumber": "B-2021-1M" },
@@ -16,6 +16,11 @@
     { "system": "metric", "colour": "grey", "width": 1, "partNumber": "G-2024-1M" },
     { "system": "metric", "colour": "grey", "width": 2, "partNumber": "G-2024-2M" },
     { "system": "metric", "colour": "grey", "width": 3, "partNumber": "G-2024-3M" },
-    { "system": "metric", "colour": "grey", "width": 4, "partNumber": "G-2024-4M" }
+    { "system": "metric", "colour": "grey", "width": 4, "partNumber": "G-2024-4M" },
+
+    { "system": "metric", "colour": "off white", "width": 1, "partNumber": "OW-2124-1M" },
+    { "system": "metric", "colour": "off white", "width": 2, "partNumber": "OW-2124-2M" },
+    { "system": "metric", "colour": "off white", "width": 3, "partNumber": "OW-2124-3M" },
+    { "system": "metric", "colour": "off white", "width": 4, "partNumber": "OW-2124-4M" }
   ]
 }

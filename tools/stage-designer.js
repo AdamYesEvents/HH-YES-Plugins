@@ -8,7 +8,7 @@
  * Catalogue: data/stage-designer/decks.json + legs.json.
  * Fascia, trim and carpet come later (fascia will match the chosen height).
  *
- * Version: 0.33.4
+ * Version: 0.33.5
  */
 
 (function () {
@@ -598,8 +598,9 @@
 
   // Tread units (steps up to the stage). Only valid where a tread height matches
   // the stage height (400 or 600). o = { system,height,units,colour,treads,carpet }.
-  // 600mm = the 400mm unit + an extension. Each tread also gets one 1m x 1m carpet
-  // (1m-wide roll) in the stage colour, listed per tread (qty = units, not totalled).
+  // 600mm = the 400mm unit + an extension. Each tread also gets a 2m wide x 2m
+  // carpet (off the 2m-wide roll, 2 linear metres) in the stage colour, totalled
+  // across units.
   // Returns { available, items, units, height }.
   function treadsKit(o) {
     var data = o.treads || {};
@@ -615,10 +616,12 @@
       if (p.onlyWhenNoFascia && o.hasFascia) return;
       items.push({ label: p.label, partNumber: p.partNumber, qty: p.qty * o.units });
     });
-    var roll = ((o.carpet && o.carpet.carpet) || []).filter(function (b) { return b.colour === o.colour && b.width === 1; })[0];
+    var roll = ((o.carpet && o.carpet.carpet) || []).filter(function (b) { return b.colour === o.colour && b.width === 2; })[0];
     if (roll) {
       var cap = o.colour.charAt(0).toUpperCase() + o.colour.slice(1);
-      items.push({ label: cap + " Carpet 1m × 1m (per tread)", partNumber: roll.partNumber, qty: o.units });
+      // 2m length off the 2m-wide roll per tread = 2 linear metres each (carpet is
+      // priced per linear metre, so qty is metres).
+      items.push({ label: cap + " Carpet 2m wide × 2m (per tread)", partNumber: roll.partNumber, qty: 2 * o.units });
     }
     return { available: true, items: items, units: o.units, height: o.height };
   }
@@ -635,7 +638,7 @@
   // ===========================================================================
   if (typeof window === "undefined") return;
 
-  var TOOL_VERSION = "0.33.4"; // shown in the panel header top-left; keep in sync with the header banner above.
+  var TOOL_VERSION = "0.33.5"; // shown in the panel header top-left; keep in sync with the header banner above.
   var REPO = "AdamYesEvents/HH-YES-Plugins";
   // Load data from this tool's own release tag (immutable + served instantly by
   // jsDelivr) rather than @main, which edge-caches and can lag / throttle purges.
@@ -1688,7 +1691,7 @@
             trd.items.forEach(function (it) { items.push(Object.assign({}, it, { category: "Treads" })); });
             treadsHtml = '<div style="font-size:11px;letter-spacing:.04em;color:#888;text-transform:uppercase;margin:10px 0 4px;">Treads (' + treadHeight + 'mm)</div>' +
               trd.items.map(function (it) { return '<div style="display:flex;justify-content:space-between;font-size:13px;padding:3px 0;"><span style="color:#333;">' + it.label + '</span><span style="color:#111;font-weight:500;">x ' + it.qty + '</span></div>'; }).join("");
-            var hex = ({ black: "#333333", white: "#e8e8e8", grey: "#9a9a9a" })[(carpetSel.value || "black")] || "#333333";
+            var hex = ({ black: "#333333", white: "#e8e8e8", grey: "#9a9a9a", "off white": "#f0ece0" })[(carpetSel.value || "black")] || "#333333";
             var boxes = "";
             for (var ti = 0; ti < treadUnits; ti++) boxes += '<div style="width:32px;height:22px;background:' + hex + ';border:1px solid #26215C;border-radius:2px;"></div>';
             treadBoxHtml = '<div style="margin-top:12px;display:flex;flex-direction:column;align-items:center;gap:5px;">' +
@@ -1723,7 +1726,8 @@
         var TAPE_GAFFER = {
           black: [{ pn: "TAPE-03", label: "Black Gaffer Tape 50mm", qty: 1 }, { pn: "TAPE-04", label: "White Gaffer Tape 25mm", qty: 1 }],
           white: [{ pn: "TAPE-02", label: "White Gaffer Tape 50mm", qty: 1 }, { pn: "TAPE-05", label: "Black Gaffer Tape 25mm", qty: 1 }],
-          grey:  [{ pn: "TAPE-03", label: "Black Gaffer Tape 50mm", qty: 1 }, { pn: "TAPE-04", label: "White Gaffer Tape 25mm", qty: 1 }]
+          grey:  [{ pn: "TAPE-03", label: "Black Gaffer Tape 50mm", qty: 1 }, { pn: "TAPE-04", label: "White Gaffer Tape 25mm", qty: 1 }],
+          "off white": [{ pn: "TAPE-02", label: "White Gaffer Tape 50mm", qty: 1 }, { pn: "TAPE-05", label: "Black Gaffer Tape 25mm", qty: 1 }]
         };
         var TAPE_ROLL_M = 50;
         if (carpetHtml && state.carpetKit && carpetColour) {
@@ -1754,7 +1758,7 @@
         state.width = +parseFloat(wIn.value); state.depth = +parseFloat(dIn.value); state.height = heightVal;
         state.fasciaPlacements = fasciaPlacements; state.trimPlacements = trimPlacements;
         state.treadUnits = treadsHtml ? treadUnits : 0; state.treadHeight = treadHeight;
-        state.treadColour = ({ black: "#333333", white: "#e8e8e8", grey: "#9a9a9a" })[(carpetSel.value || "black")] || "#333333";
+        state.treadColour = ({ black: "#333333", white: "#e8e8e8", grey: "#9a9a9a", "off white": "#f0ece0" })[(carpetSel.value || "black")] || "#333333";
         var cap = function (x) { return x ? x.charAt(0).toUpperCase() + x.slice(1) : x; };
         // Short heading name + a full finishing breakdown for the memo/description.
         var memoParts = [];
