@@ -24,6 +24,9 @@ if [ "${1:-}" = "--selftest" ]; then
   got=$(printf 'v0.1.9\nv0.1.129\nv0.1.12\nvbad\nv0.1.130\n' \
         | sed -n 's/^v0\.1\.\([0-9]\{1,\}\)$/\1/p' | sort -n | tail -1)
   [ "$got" = "130" ] || { echo "selftest FAIL: got '$got', expected 130" >&2; exit 1; }
+  # DATA_REF pin: rewrite an existing assignment to the given tag, leave other lines be
+  got2=$(printf '  var DATA_REF = "main";\n' | sed 's|var DATA_REF = "[^"]*";|var DATA_REF = "stage-designer-v9.9.9";|')
+  [ "$got2" = '  var DATA_REF = "stage-designer-v9.9.9";' ] || { echo "selftest FAIL: DATA_REF sed -> '$got2'" >&2; exit 1; }
   echo "selftest OK"; exit 0
 fi
 
@@ -46,6 +49,15 @@ next="0.1.$((n + 1))"
 loadertag="v$next"
 
 sed -i "s/^ \* Version: .*/ * Version: $next/" loader.js
+
+# Pin the tool's catalogue DATA_REF (if it has one) to THIS release's immutable
+# tool tag, so data ships with the code instead of being read from @main - whose
+# per-file jsDelivr edge cache lags and left new catalogue entries invisible.
+# No-op for tools without a DATA_REF. tooltag is already fixed from the Version
+# header above, so the data always matches the code at the tag we're cutting.
+if grep -q 'var DATA_REF = "' "$toolfile"; then
+  sed -i "s|var DATA_REF = \"[^\"]*\";|var DATA_REF = \"$tooltag\";|" "$toolfile"
+fi
 
 git add -A
 git commit -q -m "$tool v$toolver + loader v$next" \
