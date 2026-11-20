@@ -1,6 +1,6 @@
 {
   "schema": "stage-designer/fascia",
-  "dataVersion": "0.4.1",
+  "dataVersion": "0.4.2",
   "_note": "Panels are colour-independent (structural), by height + length (real SFB codes). Mounts are the fascia support fixings with wing bolt set (SFBS). The finish (Felt/HIPS/Print) is a separate per-metre line priced on total fascia meterage; finish part code generated FASC-{type}-{height}-{colourAbbr}.",
   "mounts": [
     { "system": "metric", "len": 1.5, "partNumber": "SFBS1500" },
@@ -30,11 +30,11 @@
   ],
   "finishes": [
     {
-      "type": "felt", "label": "Felt", "pricePerM": 6.5, "colours": ["black", "off white", "grey"],
+      "type": "felt", "label": "Felt", "pricePerM": 6.5, "colours": ["black", "white", "off white", "grey"],
       "codes": {
-        "200": { "black": "SFELT200-B", "off white": "SFELT200-OW", "grey": "SFELT200-G" },
-        "400": { "black": "SFELT400-B", "off white": "SFELT400-OW", "grey": "SFELT400-G" },
-        "600": { "black": "SFELT600-B", "off white": "SFELT600-OW", "grey": "SFELT600-G" }
+        "200": { "black": "SFELT200-B", "white": "SFELT200-W", "off white": "SFELT200-OW", "grey": "SFELT200-G" },
+        "400": { "black": "SFELT400-B", "white": "SFELT400-W", "off white": "SFELT400-OW", "grey": "SFELT400-G" },
+        "600": { "black": "SFELT600-B", "white": "SFELT600-W", "off white": "SFELT600-OW", "grey": "SFELT600-G" }
       }
     },
     {
