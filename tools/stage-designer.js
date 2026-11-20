@@ -8,7 +8,7 @@
  * Catalogue: data/stage-designer/decks.json + legs.json.
  * Fascia, trim and carpet come later (fascia will match the chosen height).
  *
- * Version: 0.33.7
+ * Version: 0.33.8
  */
 
 (function () {
@@ -638,12 +638,14 @@
   // ===========================================================================
   if (typeof window === "undefined") return;
 
-  var TOOL_VERSION = "0.33.7"; // shown in the panel header top-left; keep in sync with the header banner above.
+  var TOOL_VERSION = "0.33.8"; // shown in the panel header top-left; keep in sync with the header banner above.
   var REPO = "AdamYesEvents/HH-YES-Plugins";
   // Load data from this tool's own release tag (immutable + served instantly by
-  // jsDelivr) rather than @main, which edge-caches and can lag / throttle purges.
-  // Bump this to match the tag on each release so data ships with the code.
-  var DATA_REF = "main";
+  // jsDelivr) rather than @main, which edge-caches per-file and can lag / throttle
+  // purges (that lag is what left new fascia/carpet colours invisible on @main).
+  // MUST match this release's tool tag — bump it in lockstep with the Version
+  // header above on every release, so data ships immutably with the code.
+  var DATA_REF = "stage-designer-v0.33.8";
   var BASE = "https://cdn.jsdelivr.net/gh/" + REPO + "@" + DATA_REF + "/data/stage-designer/";
   var catalogue = null;
 
